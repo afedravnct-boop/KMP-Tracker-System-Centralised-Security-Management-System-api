@@ -40,7 +40,7 @@ const isStationEquivalent = (statA, statB) => {
 };
 
 // 🟢 Streamlined Dossier Modal handling both Pending Authorizations and Revoked Vault Inspection
-const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUser, handleApproveUser, handleRegrantAccess, handlePermanentDelete, isSuperAdmin }) => {
+const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUser, handleApproveUser, handleRegrantAccess, handlePermanentDelete, isSuperAdmin, isReadOnlyObserver }) => {
   if (!user) return null;
   const isRevoked = user.role === 'REVOKED' || user.is_approved === false;
 
@@ -68,22 +68,24 @@ const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUse
         <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex justify-end space-x-3">
           <button onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs cursor-pointer">Close Dossier</button>
           
-          {isRevoked ? (
-            <>
-              <button onClick={() => { handleRegrantAccess(user.fnum, user.name); onClose(); }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center">
-                <Unlock size={14} className="mr-1.5"/> Restore Access
-              </button>
-              {isSuperAdmin && (
-                <button onClick={() => { handlePermanentDelete(user.fnum, user.name); onClose(); }} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center">
-                  <Trash2 size={14} className="mr-1.5"/> Purge Record
+          {!isReadOnlyObserver && (
+            isRevoked ? (
+              <>
+                <button onClick={() => { handleRegrantAccess(user.fnum, user.name); onClose(); }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center">
+                  <Unlock size={14} className="mr-1.5"/> Restore Access
                 </button>
-              )}
-            </>
-          ) : (
-            <>
-              <button onClick={() => handleRejectUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer">Reject</button>
-              <button onClick={() => handleApproveUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs cursor-pointer">Approve Authorization</button>
-            </>
+                {isSuperAdmin && (
+                  <button onClick={() => { handlePermanentDelete(user.fnum, user.name); onClose(); }} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center">
+                    <Trash2 size={14} className="mr-1.5"/> Purge Record
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <button onClick={() => handleRejectUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer">Reject</button>
+                <button onClick={() => handleApproveUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs cursor-pointer">Approve Authorization</button>
+              </>
+            )
           )}
         </div>
       </div>
@@ -144,6 +146,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
 
+  // 🟢 READ-ONLY GLOBAL OBSERVER SAFEGUARD
+  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
+
   const isGlobalTier = isSuperAdmin || 
     userRoleClean === 'ASSISTANT_SUPER_ADMIN' ||
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||
@@ -159,12 +164,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     userPosClean.includes('HR');
 
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
-  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true;
+  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true || isReadOnlyObserver;
 
   const canToggleKillSwitch = isSuperAdmin || userRoleClean === 'ASSISTANT_SUPER_ADMIN' || hasDelegatedApprovalPower || currentUser?.permissions?.ai_hr_access === true;
 
-  const canViewGlobalActive = canViewGlobal || isGlobalTier;
-  const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
+  const canViewGlobalActive = canViewGlobal || isGlobalTier || isReadOnlyObserver;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
@@ -178,6 +182,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   }, [canViewGlobalActive, isRPC, isTopCommand, userRegClean]);
 
   const canControlTargetUser = useCallback((targetUser) => {
+    if (isReadOnlyObserver) return false;
     if (!targetUser) return false;
     const targetRole = (targetUser.role || '').toUpperCase();
      
@@ -213,7 +218,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     }
 
     return true;
-  }, [isSuperAdmin, userRoleClean, isGlobalTier, currentUser]);
+  }, [isSuperAdmin, userRoleClean, isGlobalTier, currentUser, isReadOnlyObserver]);
 
   const handleKillSwitchToggle = async () => {
     if (isReadOnlyObserver) {
@@ -268,7 +273,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleReviewRequest = async (reqId, actionStatus) => {
-    if (isReadOnlyObserver) return;
+    if (isReadOnlyObserver) return alert("Read-only clearance restricts reviewing requests.");
     try {
       const res = await authFetch(`/api/v1/requests/${reqId}`, {
         method: "PATCH", 
@@ -286,7 +291,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleApproveUser = async (userToApprove, customAssignedRole = 'STATION_ADMIN', customPermissions = {}) => {
-    if (isReadOnlyObserver) return;
+    if (isReadOnlyObserver) return alert("Read-only clearance restricts approvals.");
     const userName = stripHtmlTags(typeof userToApprove === 'object' ? (userToApprove.name || '') : '').toUpperCase();
     const cleanFnum = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.fnum : userToApprove).toUpperCase();
     const cleanIpps = stripHtmlTags(typeof userToApprove === 'object' ? userToApprove.ipps : '').toUpperCase();
@@ -304,7 +309,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
     });
 
     if (duplicateExists) {
-      alert(`⛔ APPROVAL BLOCKED: An existing or revoked account is already using this Force Number, IPPS, or NIN. You must completely delete the revoked/duplicate account from the vault before approving this identity.`);
+      alert(`⛔ APPROVAL BLOCKED: An existing or revoked account is already using this Force Number, IPPS, or NIN.`);
       setIsProcessingAction(false);
       return;
     }
@@ -372,7 +377,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRejectUser = async (userToReject) => {
-    if (isReadOnlyObserver) return;
+    if (isReadOnlyObserver) return alert("Read-only clearance restricts rejection.");
     const fnum = typeof userToReject === 'object' ? userToReject.fnum : userToReject;
     const rawReason = window.prompt(`Enter official reason for REJECTING ${fnum}:`);
     if (rawReason === null) return;
@@ -388,7 +393,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRevokeAccessCompletely = async (fnum, name) => {
-    if (isReadOnlyObserver) return;
+    if (isReadOnlyObserver) return alert("Read-only clearance restricts revocation.");
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (targetUser && !canControlTargetUser(targetUser)) {
       alert("SECURITY OVERRIDE DENIED: Cannot revoke higher or equivalent command tier.");
@@ -434,8 +439,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRegrantAccess = async (fnum, name) => {
-    if (isReadOnlyObserver) return;
-    if (!window.confirm(`⚠️ Are you sure you want to restore system access for ${name} (${fnum})? They will be granted default STATION_USER access and moved back to the Active Matrix.`)) return;
+    if (isReadOnlyObserver) return alert("Read-only clearance restricts restoration.");
+    if (!window.confirm(`⚠️ Are you sure you want to restore system access for ${name} (${fnum})?`)) return;
 
     setIsProcessingAction(true);
     try {
@@ -462,7 +467,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       });
 
       if (!res.ok) throw new Error(await res.text());
-      alert(`✅ Access successfully restored for ${fnum}. Please review their clearance matrix to adjust permissions.`);
+      alert(`✅ Access successfully restored for ${fnum}.`);
        
       fetchAllSystemUsers();
       fetchPendingUsers(); 
@@ -475,6 +480,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleToggleDelegationPower = async (targetUser, givePower) => {
+    if (isReadOnlyObserver) return alert("Read-only clearance restricts delegation.");
     if (!isTopCommand) {
       alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
       return;
@@ -521,7 +527,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   const handleToggleEntireColumn = async (permissionKey, shouldEnable) => {
     if (isReadOnlyObserver) return;
-    
+     
     const updatedUsers = allSystemUsers.map(u => {
       const uRole = (u.role || '').toUpperCase();
       if (uRole === 'SUPER_ADMIN' || uRole === 'ASSISTANT_SUPER_ADMIN') return u;
@@ -789,13 +795,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
   return (
     <div className="dark p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300 text-slate-100">
-       
+        
       <div className="bg-slate-900 dark:bg-slate-950 text-white px-6 py-5 rounded-2xl shadow-lg border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
           <div>
             <h1 className="text-xl font-black tracking-wide uppercase flex items-center">
-              <Shield className="w-5 h-5 mr-2 text-blue-400" /> Access & Command Approvals
+              <Shield className="w-5 h-5 mr-2 text-blue-400" /> Access & Command Approvals {isReadOnlyObserver && <span className="ml-3 text-[10px] bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-full border border-amber-500/40">👁️ Global Observer (Read-Only)</span>}
             </h1>
             <p className="text-xs text-slate-400 mt-1 uppercase tracking-wider font-semibold">
               Review officer signups, jurisdictional clearances, tier matrices, and regional audit logs.
@@ -803,7 +809,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
           </div>
         </div>
 
-        {isTopCommand && (
+        {isTopCommand && !isReadOnlyObserver && (
           <button 
             onClick={() => { setDelegationSearchTerm(''); setShowDelegationModal(true); }}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center shadow-md transition cursor-pointer"
@@ -961,7 +967,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                               <div className="w-20 min-w-[80px] text-[9px] text-blue-900 dark:text-blue-100 font-bold whitespace-normal break-words leading-tight text-center px-0.5" title={col.label}>
                                 {col.label}
                               </div>
-                              {isSuperAdmin && (
+                              {isSuperAdmin && !isReadOnlyObserver && (
                                 <input 
                                   type="checkbox" 
                                   checked={allChecked}
@@ -986,7 +992,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                         <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                           <td className="p-2.5 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
                           <td className="p-2.5 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
-                            <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
+                            <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser || isReadOnlyObserver} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
                               <option value="USER">USER</option>
                               <option value="STATION_USER">STATION USER</option>
                               <option value="STATION_ADMIN">STN ADMIN</option>
@@ -1004,14 +1010,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           </td>
                           <td className="p-2.5 text-center md:sticky md:left-[360px] z-10 bg-white dark:bg-slate-900 w-[100px] min-w-[100px]">
                             <div className="flex items-center justify-center space-x-1">
-                              {canModifyThisUser && (
+                              {canModifyThisUser && !isReadOnlyObserver && (
                                 <>
                                   <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
                                   <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
                                   <button onClick={() => handleRevokeAccessCompletely(u.fnum, u.name)} title="Revoke Access (Move to Vault)" className="p-1 rounded bg-rose-50 text-rose-700 border border-rose-300 cursor-pointer"><XCircle size={12} /></button>
                                 </>
                               )}
-                              {isSuperAdmin && (
+                              {isSuperAdmin && !isReadOnlyObserver && (
                                 <button onClick={() => handleForcePassword(u.fnum, u.name)} title="Force Password" className="p-1 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 cursor-pointer"><KeyRound size={12} /></button>
                               )}
                             </div>
@@ -1020,7 +1026,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                             const isObserverCol = col.key === 'global_observer';
                             const isOpenCol = col.key === 'global_open';
                             const isMutuallyDisabled = (isObserverCol && Boolean(p.global_open)) || (isOpenCol && Boolean(p.global_observer));
-                            const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser;
+                            const isDisabled = isSelf || isMutuallyDisabled || !canModifyThisUser || isReadOnlyObserver;
 
                             return (
                               <td key={idx} className="p-2 text-center border-l border-slate-100 dark:border-slate-800 w-20 min-w-[80px]">
@@ -1073,11 +1079,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
                          
-                        <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
-                          <Unlock size={12} className="mr-1.5"/> Restore
-                        </button>
+                        {!isReadOnlyObserver && (
+                          <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
+                            <Unlock size={12} className="mr-1.5"/> Restore
+                          </button>
+                        )}
                          
-                        {isSuperAdmin ? (
+                        {isSuperAdmin && !isReadOnlyObserver ? (
                           <button onClick={() => handlePermanentDelete(u.fnum, u.name)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                             <Trash2 size={12} className="mr-1.5"/> Purge
                           </button>
@@ -1120,7 +1128,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-300">IPPS: {user.ipps || 'N/A'}</td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{user.phone || 'N/A'}</td>
                       <td className="px-4 py-3 text-right">
-                        {isSuperAdmin && (
+                        {isSuperAdmin && !isReadOnlyObserver && (
                           <button onClick={() => handleForcePassword(user.fnum, user.name)} className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold text-[10px] cursor-pointer"><KeyRound size={12} className="inline mr-1" /> Force Password</button>
                         )}
                       </td>
@@ -1148,8 +1156,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                     <td className="px-4 py-2.5 text-slate-900 dark:text-slate-100">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</td>
                     <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">Station: {req.requested_station || req.current_station}</td>
                     <td className="px-4 py-2.5 text-right space-x-2">
-                      <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Approve</button>
-                      <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
+                      {!isReadOnlyObserver && (
+                        <>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Approve</button>
+                          <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1228,8 +1240,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                     <td className="px-4 py-2.5 font-bold text-[10px] text-slate-500 dark:text-slate-400">{req.request_date}</td>
                     <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400">{formatOfficerHeader({ fnum: req.fnum, rank: req.rank, name: req.name })}</td>
                     <td className="px-4 py-2.5 text-right space-x-2">
-                      <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Authorize Reset</button>
-                      <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
+                      {!isReadOnlyObserver && (
+                        <>
+                          <button onClick={() => handleResetAction(req.id, "APPROVE")} className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Authorize Reset</button>
+                          <button onClick={() => handleResetAction(req.id, "REJECT")} className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -1240,7 +1256,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       )}
 
       {/* WIDER DELEGATION MODAL WITH SEARCH BOX */}
-      {showDelegationModal && (
+      {showDelegationModal && !isReadOnlyObserver && (
         <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl text-white">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
@@ -1302,7 +1318,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       )}
 
       {/* MODALS */}
-      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} handleRegrantAccess={handleRegrantAccess} handlePermanentDelete={handlePermanentDelete} isSuperAdmin={isSuperAdmin} canModifyUser={canControlTargetUser} />
+      <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} handleRegrantAccess={handleRegrantAccess} handlePermanentDelete={handlePermanentDelete} isSuperAdmin={isSuperAdmin} canModifyUser={canControlTargetUser} isReadOnlyObserver={isReadOnlyObserver} />
       <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
       <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
       <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
