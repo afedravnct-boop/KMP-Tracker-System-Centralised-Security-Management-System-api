@@ -1,3 +1,4 @@
+# routers/communication.py
 import os
 import asyncio
 import json
@@ -148,7 +149,6 @@ def create_admin_communication(
         db.commit()
         db.refresh(db_comm)
 
-        # 🟢 Record precise forensic REGISTER action into NeonDB Activity Logs branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -225,18 +225,39 @@ def get_admin_communications(
     user_region = (current_user.region or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
 
-    if not check_global_view(current_user):
+    # 🟢 STRICT DIRECT MESSAGE PRIVACY ENFORCEMENT:
+    # Direct messages (SPECIFIC_USER) are ONLY visible if the user's fnum matches exactly.
+    # Global admins see everything, but normal users only see general broadcasts OR messages explicitly targeted to them.
+    if check_global_view(current_user):
+        # Global commanders/admins can see all messages
+        pass
+    else:
+        # Build precise matching list for non-global officers
+        target_fnums_list = [f.strip().upper() for f in clean_user_fnum.split(',')]
+        
+        # Construct exact individual matching clause using SQL or_ / checking comma-separated fnums cleanly
+        individual_match_conditions = [
+            CommModel.target_fnum == clean_user_fnum
+        ]
+        for fnum_item in target_fnums_list:
+            if fnum_item:
+                individual_match_conditions.append(CommModel.target_fnum.ilike(f"%{fnum_item}%"))
+
         visibility_conditions = [
+            # 1. General broadcasts available to everyone
             or_(
                 CommModel.target_audience == "ALL",
                 CommModel.target_audience == "ALL_USERS",
                 CommModel.target_audience == "ALL_REGIONS"
             ),
+            # 2. Messages sent by the user themselves
             CommModel.sender_fnum == current_user.fnum,
+            # 3. STRICT Direct Messages: Only visible if target_audience is SPECIFIC_USER AND user's F-number matches
             and_(
-                CommModel.target_audience == "SPECIFIC_USER", 
-                CommModel.target_fnum.like(f"%{current_user.fnum}%")
+                CommModel.target_audience == "SPECIFIC_USER",
+                or_(*individual_match_conditions)
             ),
+            # 4. Regional broadcasts matching user's region
             and_(
                 CommModel.target_audience == "SPECIFIC_REGION", 
                 func.upper(CommModel.target_region) == user_region
@@ -254,7 +275,7 @@ def get_admin_communications(
              
         query = query.filter(or_(*visibility_conditions))
 
-    # 🟢 Apply search filtering if search term provided
+    # Apply search filtering if search term provided
     if search:
         term = f"%{search.strip().upper()}%"
         search_conds = []
@@ -331,7 +352,6 @@ def get_admin_communications(
             "acknowledged": is_read
         })
 
-    # 🟢 Precision forensic check: Log search query vs regular inbox view
     if search:
         summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched command communications for query: \"{search}\" (Returned {len(clean_comms)} matches)."
     else:
@@ -398,7 +418,6 @@ def acknowledge_communication(
             db.add(new_read)
             db.commit()
 
-        # 🟢 Record precise forensic UPDATE action into NeonDB Activity Logs branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -465,7 +484,6 @@ def get_communication_readers(
                 "read_at": formatted_time
             })
 
-        # 🟢 Record precise forensic VIEW readers activity into NeonDB Activity Logs branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -518,7 +536,6 @@ def acknowledge_bulk_communications(
         db.bulk_save_objects(new_reads)
         db.commit()
 
-        # 🟢 Record precise forensic UPDATE action into NeonDB Activity Logs branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -553,6 +570,12 @@ def acknowledge_all_communications(
     user_role = (current_user.role or "").strip().upper()
 
     if not check_global_view(current_user):
+        target_fnums_list = [f.strip().upper() for f in clean_user_fnum.split(',')]
+        individual_match_conditions = [CommModel.target_fnum == clean_user_fnum]
+        for fnum_item in target_fnums_list:
+            if fnum_item:
+                individual_match_conditions.append(CommModel.target_fnum.ilike(f"%{fnum_item}%"))
+
         visibility_conditions = [
             or_(
                 CommModel.target_audience == "ALL",
@@ -560,7 +583,7 @@ def acknowledge_all_communications(
                 CommModel.target_audience == "ALL_REGIONS"
             ),
             CommModel.sender_fnum == current_user.fnum,
-            and_(CommModel.target_audience == "SPECIFIC_USER", CommModel.target_fnum.like(f"%{current_user.fnum}%")),
+            and_(CommModel.target_audience == "SPECIFIC_USER", or_(*individual_match_conditions)),
             and_(CommModel.target_audience == "SPECIFIC_REGION", func.upper(CommModel.target_region) == user_region),
             and_(CommModel.target_audience == "REGIONAL_BROADCAST", func.upper(CommModel.target_region) == user_region)
         ]
@@ -587,7 +610,6 @@ def acknowledge_all_communications(
         db.bulk_save_objects(new_reads)
         db.commit()
 
-        # 🟢 Record precise forensic UPDATE action into NeonDB Activity Logs branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -603,26 +625,25 @@ def acknowledge_all_communications(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# ====================================================================
-# SILENT BACKGROUND PING ROUTE
-# ====================================================================
 @router.get("/communications/ping-unread")
 @router.get("/Admin_Communication/ping-unread")
 def ping_unread_communications(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    """
-    Lightweight, completely silent route for the 15-second background UI pulse.
-    Does NOT write to activity logs. Does NOT download message bodies.
-    """
     CommModel = get_comm_model()
     ReadsModel = get_reads_model()
     read_fnum_col = get_fnum_col(ReadsModel)
      
-    query = db.query(CommModel.id, CommModel.sender_fnum, CommModel.created_at)
+    query = db.query(CommModel.id, CommModel.sender_fnum, CommModel.created_at, CommModel.target_audience, CommModel.target_fnum)
     clean_user_fnum = (current_user.fnum or "").strip().upper()
     user_region = (current_user.region or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
 
     if not check_global_view(current_user):
+        target_fnums_list = [f.strip().upper() for f in clean_user_fnum.split(',')]
+        individual_match_conditions = [CommModel.target_fnum == clean_user_fnum]
+        for fnum_item in target_fnums_list:
+            if fnum_item:
+                individual_match_conditions.append(CommModel.target_fnum.ilike(f"%{fnum_item}%"))
+
         visibility_conditions = [
             or_(
                 CommModel.target_audience == "ALL",
@@ -630,7 +651,7 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
                 CommModel.target_audience == "ALL_REGIONS"
             ),
             CommModel.sender_fnum == current_user.fnum,
-            and_(CommModel.target_audience == "SPECIFIC_USER", CommModel.target_fnum.like(f"%{current_user.fnum}%")),
+            and_(CommModel.target_audience == "SPECIFIC_USER", or_(*individual_match_conditions)),
             and_(CommModel.target_audience == "SPECIFIC_REGION", func.upper(CommModel.target_region) == user_region),
             and_(CommModel.target_audience == "REGIONAL_BROADCAST", func.upper(CommModel.target_region) == user_region)
         ]
@@ -638,7 +659,6 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
         if user_role in ["RPC", "DEPUTY COMMANDER"]: visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
         query = query.filter(or_(*visibility_conditions))
 
-    # Only check the 50 most recent messages to keep the ping lightning fast
     comms = query.order_by(CommModel.created_at.desc()).limit(50).all()
     
     read_records = db.query(ReadsModel.comm_id).filter(func.trim(func.upper(read_fnum_col)) == clean_user_fnum).all()
@@ -647,7 +667,7 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
     user_created_at = getattr(current_user, 'created_at', None)
     has_unread = False
 
-    for c_id, c_sender, c_created in comms:
+    for c_id, c_sender, c_created, c_audience, c_target_fnum in comms:
         sender_clean = (c_sender or "").strip().upper()
         if c_id in read_comm_ids or sender_clean == clean_user_fnum:
             continue
@@ -663,5 +683,4 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
             has_unread = True
             break
 
-    # Absolutely NO activity logging here. Returns a tiny boolean payload.
     return {"hasUnread": has_unread}
