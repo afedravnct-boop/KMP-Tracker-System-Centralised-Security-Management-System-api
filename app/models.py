@@ -33,10 +33,7 @@ class Crime_Reports(Base):
     narrative = Column(Text)
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
-    
-    # Daily lock-up population column
-    daily_lock_up = Column(Integer, default=0) 
-    
+     
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
 

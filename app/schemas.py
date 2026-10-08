@@ -86,8 +86,7 @@ class ReportBase(BaseModel):
     narrative: str
     status: str
     suspects: int
-    daily_lock_up: int = 0
-
+    
 class ReportResponse(ReportBase):
     id: int
     sn: Optional[int] = None
