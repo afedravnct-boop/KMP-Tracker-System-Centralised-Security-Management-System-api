@@ -141,7 +141,6 @@ def get_current_user(
         if fnum is None:
             raise credentials_exception
     except JWTError:
-        # 🟢 Catch expired sessions and write timeout event into NeonDB audit logs
         try:
             unverified_payload = jwt.get_unverified_claims(token)
             expired_fnum = unverified_payload.get("sub")
@@ -151,16 +150,16 @@ def get_current_user(
                     fnum=expired_fnum,
                     action="TIMEOUT",
                     module="SESSION",
-                    details=f"Officer {expired_fnum} session expired due to inactivity or laptop sleep after prolonged absence."
+                    details=f"Officer {expired_fnum} session expired due to inactivity or laptop sleep."
                 )
         except Exception:
             pass
-            
         raise credentials_exception
 
     clean_fnum = normalize_fnum(fnum)
     alt_fnum = clean_fnum.replace("/", "")
     
+    # 🟢 Fetch live user record from database to respect real-time clearance updates
     user = db.query(models.Users).filter(
         or_(
             func.trim(func.upper(models.Users.fnum)) == clean_fnum,
@@ -170,6 +169,13 @@ def get_current_user(
 
     if user is None:
         raise credentials_exception
+        
+    if str(user.role).strip().upper() == "REVOKED" or not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access Denied: Account is revoked or pending approval."
+        )
+        
     return user
 
 # ====================================================================

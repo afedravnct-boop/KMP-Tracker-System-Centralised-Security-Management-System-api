@@ -48,10 +48,13 @@ def verify_admin_delegation(current_user: models.Users, db: Session):
         try: perms = json.loads(perms)
         except Exception: perms = {}
 
+    # 🟢 ENSURE GLOBAL OBSERVER & OPEN FLAGS GRANT GLOBAL SCOPE
     is_global = (
         user_role in ["SUPER_ADMIN", "SYSTEM_ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "SYSTEM MANAGER" in user_position or
         perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True or
+        perms.get("global_open") is True or
         current_user.region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]
     )
 
