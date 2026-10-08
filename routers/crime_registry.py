@@ -409,11 +409,19 @@ def create_report(
         if SuspectModel and hasattr(new_record, 'id'):
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
+                
+                # 🟢 Clean age digits to avoid datatype mismatch error
+                raw_age = s.get('age')
+                parsed_age = None
+                if raw_age:
+                    digits_only = re.sub(r'\D', '', str(raw_age))
+                    parsed_age = int(digits_only) if digits_only else None
+
                 s_payload = {
                     "report_id": new_record.id, 
                     "name": s.get('name'), 
                     "sex": s.get('sex'), 
-                    "age": str(s.get('age')) if s.get('age') else None,
+                    "age": parsed_age,
                     "tribe": s.get('tribe'),
                     "nationality": s.get('nationality'),
                     "residence": s.get('residence'), 
@@ -500,11 +508,19 @@ def update_report(
             
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
+                
+                # 🟢 Clean age digits to avoid datatype mismatch error
+                raw_age = s.get('age')
+                parsed_age = None
+                if raw_age:
+                    digits_only = re.sub(r'\D', '', str(raw_age))
+                    parsed_age = int(digits_only) if digits_only else None
+
                 s_payload = {
                     "report_id": report_pk, 
                     "name": s.get('name'), 
                     "sex": s.get('sex'), 
-                    "age": str(s.get('age')) if s.get('age') else None,
+                    "age": parsed_age,
                     "tribe": s.get('tribe'),
                     "nationality": s.get('nationality'),
                     "residence": s.get('residence'), 

@@ -109,8 +109,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
-    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) ||  
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||  
     currentUser?.permissions?.view_global_roster === true;
 
   const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
@@ -259,8 +259,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
         // Global viewing allowed
       } else {
-        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                                reg === filterRegion || 
+        const belongsToRegion = filterRegion === 'ALL REGIONS' ||  
+                                reg === filterRegion ||  
                                 (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
 
         if (!belongsToRegion) return false;
@@ -270,7 +270,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         }
       }
 
-      // 🟢 Strictly filter using the Form-Selected Category field
       if (showAgriculturalOnly) {
         const isCatAgri = (r.category || '').toUpperCase() === 'AGRIC_CRIME';
         if (!isCatAgri) return false;
@@ -305,7 +304,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const reg = getOfficialRegionForStation(stn, r.region);
 
       if (!canViewGlobalActive) {
-        const belongsToRegion = reg === userRegClean || 
+        const belongsToRegion = reg === userRegClean ||  
                                 (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
         if (!belongsToRegion) return false;
       }
@@ -329,8 +328,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
       const lRegion = getOfficialRegionForStation(lStation, l.region);
       
-      const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
-                        lStation.includes('GENERAL TOTAL') || 
+      const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' ||  
+                        lStation.includes('GENERAL TOTAL') ||  
                         lRegion === 'KMP HEADQUARTERS';
 
       if (l.date === todayStr) {
@@ -471,16 +470,17 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const response = await authFetch(`/api/v1/lockup-matrix`, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
       });
-      if (!response.ok) throw new Error("Database rejected HQ total.");
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected HQ total.");
 
-      const newLockup = await response.json();
+      const newLockup = resData;
       setLockupData([newLockup, ...lockupData]);
       setNotification(`✅ HQ General Total (${hqGrandTotalInput}) successfully posted!`);
       setShowHqGrandModal(false);
       setHqGrandTotalInput('');
       setTimeout(() => setNotification(null), 5000);
     } catch (err) {
-      setNotification(`❌ Error: ${stripHtmlTags(err.message)}`);
+      setNotification(`❌ Action Failed: ${stripHtmlTags(err.message)}`);
     }
   };
 
@@ -537,7 +537,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         resetFormToBlank();
         setTimeout(() => setNotification(null), 5000);
-      } catch (err) { setNotification(`❌ Error: ${stripHtmlTags(err.message)}`); }
+      } catch (err) { 
+        setNotification(`❌ Action Failed: ${stripHtmlTags(err.message || "Could not register the case.")}`); 
+      }
 
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a case first.");
@@ -570,13 +572,16 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         
       try {
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
-        if (!response.ok) throw new Error("Failed to update record in database.");
+        const resData = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Failed to update record in database.");
 
         fetchFilteredDatabaseReports();
         setNotification(`✅ Case SN ${formData.sn} successfully updated!`);
         handleOperationToggle('new');
         setTimeout(() => setNotification(null), 5000);
-      } catch (err) { setNotification("❌ Error: Could not update the record."); }
+      } catch (err) { 
+        setNotification(`❌ Action Failed: ${stripHtmlTags(err.message || "Could not update the record.")}`); 
+      }
     }
   };
    
