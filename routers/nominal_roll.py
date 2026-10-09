@@ -118,7 +118,6 @@ def hierarchical_sort_key(officer):
         cmd = get_command_weight(officer)
         fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
         
-        # Match the frontend instruction order: Rank Seniority -> Position Precedence -> Region Priority -> Force Number
         return (rank_w, cmd, prio, fnum)
     except Exception:
         return (99, 50, 50, '')
@@ -160,24 +159,9 @@ def clean_nin(val):
     s = str(val).strip().upper()
     if s.lower() in ['nan', 'nat', 'none', 'null', '', '0', 'N/A', 'NIL']: return None
     
-    # Handle float conversion artifacts from excel like "1234567.0"
     if s.endswith('.0'):
         s = s[:-2]
         
-    # Retain letters (CM, CF) and digits, remove unwanted symbols/spaces
-    s = re.sub(r'[^A-Z0-9]', '', s)
-    return s if len(s) > 0 else None
-
-def clean_nin(val):
-    if pd.isna(val) or val is None: return None
-    s = str(val).strip().upper()
-    if s.lower() in ['nan', 'nat', 'none', 'null', '', '0', 'N/A', 'NIL']: return None
-    
-    # Handle float conversion artifacts from excel like "1234567.0"
-    if s.endswith('.0'):
-        s = s[:-2]
-        
-    # Retain letters (CM, CF) and digits, remove unwanted symbols/spaces
     s = re.sub(r'[^A-Z0-9]', '', s)
     return s if len(s) > 0 else None
 
@@ -587,9 +571,9 @@ async def bulk_upload_nominal_roll(
             filename = (single_file.filename or "").lower()
 
             if filename.endswith(".csv"): 
-                df = pd.read_csv(io.BytesIO(contents))
+                df = pd.read_csv(io.BytesIO(contents), dtype=str)
             elif filename.endswith((".xls", ".xlsx")): 
-                df = pd.read_excel(io.BytesIO(contents))
+                df = pd.read_excel(io.BytesIO(contents), dtype=str)
             else: 
                 continue
 
@@ -616,10 +600,7 @@ async def bulk_upload_nominal_roll(
         for idx, row in combined_df.iterrows():
             fnum_val = aggressive_clean_text(row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno"))
             ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
-            
-            # 🟢 Change clean_numeric to clean_nin here:
             nin_val = clean_nin(row.get("nin") or row.get("nationalid") or row.get("ninno"))
-            
             rank_val = aggressive_clean_text(row.get("rank"))
             name_val = aggressive_clean_text(row.get("name"))
             source_filename = row.get("__source_file", "Batch Upload")
