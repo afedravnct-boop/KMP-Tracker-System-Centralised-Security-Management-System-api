@@ -2509,30 +2509,70 @@ const handleExportLogs = async () => {
 
       {selectedUserDetail && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
             <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
-              <h3 className="font-bold flex items-center text-sm"><Shield size={18} className="text-blue-400 mr-2" /> ACCESS CLEARANCE MATRIX</h3>
+              <h3 className="font-bold flex items-center text-sm uppercase tracking-wider"><Shield size={18} className="text-blue-400 mr-2" /> Access Clearance Matrix — Officer Profile</h3>
               <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors cursor-pointer"><X size={20} /></button>
             </div>
             
-            <div className="p-6">
-              <div className="flex items-center space-x-4 mb-6 pb-4 border-b border-gray-100">
-                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500">
+            <div className="p-6 space-y-6">
+              {/* Officer Identity & Command Hierarchy Badge */}
+              <div className="flex items-center space-x-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500 shrink-0">
                   {selectedUserDetail.profile_photo_path ? (
                      <img src={selectedUserDetail.profile_photo_path} alt="Profile" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} />
                   ) : (selectedUserDetail.name?.charAt(0) || 'U')}
                 </div>
+                <div>
+                  <h4 className="text-base font-extrabold text-slate-900 uppercase">
+                    {selectedUserDetail.rank} {selectedUserDetail.name}
+                  </h4>
+                  <p className="text-xs font-mono text-blue-600 font-bold">FNUM: {selectedUserDetail.fnum}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Command Tier: <span className="font-semibold text-slate-700">
+                      {selectedUserDetail.role === 'SUPER_ADMIN' && selectedUserDetail.fnum !== currentUser?.fnum 
+                        ? 'Subordinate Super Admin (Authorized by Central Command)' 
+                        : selectedUserDetail.role === 'SUPER_ADMIN' 
+                        ? 'Principal System Super Admin' 
+                        : 'Authorized Operational Officer'}
+                    </span>
+                  </p>
+                </div>
               </div>
 
-              <h4 className="text-xs font-bold text-slate-800 mb-3 uppercase tracking-wider">Comprehensive Profile</h4>
-              <div className="grid grid-cols-2 gap-4 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner">
-                <div><label className="text-[9px] font-bold text-slate-400 uppercase">IPPS Number</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.ipps || 'N/A'}</div></div>
-                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Official Title</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.position || 'N/A'}</div></div>
-                <div className="col-span-2"><label className="text-[9px] font-bold text-slate-400 uppercase">Command Chain (Region / Division)</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'N/A'}</div></div>
-                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Email Contact</label><div className="text-xs font-bold text-slate-800 break-words">{selectedUserDetail.email || 'N/A'}</div></div>
-                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Phone Number</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.phone || 'N/A'}</div></div>
-                <div><label className="text-[9px] font-bold text-slate-400 uppercase">Sex</label><div className="text-xs font-bold text-slate-800">{selectedUserDetail.sex || 'N/A'}</div></div>
-                <div><label className="text-[9px] font-bold text-slate-400 uppercase">System Role</label><div className="text-xs font-extrabold text-blue-700">{selectedUserDetail.role || 'USER'}</div></div>
+              {/* Comprehensive Profile Details */}
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Comprehensive Profile</h4>
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner text-xs">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase block">IPPS Number</label>
+                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.ipps || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Official Title / Position</label>
+                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.position || 'N/A'}</div>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Command Chain (Region / Division / Station)</label>
+                  <div className="font-bold text-slate-800 text-sm">
+                    {selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'HQ'} / {selectedUserDetail.station || 'N/A'}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Email Contact</label>
+                  <div className="font-bold text-slate-800 text-sm break-words">{selectedUserDetail.email || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Phone Number</label>
+                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.phone || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Gender / Sex</label>
+                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.sex || 'N/A'}</div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase block">System Role Tier</label>
+                  <div className="font-extrabold text-blue-700 text-sm">{selectedUserDetail.role || 'USER'}</div>
+                </div>
               </div>
 
               {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
@@ -2540,26 +2580,26 @@ const handleExportLogs = async () => {
               ) && (
                 <>
                   <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6"><Shield size={16} className="mr-2 text-red-600"/> Component Admin Clearances</h4>
-                  <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm">
+                  <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm text-xs">
                      <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newRole = e.target.checked ? 'ADMIN' : 'USER'; onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {}); }} />
-                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div><div className="text-xs text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div></div>
+                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div><div className="text-[10px] text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div></div>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" checked={Boolean(selectedUserDetail.permissions?.view_nominal_roll) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_nominal_roll: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-blue-700 transition-colors">Nominal Roll Access</div><div className="text-xs text-slate-500 font-medium">Grants standard users clearance to view the personnel registry.</div></div>
+                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors">Nominal Roll Access</div><div className="text-[10px] text-slate-500 font-medium">Grants standard users clearance to view the personnel registry.</div></div>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div><div className="text-xs text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div></div>
+                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div><div className="text-[10px] text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div></div>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500" checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div><div className="text-xs text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div></div>
+                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div><div className="text-[10px] text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div></div>
                     </label>
                     <label className="flex items-center space-x-3 cursor-pointer group">
                       <input type="checkbox" className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500" checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="text-sm font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div><div className="text-xs text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div></div>
+                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div><div className="text-[10px] text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div></div>
                     </label>
                   </div>
 
@@ -2569,7 +2609,7 @@ const handleExportLogs = async () => {
                         <Lock size={14} className="mr-2" /> Super Admin: Issue New Password
                       </h4>
                       <div className="flex space-x-2">
-                        <input type="text" placeholder="Type new password (min 6 chars)" value={newForcePassword} onChange={(e) => setNewForcePassword(e.target.value)} className="flex-1 text-sm border-red-300 rounded shadow-sm p-2 outline-none focus:ring-2 focus:ring-red-500 font-mono" />
+                        <input type="text" placeholder="Type new password (min 6 chars)" value={newForcePassword} onChange={(e) => setNewForcePassword(e.target.value)} className="flex-1 text-xs border-red-300 rounded shadow-sm p-2 outline-none focus:ring-2 focus:ring-red-500 font-mono" />
                         <button onClick={async () => {
                             if (newForcePassword.length < 6) return alert('Password must be at least 6 characters.');
                             try {
