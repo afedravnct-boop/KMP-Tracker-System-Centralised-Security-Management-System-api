@@ -54,51 +54,74 @@ def get_station_priority_weight(station, region) -> int:
     return 2
 
 def get_command_weight(officer) -> int:
-    pos = clean_str(getattr(officer, 'position', ''))
-    
-    # Python-idiomatic string checks
-    if 'KMP COMMANDER' in pos or ((any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER', 'CDR'])) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
-        return 1
-    if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
-        return 2
-    if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'ADMIN OFFICER' in pos:
-        return 3
-    if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
-        return 1
-    if 'DEPUTY RPC' in pos or 'DEP RPC' in pos or 'D/RPC' in pos:
-        return 2
-    if 'DPC' in pos or 'DIVISION COMMANDER' in pos or 'DIV COMDR' in pos:
-        return 4
-    if 'DEPUTY DPC' in pos or 'DEP DPC' in pos:
-        return 5
-    if (any(k in pos for k in ['COM', 'COMD', 'COMDR', 'COMMANDER', 'CDR'])) and not ('DEP' in pos or 'DEPUTY' in pos):
-        return 5
-    if 'DEP' in pos or 'DEPUTY' in pos:
-        return 6
-    if 'OC STATION' in pos or 'OC DIV' in pos or ('OC' in pos and not ('CID' in pos or 'CI' in pos)):
-        return 7
-    if 'OC CID' in pos or 'HEAD CID' in pos:
-        return 8
-    if 'OC CI' in pos or 'CRIME INTELLIGENCE' in pos:
-        return 9
-    if 'OC POST' in pos or 'O/C POST' in pos or 'IC POST' in pos:
-        return 10
-    if '2I/C' in pos or 'DEPUTY OC' in pos or 'I/C' in pos:
-        return 11
+    try:
+        pos = clean_str(getattr(officer, 'position', ''))
+        
+        if 'KMP COMMANDER' in pos or (any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER', 'CDR']) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
+            return 1
+        if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
+            return 2
+        if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'ADMIN OFFICER' in pos:
+            return 3
+        if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
+            return 1
+        if 'DEPUTY RPC' in pos or 'DEP RPC' in pos or 'D/RPC' in pos:
+            return 2
+        if 'DPC' in pos or 'DIVISION COMMANDER' in pos or 'DIV COMDR' in pos:
+            return 4
+        if 'DEPUTY DPC' in pos or 'DEP DPC' in pos:
+            return 5
+        if (any(k in pos for k in ['COM', 'COMD', 'COMDR', 'COMMANDER', 'CDR'])) and not ('DEP' in pos or 'DEPUTY' in pos):
+            return 5
+        if 'DEP' in pos or 'DEPUTY' in pos:
+            return 6
+        if 'OC STATION' in pos or 'OC DIV' in pos or ('OC' in pos and not ('CID' in pos or 'CI' in pos)):
+            return 7
+        if 'OC CID' in pos or 'HEAD CID' in pos:
+            return 8
+        if 'OC CI' in pos or 'CRIME INTELLIGENCE' in pos:
+            return 9
+        if 'OC POST' in pos or 'O/C POST' in pos or 'IC POST' in pos:
+            return 10
+        if '2I/C' in pos or 'DEPUTY OC' in pos or 'I/C' in pos:
+            return 11
+    except Exception:
+        pass
     
     return 50
 
+def get_rank_weight(rank_str: str) -> int:
+    if not rank_str: return 99
+    r = clean_str(rank_str)
+
+    if 'DRV' in r or 'DRIVER' in r:
+        if 'SGT' in r or 'SERGEANT' in r: r = 'SGT'
+        elif 'CPL' in r or 'CORPORAL' in r: r = 'CPL'
+        else: r = 'PC'
+
+    if r == 'DC' or r.startswith('D/C'):
+        r = 'PC'
+    elif r.startswith('D/') or r.startswith('D-') or r.startswith('D '):
+        r = r.replace('D/', '').replace('D-', '').replace('D ', '').strip()
+        if r == 'C': r = 'PC'
+
+    if not r: r = 'PC'
+    return RANK_SENIORITY.get(r, 40)
+
 def hierarchical_sort_key(officer):
-    stn = getattr(officer, 'station', '')
-    reg = getattr(officer, 'region', '')
-    
-    prio = get_station_priority_weight(stn, reg)
-    cmd = get_command_weight(officer)
-    rank_w = get_rank_weight(getattr(officer, 'rank', ''))
-    fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
-    
-    # Sorting order: Station Priority (Region/HQs) -> Command Grouping (Commander + Deputy paired) -> Rank Seniority -> Force Number
-    return (prio, cmd, rank_w, fnum)
+    try:
+        stn = getattr(officer, 'station', '')
+        reg = getattr(officer, 'region', '')
+        
+        prio = get_station_priority_weight(stn, reg)
+        rank_w = get_rank_weight(getattr(officer, 'rank', ''))
+        cmd = get_command_weight(officer)
+        fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
+        
+        # Match the frontend instruction order: Rank Seniority -> Position Precedence -> Region Priority -> Force Number
+        return (rank_w, cmd, prio, fnum)
+    except Exception:
+        return (99, 50, 50, '')
 
 # ====================================================================
 # GLOBAL HELPER FUNCTIONS & OPSEC SCOPING
