@@ -7,6 +7,13 @@ import {
 import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
 import OfficerDossierModal from './OfficerDossierModal';
+import { formatOfficerHeader, stripHtmlTags } from './adminUtils';
+
+// 🟢 1. GLOBAL UTILITY HELPERS HOISTED TO THE TOP
+const cleanStr = (str) => {
+  if (!str) return '';
+  return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
+};
 
 // 🟢 Enriched Regional Hierarchy with Major Divisions / CPS
 const REGIONAL_HIERARCHY = {
@@ -29,11 +36,6 @@ const REGION_SORT_PRIORITY = {
   "POLICE HEADQUARTERS": 8
 };
 
-const cleanStr = (str) => {
-  if (!str) return '';
-  return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
-};
-
 const isStationEquivalent = (statA, statB) => {
   const a = cleanStr(statA);
   const b = cleanStr(statB);
@@ -44,12 +46,11 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-// 🟢 Intelligent Station & Post Parsing Engine
+// 🟢 2. STATION & POST PARSING ENGINE
 const parseStationHierarchy = (rawStation) => {
   const cleaned = cleanStr(rawStation);
   if (!cleaned) return { division: 'UNASSIGNED', station: 'UNASSIGNED', subStation: '', post: '', type: 'POST' };
 
-  // Handle slashed compounds e.g., "JINJA ROAD CPS / WAMPEWO P/P" or "CPS KAMPALA/PARLIAMENT"
   if (cleaned.includes('/') || cleaned.includes('\\')) {
     const parts = cleaned.split(/[\/\\]/).map(p => cleanStr(p));
     const parent = parts[0];
@@ -68,7 +69,6 @@ const parseStationHierarchy = (rawStation) => {
     };
   }
 
-  // Handle abbreviation checks e.g., "WAMPEWO P/P" or "WATUBA P.S"
   if (cleaned.endsWith(' P/P') || cleaned.endsWith(' P.P') || cleaned.includes('POLICE POST')) {
     const name = cleaned.replace(/P\/P|P\.P|POLICE POST/g, '').trim();
     return { division: 'GENERAL', station: 'GENERAL', subStation: '', post: name, type: 'POST' };
@@ -78,7 +78,6 @@ const parseStationHierarchy = (rawStation) => {
     return { division: name, station: name, subStation: '', post: '', type: 'STATION' };
   }
 
-  // Check if it's a major Division / CPS in our mapping hierarchy
   for (const stationsList of Object.values(REGIONAL_HIERARCHY)) {
     if (stationsList.includes(cleaned)) {
       return { division: cleaned, station: cleaned, subStation: '', post: '', type: 'DIVISION' };
@@ -105,24 +104,47 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-// 🟢 21-Rank Normalization Engine (Handling Detectives & Drivers cleanly)
+// 🟢 3. COMMAND PRECEDENCE & RANK WEIGHTING
+const getPositionPrecedence = (position) => {
+  const pos = cleanStr(position);
+  if (!pos) return 99;
+
+  if (pos.includes('KMP COMMANDER') || ((pos.includes('COMD') || pos.includes('COMDR') || pos.includes('COM') || pos.includes('COMMANDER')) && pos.includes('KMP') && !pos.includes('DEP') && !pos.includes('DEPUTY'))) return 1;
+  if (pos.includes('DEPUTY KMP') || pos.includes('DEP KMP') || ((pos.includes('DEP') || pos.includes('DEPUTY')) && pos.includes('KMP'))) return 2;
+  if (pos.includes('ADMIN KMP') || pos.includes('ADMIN. KMP') || pos.includes('ADMIN OFFICER')) return 3;
+
+  if (pos.includes('RPC') && !pos.includes('DEPUTY') && !pos.includes('DEP')) return 1;
+  if (pos.includes('DEPUTY RPC') || pos.includes('DEP RPC') || pos.includes('D/RPC')) return 2;
+
+  if (pos.includes('DPC') || pos.includes('DIVISION COMMANDER') || pos.includes('DIV COMDR')) return 4;
+  if (pos.includes('DEPUTY DPC') || pos.includes('DEP DPC')) return 5;
+
+  if ((pos.includes('COM') || pos.includes('COMD') || pos.includes('COMDR') || pos.includes('COMMANDER')) && !pos.includes('DEP') && !pos.includes('DEPUTY')) return 5;
+  if (pos.includes('DEP') || pos.includes('DEPUTY')) return 6;
+
+  if (pos.includes('OC STATION') || pos.includes('OC DIV') || (pos.includes('OC') && !pos.includes('CID') && !pos.includes('CI'))) return 7;
+  if (pos.includes('OC CID') || pos.includes('HEAD CID')) return 8;
+  if (pos.includes('OC CI') || pos.includes('CRIME INTELLIGENCE')) return 9;
+  if (pos.includes('OC POST') || pos.includes('O/C POST') || pos.includes('IC POST')) return 10;
+  if (pos.includes('2I/C') || pos.includes('DEPUTY OC') || pos.includes('I/C')) return 11;
+
+  return 50;
+};
+
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   let r = cleanStr(rank);
 
-  if (r === 'DC' || r.startsWith('D/C')) {
-    r = 'PC';
-  } else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
-    r = r.replace(/^D[\/\- ]/, '').trim();
-    if (r === 'C') r = 'PC';
+  if (r.includes('DRV') || r.includes('DRIVER')) {
+    if (r.includes('SGT') || r.includes('SERGEANT')) r = 'SGT';
+    else if (r.includes('CPL') || r.includes('CORPORAL')) r = 'CPL';
+    else r = 'PC';
   }
 
-  if (r.includes('/DRV') || r.includes('-DRV') || r.includes(' DRV') || r === 'DRV' || r.includes('C/DRV')) {
-    if (r === 'C/DRV' || r === 'DRV') {
-      r = 'PC';
-    } else {
-      r = r.replace(/\/DRV|-DRV| DRV|DRV/g, '').trim();
-    }
+  if (r === 'DC' || r.startsWith('D/C')) r = 'PC';
+  else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
+    r = r.replace(/^D[\/\- ]/, '').trim();
+    if (r === 'C') r = 'PC';
   }
 
   if (!r) r = 'PC';
@@ -135,6 +157,7 @@ const getRankWeight = (rank) => {
   if (r === 'ACP') return 6;
   if (r === 'SSP') return 7;
   if (r === 'SP') return 8;
+  if (r === 'MAJOR') return 8.5;
   if (r === 'SASP') return 9;
   if (r === 'ASP') return 10;
   if (r === 'IP') return 11;
@@ -153,33 +176,18 @@ const getRankWeight = (rank) => {
   return 50;
 };
 
-// 🟢 Command & Supervisory Precedence Weighting for Sorting
-const getPositionPrecedence = (position) => {
-  const pos = cleanStr(position);
-  if (!pos) return 99;
-  if (pos.includes('COMMANDER KMP') || pos === 'COMD KMP' || pos === 'CDR KMP') return 1;
-  if (pos.includes('DEPUTY COMMANDER') || pos.includes('DEP COMDR') || pos.includes('DEPUTY KMP')) return 2;
-  if (pos.includes('ADMIN KMP') || pos.includes('ADMIN OFFICER')) return 3;
-  if (pos.includes('RPC') && !pos.includes('DEPUTY')) return 1;
-  if (pos.includes('DEPUTY RPC') || pos.includes('DEP RPC')) return 2;
-  if (pos.includes('OC STATION') || pos.includes('DPC') || pos.includes('DIVISION COMMANDER')) return 4;
-  if (pos.includes('OC CID') || pos.includes('OC CI') || pos.includes('OC')) return 5;
-  if (pos.includes('2I/C') || pos.includes('DEPUTY OC') || pos.includes('I/C')) return 6;
-  return 50;
-};
-
-// 🟢 Granular Education Bracketing
+// 🟢 4. GRANULAR EDUCATION PARSING
 const parseEducationLevel = (educ) => {
   if (!educ) return 'UNEDUCATED / UNRECORDED';
   const e = cleanStr(educ);
   
-  if (e.includes('MASTER') || e.includes('MSC') || e.includes('MA') || e.includes('MBA') || e.includes('PHD') || e.includes('DOCTORATE')) return 'MASTERS / DOCTORATE';
+  if (e.includes('MASTER') || e.includes('MSC') || e.includes('MA') || e.includes('MBA') || e.includes('PHD')) return 'MASTERS / DOCTORATE';
   if (e.includes('PGD') || e.includes('POST GRADUATE')) return 'POST-GRADUATE DIPLOMA (PGD)';
-  if (e.includes('DEGREE') || e.includes('BACHELOR') || e.includes('BA') || e.includes('BSC') || e.includes('BED') || e.includes('LLB') || e.includes('BBA')) return 'DEGREES / BACHELORS';
+  if (e.includes('DEGREE') || e.includes('BACHELOR') || e.includes('BA') || e.includes('BSC') || e.includes('BED') || e.includes('LLB')) return 'DEGREES / BACHELORS';
   if (e.includes('DIPLOMA') || e.includes('DIP')) return 'DIPLOMA';
   if (e.includes('CERTIFICATE') || e.includes('CERT')) return 'CERTIFICATE';
-  if (e.includes('UACE') || e.includes('A LEVEL') || e.includes('A-LEVEL') || e.includes('S.6') || e.includes('S6')) return 'UACE (ADVANCED CERTIFICATE)';
-  if (e.includes('UCE') || e.includes('O LEVEL') || e.includes('O-LEVEL') || e.includes('S.4') || e.includes('S4')) return 'UCE (O-LEVEL)';
+  if (e.includes('UACE') || e.includes('A LEVEL') || e.includes('A-LEVEL') || e.includes('S.6')) return 'UACE (ADVANCED CERTIFICATE)';
+  if (e.includes('UCE') || e.includes('O LEVEL') || e.includes('O-LEVEL') || e.includes('S.4')) return 'UCE (O-LEVEL)';
   if (e.includes('S.3') || e.includes('S3')) return 'S.3';
   if (e.includes('S.2') || e.includes('S2')) return 'S.2';
   if (e.includes('S.1') || e.includes('S1')) return 'S.1';
@@ -196,7 +204,7 @@ const parseEducationLevel = (educ) => {
 };
 
 const MetricCard = ({ title, value, colorClass }) => (
-  <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center">
+  <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center">
     <h4 className="text-[8px] sm:text-[9px] font-extrabold mb-1 uppercase tracking-wider text-slate-500 leading-tight">{title}</h4>
     <div className={`text-sm sm:text-base font-black leading-none ${colorClass}`}>{value}</div>
   </div>
@@ -241,6 +249,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [updateSearch, setUpdateSearch] = useState(''); 
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('audit'); 
+  
+  const [analyticsMetricFilterValue, setAnalyticsMetricFilterValue] = useState('ALL');
   
   const userRoleClean = cleanStr(currentUser?.role);
   const userPosClean = cleanStr(currentUser?.position);
@@ -581,7 +591,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 Enriched Sorting & Filtering Engine based on Strict Hierarchy & Rank Precedence
   const filteredRolls = useMemo(() => {
     const list = (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = cleanStr(n.status);
@@ -614,7 +623,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       return true;
     });
 
-    // 🟢 Apply Multi-Tier Strict Sorting Protocol
     return list.sort((a, b) => {
       const regA = getOfficialRegionForStation(a.station, a.region);
       const regB = getOfficialRegionForStation(b.station, b.region);
@@ -677,6 +685,59 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
   }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
+  // 🟢 Live Analytics Filtered Dataset
+  const analyticsFilteredDataset = useMemo(() => {
+    if (analyticsMetricFilterValue === 'ALL') return currentRollDataset;
+
+    return currentRollDataset.filter(n => {
+      if (metricCategory === 'RANK') {
+        let r = cleanStr(n.rank);
+        if (r.includes('DRV')) r = 'PC';
+        return r === analyticsMetricFilterValue;
+      } else if (metricCategory === 'UNIT') {
+        const parsed = parseStationHierarchy(n.station);
+        return (parsed.division || parsed.station) === analyticsMetricFilterValue;
+      } else if (metricCategory === 'EDUCATION') {
+        return parseEducationLevel(n.educlevel || n.educ_level) === analyticsMetricFilterValue;
+      } else if (metricCategory === 'DISTRICT') {
+        return cleanStr(n.homedist || n.home_dist || n.district) === analyticsMetricFilterValue;
+      } else if (metricCategory === 'TRIBE') {
+        return cleanStr(n.tribe) === analyticsMetricFilterValue;
+      } else if (metricCategory === 'SEX') {
+        const sexStr = cleanStr(n.sex);
+        const isFemale = sexStr === 'F' || sexStr === 'FEMALE';
+        return analyticsMetricFilterValue === 'FEMALE' ? isFemale : !isFemale;
+      }
+      return true;
+    });
+  }, [currentRollDataset, metricCategory, analyticsMetricFilterValue]);
+
+  const availableAnalyticsFilterOptions = useMemo(() => {
+    const setVals = new Set();
+    currentRollDataset.forEach(n => {
+      if (metricCategory === 'RANK') {
+        let r = cleanStr(n.rank);
+        if (r.includes('DRV')) r = 'PC';
+        if (r) setVals.add(r);
+      } else if (metricCategory === 'UNIT') {
+        const parsed = parseStationHierarchy(n.station);
+        if (parsed.division) setVals.add(parsed.division);
+      } else if (metricCategory === 'EDUCATION') {
+        setVals.add(parseEducationLevel(n.educlevel || n.educ_level));
+      } else if (metricCategory === 'DISTRICT') {
+        const dist = cleanStr(n.homedist || n.home_dist || n.district);
+        if (dist) setVals.add(dist);
+      } else if (metricCategory === 'TRIBE') {
+        const tr = cleanStr(n.tribe);
+        if (tr) setVals.add(tr);
+      } else if (metricCategory === 'SEX') {
+        setVals.add('MALE');
+        setVals.add('FEMALE');
+      }
+    });
+    return Array.from(setVals).sort();
+  }, [currentRollDataset, metricCategory]);
+
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const fNumVal = cleanStr(n.fnum || n.f_num);
@@ -709,11 +770,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
           if (metricCategory === 'RANK') {
               let r = cleanStr(n.rank);
-              if (r === 'DC' || r.startsWith('D/C')) r = 'PC';
-              else if (r.startsWith('D/') || r.startsWith('D-') || r.startsWith('D ')) {
-                  r = r.replace(/^D[\/\- ]/, '').trim();
-                  if (r === 'C') r = 'PC';
-              }
+              if (r.includes('DRV')) r = 'PC';
               key = r || 'UNRANKED';
           }
           else if (metricCategory === 'UNIT') key = parsedStn.division || parsedStn.station || 'UNKNOWN DIVISION';
@@ -742,7 +799,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [currentRollDataset, metricCategory]);
 
-  // 🟢 Fixed Entity Tiers for Accurate Metrics Counting
   const metricsData = useMemo(() => {
     let maleCount = 0;
     let femaleCount = 0;
@@ -841,7 +897,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           </div>
         </div>
 
-        {/* 🟢 Resized & Wrapped Metric Tabs */}
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2">
            <MetricCard title="Total Personnel" value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
            <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
@@ -1265,12 +1320,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
           {/* ANALYTICS BREAKDOWN OR TABLE LEDGER VIEW */}
           {showAnalytics ? (
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs animate-in fade-in zoom-in-95 duration-200">
-                <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-3">
-                    <h3 className="font-extrabold text-base text-indigo-900 flex items-center"><PieChart className="mr-2 w-4 h-4"/> {viewMode === 'archive' ? 'Archived Roll Analytics' : 'Active Roll Analytics'}</h3>
-                    <div className="flex items-center space-x-2 bg-indigo-50 p-1.5 rounded-lg border border-indigo-100">
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-xs animate-in fade-in zoom-in-95 duration-200 space-y-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 pb-3 gap-3">
+                    <h3 className="font-extrabold text-base text-indigo-900 flex items-center"><PieChart className="mr-2 w-4 h-4"/> {viewMode === 'archive' ? 'Archived Roll Analytics' : 'Active Roll Analytics'} ({analyticsFilteredDataset.length} Officers Shown)</h3>
+                    <div className="flex flex-wrap items-center gap-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
                         <label className="text-[10px] font-bold text-indigo-800 uppercase">Categorize By:</label>
-                        <select value={metricCategory} onChange={e => setMetricCategory(e.target.value)} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer">
+                        <select value={metricCategory} onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer">
                             <option value="RANK">Rank Breakdown</option>
                             <option value="UNIT">Unit / Station Breakdown</option>
                             <option value="SEX">Sex Distribution</option>
@@ -1280,28 +1335,49 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                             <option value="EDUCATION">Education Level Breakdown</option>
                             <option value="AGE">Age Demographics Breakdown</option>
                         </select>
+
+                        <label className="text-[10px] font-bold text-indigo-800 uppercase ml-2">Filter Value:</label>
+                        <select value={analyticsMetricFilterValue} onChange={e => setAnalyticsMetricFilterValue(e.target.value)} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer max-w-[160px]">
+                            <option value="ALL">ALL ({metricCategory})</option>
+                            {availableAnalyticsFilterOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+
+                        <button
+                            type="button"
+                            onClick={handleExecuteAnalyticsExport}
+                            className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer ml-2"
+                        >
+                            <Download className="w-3.5 h-3.5 mr-1" /> Download This List
+                        </button>
                     </div>
                 </div>
+
                 <div className="overflow-x-auto overflow-y-auto max-h-[460px] custom-scrollbar border border-gray-200 rounded-lg">
-                  <table className="min-w-full divide-y divide-gray-200">
+                  <table className="min-w-full divide-y divide-gray-200 text-xs">
                       <thead className="bg-indigo-50 sticky top-0 z-10 shadow-xs">
                           <tr>
-                              <th className="px-3 py-2.5 text-left text-xs font-bold text-indigo-800 uppercase">{metricCategory}</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-bold text-indigo-800 uppercase">Total Strength</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-bold text-indigo-800 uppercase">Male</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-bold text-indigo-800 uppercase">Female</th>
+                              <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">S/No</th>
+                              <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">F/NO</th>
+                              <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Rank</th>
+                              <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Name</th>
+                              <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Position</th>
+                              <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Station</th>
+                              <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Region</th>
                           </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-100">
-                          {calculatedMetrics.map(m => (
-                              <tr key={m.category} className="hover:bg-indigo-50/30 transition-colors">
-                                  <td className="px-3 py-2.5 text-xs font-bold text-gray-800">{m.category}</td>
-                                  <td className="px-3 py-2.5 text-xs text-center font-extrabold text-indigo-600">{m.total}</td>
-                                  <td className="px-3 py-2.5 text-xs text-center font-medium text-blue-600">{m.male}</td>
-                                  <td className="px-3 py-2.5 text-xs text-center font-medium text-pink-600">{m.female}</td>
+                          {analyticsFilteredDataset.map((n, idx) => (
+                              <tr key={n.sn || n.fnum} className="hover:bg-indigo-50/30 transition-colors">
+                                  <td className="px-3 py-2 font-bold">{idx + 1}</td>
+                                  <td className="px-3 py-2 font-bold text-blue-700">{cleanStr(n.fnum || n.f_num)}</td>
+                                  <td className="px-3 py-2 font-bold">{cleanStr(n.rank)}</td>
+                                  <td className="px-3 py-2 uppercase font-medium">{cleanStr(n.name)}</td>
+                                  <td className="px-3 py-2">{cleanStr(n.position)}</td>
+                                  <td className="px-3 py-2 font-bold text-slate-700">{cleanStr(n.station)}</td>
+                                  <td className="px-3 py-2 text-slate-600">{cleanStr(n.region)}</td>
                               </tr>
                           ))}
-                          {calculatedMetrics.length === 0 && <tr><td colSpan="4" className="text-center p-4 text-xs text-gray-500 font-medium">No records match the current filter constraint.</td></tr>}
+                          {analyticsFilteredDataset.length === 0 && <tr><td colSpan="7" className="text-center p-6 text-xs text-gray-500 font-medium">No personnel records match this specific filter.</td></tr>}
                       </tbody>
                   </table>
                 </div>
@@ -1453,5 +1529,4 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   );
 };
 
-self.Nominal_Roll = Nominal_Roll;
 export default Nominal_Roll;

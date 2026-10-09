@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
 
 RANK_SENIORITY = {
     "IGP": 1, "DIGP": 2, "AIGP": 3, "SCP": 4, "CP": 5, "ACP": 6,
-    "SSP": 7, "SP": 8, "SASP": 9, "ASP": 10, "IP": 11, "AIP": 12,
+    "SSP": 7, "SP": 8, "MAJOR": 8.5, "SASP": 9, "ASP": 10, "IP": 11, "AIP": 12,
     "HCM": 13, "HC": 14, "S/SGT": 15, "SSGT": 15, "SGT": 16,
     "CPL": 17, "L/CPL": 18, "LCPL": 18, "PC": 19, "PPC": 20, "SPC": 21, "CIVILIAN": 50
 }
@@ -55,18 +55,33 @@ def get_station_priority_weight(station, region) -> int:
 
 def get_command_weight(officer) -> int:
     pos = clean_str(getattr(officer, 'position', ''))
-    name = clean_str(getattr(officer, 'name', ''))
     
-    if any(k in pos for k in ['COMMANDER KMP', 'COMDR KMP', 'COMD KMP', 'KMP COMMANDER', 'KMP COMDR', 'KMP COMD']) or any(k in name for k in ['COMMANDER KMP', 'KMP COMMANDER']):
-        if 'DEPUTY' in pos or 'D/COMDR' in pos or 'D/COMMANDER' in pos:
-            return 1
-        return 0
-        
-    if 'ADMIN OFFICER' in pos or 'ADMINISTRATIVE OFFICER' in pos: return 2
-    if pos == 'RPC' or 'REGIONAL POLICE COMMANDER' in pos: return 3
-    if pos == 'D/RPC' or 'DEPUTY RPC' in pos or 'DY.RPC' in pos: return 4
-    if pos.startswith('R/'): return 5
-    if pos == 'OC' or pos.startswith('OC ') or 'I/C' in pos or 'IN CHARGE' in pos: return 6
+    if pos.includes('KMP COMMANDER') if hasattr(pos, 'includes') else 'KMP COMMANDER' in pos or ((pos.includes('COMD') or pos.includes('COMDR') or pos.includes('COM') or pos.includes('COMMANDER')) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
+        return 1
+    if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
+        return 2
+    if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'ADMIN OFFICER' in pos:
+        return 3
+    if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
+        return 1
+    if 'DEPUTY RPC' in pos or 'DEP RPC' in pos or 'D/RPC' in pos:
+        return 2
+    if 'DPC' in pos or 'DIVISION COMMANDER' in pos or 'DIV COMDR' in pos:
+        return 4
+    if (pos.startswith('COM') or pos.startswith('COMD') or pos.startswith('COMDR') or 'COMMANDER' in pos) and not ('DEP' in pos or 'DEPUTY' in pos):
+        return 5
+    if 'DEP' in pos or 'DEPUTY' in pos:
+        return 6
+    if 'OC STATION' in pos or 'OC DIV' in pos or ('OC' in pos and not ('CID' in pos or 'CI' in pos)):
+        return 7
+    if 'OC CID' in pos or 'HEAD CID' in pos:
+        return 8
+    if 'OC CI' in pos or 'CRIME INTELLIGENCE' in pos:
+        return 9
+    if 'OC POST' in pos or 'O/C POST' in pos or 'IC POST' in pos:
+        return 10
+    if '2I/C' in pos or 'DEPUTY OC' in pos or 'I/C' in pos:
+        return 11
     
     return 99
 
@@ -74,17 +89,16 @@ def get_rank_weight(rank_str: str) -> int:
     if not rank_str: return 99
     r = clean_str(rank_str)
 
+    if r.includes('DRV') if hasattr(r, 'includes') else 'DRV' in r or 'DRIVER' in r:
+        if 'SGT' in r or 'SERGEANT' in r: r = 'SGT'
+        elif 'CPL' in r or 'CORPORAL' in r: r = 'CPL'
+        else: r = 'PC'
+
     if r == 'DC' or r.startswith('D/C'):
         r = 'PC'
     elif r.startswith('D/') or r.startswith('D-') or r.startswith('D '):
         r = r.replace('D/', '').replace('D-', '').replace('D ', '').strip()
         if r == 'C': r = 'PC'
-
-    if '/DRV' in r or '-DRV' in r or ' DRV' in r or r == 'DRV' or 'C/DRV' in r:
-        if r == 'C/DRV' or r == 'DRV':
-            r = 'PC'
-        else:
-            r = r.replace('/DRV', '').replace('-DRV', '').replace(' DRV', '').replace('DRV', '').strip()
 
     if not r: r = 'PC'
     return RANK_SENIORITY.get(r, 40)
@@ -182,7 +196,7 @@ def is_uniformed_rank(rank_str: str) -> bool:
     if not rank_str: return False
     r = str(rank_str).strip().upper()
     uniformed_ranks = {
-        'IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP',
+        'IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'MAJOR', 'SASP', 'ASP',
         'IP', 'AIP', 'HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'LCPL',
         'PC', 'PPC', 'SPC', 'DC', 'D/C'
     }
@@ -238,8 +252,8 @@ def parse_safe_date(val) -> Optional[date]:
                 except Exception: pass
     except Exception: pass
 
-    clean_str = re.sub(r'[\./\\]', '-', val_str)
-    parts = clean_str.split('-')
+    clean_str_val = re.sub(r'[\./\\]', '-', val_str)
+    parts = clean_str_val.split('-')
 
     if len(parts) == 3:
         p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
@@ -438,7 +452,6 @@ def get_Nominal_Rolls(
         if active_conds: active_query = active_query.filter(or_(*active_conds))
         if archive_conds: archive_query = archive_query.filter(or_(*archive_conds))
 
-    # 🟢 INTEGRATED HIERARCHICAL SORTING ENGINE (Python Sort)
     active_records = sorted(active_query.all(), key=hierarchical_sort_key)
     archive_records = sorted(archive_query.all(), key=hierarchical_sort_key)
     
@@ -575,13 +588,11 @@ async def bulk_upload_nominal_roll(
 
             row_text_signature = f"{fnum_val or ''} {rank_val or ''} {name_val or ''}".upper()
             
-            # 🟢 Pre-Upload Validation Gate
             if (
                 not fnum_val and not rank_val and (not name_val or name_val == "UNKNOWN")
             ) or any(term in row_text_signature for term in ["DEPARTMENT", "POL. POST", "POLICE POST", "SECTION", "DIV HEADQUARTERS", "OC STATION", "---", "___", "CANINE UNIT", "BUSEGA"]):
                 continue
 
-            # Block if station names leaked into rank or name columns
             if rank_val and any(stn_term in rank_val for stn_term in ["STATION", "POST", "DIV", "UNIT", "HQ", "HEADQUARTERS"]):
                 continue
 
@@ -726,7 +737,6 @@ def create_Nominal_Roll(
         for k, v in data.items():
             clean_data[k] = None if v == "" else v
 
-        # 🟢 Validation Gate for manual creation
         test_rank = str(clean_data.get('rank', '')).upper()
         if any(stn_term in test_rank for stn_term in ["STATION", "POST", "DIV", "UNIT", "HQ", "HEADQUARTERS"]):
             raise HTTPException(status_code=400, detail="Validation Error: Station or unit names cannot be entered into the Rank field.")
@@ -1043,7 +1053,6 @@ def get_archived_personnel(
         ArchiveModel = get_archive_model()
         query = get_scoped_nominal_query(db, current_user, ArchiveModel)
         
-        # 🟢 INTEGRATED HIERARCHICAL SORTING ENGINE (Archive)
         archives = sorted(query.all(), key=hierarchical_sort_key)
         
         clean_list = []
@@ -1457,3 +1466,188 @@ def export_station_nominal_roll(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Full Station Ledger Export Failed: {str(e)}")
+
+@router.get("/nominal-roll/export-filtered-ledger")
+def export_filtered_nominal_roll(
+    region: str = "ALL REGIONS",
+    station: str = "ALL STATIONS",
+    filter_type: str = "RANK",
+    filter_value: str = "ALL",
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        ActiveModel = get_active_model()
+        query = get_scoped_nominal_query(db, current_user, ActiveModel)
+        
+        region_clean = region.strip().upper()
+        station_clean = station.strip().upper()
+        f_type = filter_type.strip().upper()
+        f_val = filter_value.strip().upper()
+
+        records = sorted(query.all(), key=hierarchical_sort_key)
+        filtered_rows = []
+
+        for r in records:
+            if is_invalid_roster_entry(r): continue
+            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
+
+            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
+            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+
+            if f_val != "ALL":
+                if f_type == "RANK":
+                    r_rank = clean_str(getattr(r, 'rank', ''))
+                    if 'DRV' in r_rank: r_rank = 'PC'
+                    if r_rank != f_val: continue
+                elif f_type == "UNIT":
+                    r_div = clean_str(getattr(r, 'station', ''))
+                    if r_div != f_val and r_stn != f_val: continue
+                elif f_type == "EDUCATION":
+                    r_educ = normalize_education_level(getattr(r, 'educ_level', getattr(r, 'educlevel', '')))
+                    if r_educ != f_val: continue
+                elif f_type == "DISTRICT":
+                    r_dist = clean_str(getattr(r, 'home_dist', getattr(r, 'homedist', getattr(r, 'district', ''))))
+                    if r_dist != f_val: continue
+                elif f_type == "TRIBE":
+                    r_tribe = clean_str(getattr(r, 'tribe', ''))
+                    if r_tribe != f_val: continue
+                elif f_type == "SEX":
+                    r_sex = clean_str(getattr(r, 'sex', ''))
+                    if r_sex != f_val: continue
+
+            filtered_rows.append({
+                "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
+                "Rank": getattr(r, 'rank', ''),
+                "Name": getattr(r, 'name', ''),
+                "Sex": getattr(r, 'sex', ''),
+                "Position": getattr(r, 'position', ''),
+                "Contact": getattr(r, 'contact', ''),
+                "IPPS": getattr(r, 'ipps', ''),
+                "NIN": getattr(r, 'nin', ''),
+                "TIN": getattr(r, 'tin', ''),
+                "DOB": getattr(r, 'dob', ''),
+                "DOE": getattr(r, 'doe', ''),
+                "Date of Post": getattr(r, 'do_post', getattr(r, 'dopost', '')),
+                "Date of Promotion": getattr(r, 'do_pro', getattr(r, 'dopro', '')),
+                "Education Level": getattr(r, 'educ_level', getattr(r, 'educlevel', '')),
+                "Home District": getattr(r, 'home_dist', getattr(r, 'homedist', '')),
+                "Tribe": getattr(r, 'tribe', ''),
+                "Bank Branch": getattr(r, 'bank_branch', getattr(r, 'bankbranch', '')),
+                "Account Number": getattr(r, 'acc_no', getattr(r, 'accno', '')),
+                "Section": getattr(r, 'section', ''),
+                "Directorate": getattr(r, 'dir', ''),
+                "Station": r_stn,
+                "District": getattr(r, 'district', ''),
+                "Region": r_reg,
+                "Status": getattr(r, 'status', 'ACTIVE'),
+                "Last Updated By": getattr(r, 'last_updated_by', '')
+            })
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"Filtered List - {f_val}"
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+        
+        ws.append([f"UGANDA POLICE FORCE - FILTERED NOMINAL LIST EXPORT ({f_type}: {f_val})"])
+        ws.append([f"Station / Unit: {station_clean} | Region: {region_clean}"])
+        ws.append([f"Export Timestamp: {eat_time.strftime('%Y-%m-%d %H:%M:%S EAT')} | Authorized By: {current_user.fnum}"])
+        ws.append([]) 
+
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        
+        headers = [
+            "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
+            "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
+            "Education Level", "Home District", "Tribe", "Bank Branch", "Account Number", 
+            "Section", "Directorate", "Station", "District", "Region", "Status", "Last Updated By"
+        ]
+        ws.append(headers)
+        
+        for cell in ws[5]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for idx, row in enumerate(filtered_rows, 1):
+            ws.append([
+                idx,
+                row["Force Number"],
+                row["Rank"],
+                row["Name"],
+                row["Sex"],
+                row["Position"],
+                row["Contact"],
+                row["IPPS"],
+                row["NIN"],
+                row["TIN"],
+                str(row["DOB"]) if row["DOB"] else "",
+                str(row["DOE"]) if row["DOE"] else "",
+                str(row["Date of Post"]) if row["Date of Post"] else "",
+                str(row["Date of Promotion"]) if row["Date of Promotion"] else "",
+                row["Education Level"],
+                row["Home District"],
+                row["Tribe"],
+                row["Bank Branch"],
+                row["Account Number"],
+                row["Section"],
+                row["Directorate"],
+                row["Station"],
+                row["District"],
+                row["Region"],
+                row["Status"],
+                row["Last Updated By"]
+            ])
+
+        for col in ws.columns:
+            col_letter = col[0].column_letter
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
+
+        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
+        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
+        
+        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
+        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        zip_stream = io.BytesIO()
+        zip_password = str(current_user.fnum).strip().encode('utf-8')
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        excel_filename = f"{fnum_clean}_Filtered_List_{f_type}_{f_val.replace(' ', '_')}_{eat_time.strftime('%Y%m%d')}.xlsx"
+        zip_filename = f"SECURE_FILTERED_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
+
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(excel_filename, excel_stream.getvalue())
+
+        zip_stream.seek(0)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="NOMINAL_ROLL_EXPORT",
+            target_id="FILTERED_LEDGER_EXPORT",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} downloaded password-encrypted filtered nominal list ({f_type} = {f_val}, {len(filtered_rows)} records)."
+        )
+
+        return StreamingResponse(
+            zip_stream,
+            media_type="application/zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Filtered Ledger Export Failed: {str(e)}")
