@@ -56,37 +56,37 @@ def get_station_priority_weight(station, region) -> int:
 def get_command_weight(officer) -> int:
     pos = clean_str(getattr(officer, 'position', ''))
     
-    # 1. KMP Headquarters Supreme Command (Commander = 10, Deputy = 11, Admin = 12)
-    if 'KMP COMMANDER' in pos or ((any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER'])) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
-        return 10
-    if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
-        return 11
+    # Python-idiomatic string checks
+    if 'KMP COMMANDER' in pos or ((any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER', 'CDR'])) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
+        return 1
+    if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
+        return 2
     if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'ADMIN OFFICER' in pos:
-        return 12
-
-    # 2. Regional Level Command (RPC = 20, Deputy RPC = 21)
+        return 3
     if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
-        return 20
+        return 1
     if 'DEPUTY RPC' in pos or 'DEP RPC' in pos or 'D/RPC' in pos:
-        return 21
-
-    # 3. Division / Station Level Command (DPC / Division Commander = 30, Deputy DPC = 31)
+        return 2
     if 'DPC' in pos or 'DIVISION COMMANDER' in pos or 'DIV COMDR' in pos:
-        return 30
-    if 'DEPUTY DPC' in pos or 'DEP DPC' in pos or ('DEP' in pos and 'DPC' in pos):
-        return 31
-
-    # 4. Unit / Specialized Commanders & OCs (Primary OC/Com = 40, Deputy/2I/C = 41)
-    if ('OC STATION' in pos or 'OC DIV' in pos or 'OC POST' in pos or ('OC' in pos and not ('CID' in pos or 'CI' in pos))) and not ('DEP' in pos or 'DEPUTY' in pos or '2I/C' in pos):
-        return 40
-    if (pos.startswith('COM') or pos.startswith('COMD') or pos.startswith('COMDR') or 'COMMANDER' in pos) and not ('DEP' in pos or 'DEPUTY' in pos):
-        return 40
+        return 4
+    if 'DEPUTY DPC' in pos or 'DEP DPC' in pos:
+        return 5
+    if (any(k in pos for k in ['COM', 'COMD', 'COMDR', 'COMMANDER', 'CDR'])) and not ('DEP' in pos or 'DEPUTY' in pos):
+        return 5
+    if 'DEP' in pos or 'DEPUTY' in pos:
+        return 6
+    if 'OC STATION' in pos or 'OC DIV' in pos or ('OC' in pos and not ('CID' in pos or 'CI' in pos)):
+        return 7
+    if 'OC CID' in pos or 'HEAD CID' in pos:
+        return 8
+    if 'OC CI' in pos or 'CRIME INTELLIGENCE' in pos:
+        return 9
+    if 'OC POST' in pos or 'O/C POST' in pos or 'IC POST' in pos:
+        return 10
+    if '2I/C' in pos or 'DEPUTY OC' in pos or 'I/C' in pos:
+        return 11
     
-    # 5. Immediate Deputies and 2I/Cs directly follow their Principal
-    if 'DEP' in pos or 'DEPUTY' in pos or '2I/C' in pos or 'I/C' in pos:
-        return 41
-
-    return 99
+    return 50
 
 def hierarchical_sort_key(officer):
     stn = getattr(officer, 'station', '')
