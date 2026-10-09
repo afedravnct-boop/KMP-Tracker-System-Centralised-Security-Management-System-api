@@ -49,7 +49,7 @@ const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUse
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl text-white">
         <div className="bg-slate-950 px-6 py-4 flex justify-between items-center border-b border-slate-800">
           <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center">
-            📋 Officer Dossier — {user.rank} {user.name} ({user.fnum})
+            📋 Officer Dossier — {formatOfficerHeader(user)}
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
         </div>
@@ -93,7 +93,7 @@ const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUse
   );
 };
 
-// 🟢 ENRICHED: Transfer Dossier Modal with Full History Trail (Timestamp & Reviewing Officer)
+// 🟢 ENRICHED: Transfer Dossier Modal with Full History Trail (Timestamp, Date, Reviewing/Approving Officer)
 const TransferDossierModal = ({ req, onClose, handleReviewRequest, isReadOnlyObserver }) => {
   if (!req) return null;
 
@@ -102,7 +102,7 @@ const TransferDossierModal = ({ req, onClose, handleReviewRequest, isReadOnlyObs
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl text-white">
         <div className="bg-slate-950 px-6 py-4 flex justify-between items-center border-b border-slate-800">
           <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center">
-            🔄 HR Transfer & Modification Dossier — {req.current_rank || ''} {req.current_name || 'Officer'} ({req.fnum})
+            🔄 HR Transfer & History Trail — {formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
         </div>
@@ -120,30 +120,30 @@ const TransferDossierModal = ({ req, onClose, handleReviewRequest, isReadOnlyObs
             </div>
             {req.reviewed_by && (
               <div className="w-full pt-2 sm:pt-0 sm:w-auto border-t sm:border-t-0 border-slate-800 text-slate-300">
-                <span>Processed By: <strong className="text-emerald-400">{req.reviewed_by}</strong> ({req.reviewed_at || 'Just now'})</span>
+                <span>Approved By: <strong className="text-emerald-400">{req.reviewed_by}</strong> ({req.reviewed_at || 'Recorded'})</span>
               </div>
             )}
           </div>
 
           {/* Current Baseline Details */}
           <div>
-            <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Current Baseline Deployment</h4>
+            <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Previous Baseline Deployment (Origin)</h4>
             <div className="grid grid-cols-2 gap-4 bg-slate-800/60 p-4 rounded-xl border border-slate-700">
               <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Force Number (F/No)</span><span className="font-mono font-bold text-sm text-blue-400">{req.fnum}</span></div>
-              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Current Name</span><span className="font-bold text-sm">{req.current_name || 'N/A'}</span></div>
-              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Current Rank</span><span className="font-bold text-sm">{req.current_rank || 'N/A'}</span></div>
-              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Current Station / Region</span><span className="font-bold">{req.current_station || 'N/A'} / {req.current_region || 'N/A'}</span></div>
+              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Officer Name</span><span className="font-bold text-sm">{req.current_name || 'N/A'}</span></div>
+              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Officer Rank</span><span className="font-bold text-sm">{req.current_rank || 'N/A'}</span></div>
+              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Origin Station / Region</span><span className="font-bold">{req.current_station || 'N/A'} / {req.current_region || 'N/A'}</span></div>
             </div>
           </div>
 
           {/* Requested Modification Details */}
           <div>
-            <h4 className="text-[11px] font-extrabold text-amber-400 uppercase tracking-wider mb-2">Requested Deployment Changes</h4>
+            <h4 className="text-[11px] font-extrabold text-amber-400 uppercase tracking-wider mb-2">Requested Deployment Changes (Destination)</h4>
             <div className="grid grid-cols-2 gap-4 bg-amber-950/20 p-4 rounded-xl border border-amber-600/30">
-              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Force No.</span><span className="font-mono font-bold text-sm text-amber-300">{req.requested_fnum || req.fnum}</span></div>
-              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Name</span><span className="font-bold text-sm">{req.requested_name || req.current_name || 'N/A'}</span></div>
-              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Rank</span><span className="font-bold text-sm">{req.requested_rank || req.current_rank || 'N/A'}</span></div>
-              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Station / Region</span><span className="font-bold text-amber-200">{req.requested_station || 'N/A'} / {req.requested_region || 'N/A'}</span></div>
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Target Force No.</span><span className="font-mono font-bold text-sm text-amber-300">{req.requested_fnum || req.fnum}</span></div>
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Target Name</span><span className="font-bold text-sm">{req.requested_name || req.current_name || 'N/A'}</span></div>
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Target Rank</span><span className="font-bold text-sm">{req.requested_rank || req.current_rank || 'N/A'}</span></div>
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Target Station / Region</span><span className="font-bold text-amber-200">{req.requested_station || 'N/A'} / {req.requested_region || 'N/A'}</span></div>
             </div>
           </div>
         </div>
@@ -1217,12 +1217,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 4. HR TRANSFERS TAB WITH DOSSIER INSPECTION */}
+      {/* 4. HR TRANSFERS TAB WITH DOSSIER HISTORY TRAIL */}
       {activeTab === 'requests' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-amber-200 dark:border-amber-900/50 overflow-hidden w-full">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase flex justify-between items-center">
             <span>HR Modification & Transfer Requests</span>
-            <span className="text-[10px] text-amber-400 font-normal">Click any entry to review complete history trail (previous station, date, reviewing officer)</span>
+            <span className="text-[10px] text-amber-400 font-normal">Click any entry to inspect full transfer history trail & approval metadata</span>
           </div>
           <div className="w-full overflow-x-auto custom-scrollbar">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">

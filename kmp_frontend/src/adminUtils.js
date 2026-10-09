@@ -1,3 +1,5 @@
+// src/components/adminUtils.js
+
 // 🟢 UTILITY MOVED HERE TO BREAK CIRCULAR DEPENDENCY
 export const stripHtmlTags = (str) => {
   if (!str) return '';
@@ -29,19 +31,19 @@ export const canModifyUser = (currentUser, targetUser) => {
   if (!currentUser || !targetUser) return false;
   if (currentUser.role === 'SUPER_ADMIN') return true; 
   if (currentUser.fnum === targetUser.fnum) return false; 
-  
+   
   const currWeight = getRoleWeight(currentUser.role);
   const targetWeight = getRoleWeight(targetUser.role);
-  
+   
   if (currWeight <= targetWeight) return false; 
   if (currentUser.role === 'ASSISTANT_SUPER_ADMIN') return true; 
-  
+   
   return currentUser.region === targetUser.region; 
 };
 
 export const grantExpressAccess = (role, currentPerms) => {
   let newPerms = { ...(currentPerms || {}) };
-  
+   
   const baseModules = ['acc_home', 'acc_profile', 'acc_comms', 'acc_crime', 'acc_ops', 'acc_stories', 'acc_documents'];
   const adminModules = ['acc_est', 'acc_analytics', 'acc_hr', 'acc_ledgers'];
   const topModules = ['acc_approvals', 'acc_consolidated', 'acc_roster'];
@@ -76,7 +78,7 @@ export const grantExpressAccess = (role, currentPerms) => {
           newPerms[key] = true;
       });
   }
-  
+   
   return newPerms;
 };
 
@@ -102,12 +104,14 @@ export const CLEARANCE_MATRIX_COLS = [
   { key: 'export_data', label: 'Master Export', color: 'red', bg: 'bg-red-50/50' },
   { key: 'export_logs', label: 'Export Logs', color: 'red', bg: 'bg-red-50/50' },
   { key: 'acc_documents_download', label: 'Documents Download', color: 'indigo', bg: 'bg-indigo-50/50' },
-{ key: 'acc_exhibits', label: 'Impounded Fleet & Exhibits', color: 'emerald', bg: 'bg-emerald-50/50' }
+  { key: 'acc_exhibits', label: 'Impounded Fleet & Exhibits', color: 'emerald', bg: 'bg-emerald-50/50' }
 ];
 
+// 🟢 Enforces Force/File Number first, followed by Rank and Name
 export const formatOfficerHeader = (user) => {
-  const fnum = stripHtmlTags(user.fnum || user.f_num || 'NO-FNUM');
-  const rank = stripHtmlTags(user.rank || 'OFFICER');
-  const name = stripHtmlTags(user.name || 'UNKNOWN');
-  return `${fnum} ${rank} ${name}`;
+  if (!user) return 'UNKNOWN OFFICER';
+  const fnum = stripHtmlTags(user.fnum || user.f_num || 'NO-FNUM').trim().toUpperCase();
+  const rank = stripHtmlTags(user.rank || 'OFFICER').trim().toUpperCase();
+  const name = stripHtmlTags(user.name || 'UNKNOWN').trim().toUpperCase();
+  return `${fnum} ${rank} ${name}`.trim();
 };
