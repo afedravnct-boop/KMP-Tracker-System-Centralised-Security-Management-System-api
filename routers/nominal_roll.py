@@ -56,7 +56,8 @@ def get_station_priority_weight(station, region) -> int:
 def get_command_weight(officer) -> int:
     pos = clean_str(getattr(officer, 'position', ''))
     
-    if pos.includes('KMP COMMANDER') if hasattr(pos, 'includes') else 'KMP COMMANDER' in pos or ((pos.includes('COMD') or pos.includes('COMDR') or pos.includes('COM') or pos.includes('COMMANDER')) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
+    # Python-idiomatic string checks (fixing .includes syntax error)
+    if 'KMP COMMANDER' in pos or (any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER']) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
         return 1
     if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
         return 2
@@ -89,7 +90,7 @@ def get_rank_weight(rank_str: str) -> int:
     if not rank_str: return 99
     r = clean_str(rank_str)
 
-    if r.includes('DRV') if hasattr(r, 'includes') else 'DRV' in r or 'DRIVER' in r:
+    if 'DRV' in r or 'DRIVER' in r:
         if 'SGT' in r or 'SERGEANT' in r: r = 'SGT'
         elif 'CPL' in r or 'CORPORAL' in r: r = 'CPL'
         else: r = 'PC'

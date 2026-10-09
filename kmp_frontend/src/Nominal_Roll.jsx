@@ -420,6 +420,26 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
+  const handleExecuteAnalyticsExport = async () => {
+    try {
+      const endpoint = `/api/v1/nominal-roll/export-filtered-ledger?region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}&filter_type=${encodeURIComponent(metricCategory)}&filter_value=${encodeURIComponent(analyticsMetricFilterValue)}`;
+      
+      const response = await authFetch(endpoint, { method: 'GET' });
+      if (!response.ok) throw new Error("Filtered export generation failed.");
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Nominal_List_${metricCategory}_${analyticsMetricFilterValue.replace(/\s+/g, '_')}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Export Error: ${err.message}`);
+    }
+  };
+
   const handleArchivePersonnel = async () => {
     if (!canEditRecords) return alert("Security Restriction: You do not have clearance to archive personnel.");
      
