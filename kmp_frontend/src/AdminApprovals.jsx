@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, ShieldAlert,
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award, Trash2
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award, Trash2, Clock
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -39,7 +39,7 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-// 🟢 Streamlined Dossier Modal handling both Pending Authorizations and Revoked Vault Inspection
+// 🟢 Streamlined Dossier Modal handling Pending Authorizations and Revoked Vault Inspection
 const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUser, handleApproveUser, handleRegrantAccess, handlePermanentDelete, isSuperAdmin, isReadOnlyObserver }) => {
   if (!user) return null;
   const isRevoked = user.role === 'REVOKED' || user.is_approved === false;
@@ -86,6 +86,76 @@ const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUse
                 <button onClick={() => handleApproveUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs cursor-pointer">Approve Authorization</button>
               </>
             )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 🟢 ENRICHED: Transfer Dossier Modal with Full History Trail (Timestamp & Reviewing Officer)
+const TransferDossierModal = ({ req, onClose, handleReviewRequest, isReadOnlyObserver }) => {
+  if (!req) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/80 z-[99999] flex items-center justify-center p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl text-white">
+        <div className="bg-slate-950 px-6 py-4 flex justify-between items-center border-b border-slate-800">
+          <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center">
+            🔄 HR Transfer & Modification Dossier — {req.current_rank || ''} {req.current_name || 'Officer'} ({req.fnum})
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+        </div>
+        
+        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto custom-scrollbar text-xs">
+          {/* History Trail & Audit Metadata */}
+          <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-[11px]">
+            <div className="flex items-center text-slate-300">
+              <Clock size={14} className="mr-1.5 text-amber-400" />
+              <span>Initiated On: <strong className="text-white font-mono">{req.created_at || 'N/A'}</strong></span>
+            </div>
+            <div className="flex items-center text-slate-300">
+              <Shield size={14} className="mr-1.5 text-blue-400" />
+              <span>Review Status: <strong className="text-yellow-400 uppercase">{req.status || 'PENDING'}</strong></span>
+            </div>
+            {req.reviewed_by && (
+              <div className="w-full pt-2 sm:pt-0 sm:w-auto border-t sm:border-t-0 border-slate-800 text-slate-300">
+                <span>Processed By: <strong className="text-emerald-400">{req.reviewed_by}</strong> ({req.reviewed_at || 'Just now'})</span>
+              </div>
+            )}
+          </div>
+
+          {/* Current Baseline Details */}
+          <div>
+            <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Current Baseline Deployment</h4>
+            <div className="grid grid-cols-2 gap-4 bg-slate-800/60 p-4 rounded-xl border border-slate-700">
+              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Force Number (F/No)</span><span className="font-mono font-bold text-sm text-blue-400">{req.fnum}</span></div>
+              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Current Name</span><span className="font-bold text-sm">{req.current_name || 'N/A'}</span></div>
+              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Current Rank</span><span className="font-bold text-sm">{req.current_rank || 'N/A'}</span></div>
+              <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Current Station / Region</span><span className="font-bold">{req.current_station || 'N/A'} / {req.current_region || 'N/A'}</span></div>
+            </div>
+          </div>
+
+          {/* Requested Modification Details */}
+          <div>
+            <h4 className="text-[11px] font-extrabold text-amber-400 uppercase tracking-wider mb-2">Requested Deployment Changes</h4>
+            <div className="grid grid-cols-2 gap-4 bg-amber-950/20 p-4 rounded-xl border border-amber-600/30">
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Force No.</span><span className="font-mono font-bold text-sm text-amber-300">{req.requested_fnum || req.fnum}</span></div>
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Name</span><span className="font-bold text-sm">{req.requested_name || req.current_name || 'N/A'}</span></div>
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Rank</span><span className="font-bold text-sm">{req.requested_rank || req.current_rank || 'N/A'}</span></div>
+              <div><span className="text-amber-400/70 block text-[10px] uppercase font-bold">Requested Station / Region</span><span className="font-bold text-amber-200">{req.requested_station || 'N/A'} / {req.requested_region || 'N/A'}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-950 px-6 py-4 border-t border-slate-800 flex justify-end space-x-3">
+          <button onClick={onClose} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs cursor-pointer">Close Dossier</button>
+          
+          {!isReadOnlyObserver && req.status !== 'APPROVED' && (
+            <>
+              <button onClick={() => { handleReviewRequest(req.id || req.sn, "REJECTED"); onClose(); }} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer">Reject Transfer</button>
+              <button onClick={() => { handleReviewRequest(req.id || req.sn, "APPROVED"); onClose(); }} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs cursor-pointer">Approve Transfer</button>
+            </>
           )}
         </div>
       </div>
@@ -393,6 +463,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   };
 
   const handleRevokeAccessCompletely = async (fnum, name) => {
+    if (fnum === 'A/2408') {
+      alert("SECURITY ERROR: Principal Super Admin (A/2408) account cannot be revoked under any circumstances.");
+      return;
+    }
     if (isReadOnlyObserver) return alert("Read-only clearance restricts revocation.");
     const targetUser = allSystemUsers.find(u => u.fnum === fnum);
     if (targetUser && !canControlTargetUser(targetUser)) {
@@ -676,7 +750,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const res = await authFetch("/api/v1/users");
       if (res && res.ok) {
         const data = await res.json();
-        // 🟢 Hide A/2408 completely from the directory and matrix views
         setAllSystemUsers((Array.isArray(data) ? data : []).filter(u => u.fnum !== 'A/2408' && (isSuperAdmin || u.role !== 'SUPER_ADMIN')));
       }
     } catch (err) { console.error(err); } 
@@ -838,7 +911,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
               </>
             ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
-           
+            
           <div className="relative flex items-center min-w-[240px]">
             <Search size={14} className="absolute left-3 text-slate-400 dark:text-slate-500" />
             <input 
@@ -1015,7 +1088,9 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
                                 <>
                                   <button onClick={() => handleBulkMatrixAction(u.fnum, true)} title="Check All" className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 cursor-pointer"><CheckSquare size={12} /></button>
                                   <button onClick={() => handleBulkMatrixAction(u.fnum, false)} title="Uncheck All" className="p-1 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 cursor-pointer"><Square size={12} /></button>
-                                  <button onClick={() => handleRevokeAccessCompletely(u.fnum, u.name)} title="Revoke Access (Move to Vault)" className="p-1 rounded bg-rose-50 text-rose-700 border border-rose-300 cursor-pointer"><XCircle size={12} /></button>
+                                  {u.fnum !== 'A/2408' && (
+                                    <button onClick={() => handleRevokeAccessCompletely(u.fnum, u.name)} title="Revoke Access (Move to Vault)" className="p-1 rounded bg-rose-50 text-rose-700 border border-rose-300 cursor-pointer"><XCircle size={12} /></button>
+                                  )}
                                 </>
                               )}
                               {isSuperAdmin && !isReadOnlyObserver && (
@@ -1142,30 +1217,44 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
         </div>
       )}
 
-      {/* 4. HR TRANSFERS TAB */}
+      {/* 4. HR TRANSFERS TAB WITH DOSSIER INSPECTION */}
       {activeTab === 'requests' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-amber-200 dark:border-amber-900/50 overflow-hidden w-full">
-          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">HR Modification Requests</div>
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase flex justify-between items-center">
+            <span>HR Modification & Transfer Requests</span>
+            <span className="text-[10px] text-amber-400 font-normal">Click any entry to review complete history trail (previous station, date, reviewing officer)</span>
+          </div>
           <div className="w-full overflow-x-auto custom-scrollbar">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs whitespace-nowrap">
               <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px]">
-                <tr><th className="px-4 py-3.5 text-left">Officer</th><th className="px-4 py-3.5 text-left">Requested Changes</th><th className="px-4 py-3.5 text-right">Action</th></tr>
+                <tr>
+                  <th className="px-4 py-3.5 text-left">Officer Details</th>
+                  <th className="px-4 py-3.5 text-left">Current Station / Region</th>
+                  <th className="px-4 py-3.5 text-left">Requested Station / Region</th>
+                  <th className="px-4 py-3.5 text-right">Action</th>
+                </tr>
               </thead>
               <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-200 dark:divide-slate-800">
                 {filteredRequests.map((req) => (
-                  <tr key={req.id || req.sn} className="hover:bg-amber-50/50 dark:hover:bg-slate-800">
-                    <td className="px-4 py-2.5 text-slate-900 dark:text-slate-100">{formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}</td>
-                    <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300">Station: {req.requested_station || req.current_station}</td>
-                    <td className="px-4 py-2.5 text-right space-x-2">
-                      {!isReadOnlyObserver && (
-                        <>
-                          <button onClick={() => handleReviewRequest(req.id || req.sn, "APPROVED")} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Approve</button>
-                          <button onClick={() => handleReviewRequest(req.id || req.sn, "REJECTED")} className="bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 font-bold py-1 px-2.5 rounded text-[11px] cursor-pointer">Reject</button>
-                        </>
-                      )}
+                  <tr key={req.id || req.sn} onClick={() => setSelectedModRequest(req)} className="hover:bg-amber-50/50 dark:hover:bg-slate-800 cursor-pointer transition-colors group">
+                    <td className="px-4 py-3 text-slate-900 dark:text-slate-100 font-extrabold flex items-center gap-2">
+                      <Eye size={14} className="text-amber-500 group-hover:scale-110 transition-transform"/>
+                      {formatOfficerHeader({ fnum: req.fnum, rank: req.current_rank, name: req.current_name })}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300 font-bold">{req.current_station || 'N/A'} / {req.current_region || 'N/A'}</td>
+                    <td className="px-4 py-3 text-amber-600 dark:text-amber-400 font-black">{req.requested_station || 'N/A'} / {req.requested_region || 'N/A'}</td>
+                    <td className="px-4 py-3 text-right space-x-2">
+                      <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedModRequest(req); }} className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 px-3 rounded-md text-[11px] cursor-pointer shadow-sm">
+                        Inspect Transfer
+                      </button>
                     </td>
                   </tr>
                 ))}
+                {filteredRequests.length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="p-8 text-center text-slate-500 font-bold text-xs">No active HR modification or transfer requests pending.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1320,7 +1409,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
       {/* MODALS */}
       <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} handleRegrantAccess={handleRegrantAccess} handlePermanentDelete={handlePermanentDelete} isSuperAdmin={isSuperAdmin} canModifyUser={canControlTargetUser} isReadOnlyObserver={isReadOnlyObserver} />
-      <HRModificationModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} currentUser={currentUser} isProcessingAction={isProcessingAction} handleReviewRequest={handleReviewRequest} />
+      <TransferDossierModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} handleReviewRequest={handleReviewRequest} isReadOnlyObserver={isReadOnlyObserver} />
       <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
       <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />
 

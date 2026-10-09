@@ -240,7 +240,36 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     return Array.from(list);
   }, [Nominal_Rolls, filterRegion]);
 
-  const populateUpdateForm = (data) => setFormData({ ...data, fnum: data.fnum || data.f_num || '' });
+  // 🟢 Fixed: Fully populate all available fields so existing data remains intact during updates
+  const populateUpdateForm = (data) => {
+    setFormData({
+      sn: data.sn !== undefined ? data.sn : null,
+      fnum: data.fnum || data.f_num || '',
+      rank: data.rank || '',
+      name: data.name || '',
+      sex: data.sex || 'MALE',
+      position: data.position || '',
+      dob: data.dob || '',
+      doe: data.doe || '',
+      dopost: data.dopost || data.do_post || data.dop || '',
+      dopro: data.dopro || data.do_pro || '',
+      contact: data.contact || '',
+      educlevel: data.educlevel || data.educ_level || data.education || '',
+      ipps: data.ipps || '',
+      tin: data.tin || '',
+      nin: data.nin || '',
+      homedist: data.homedist || data.home_dist || data.district || '',
+      tribe: data.tribe || '',
+      accno: data.accno || data.acc_no || '',
+      bankbranch: data.bankbranch || data.bank_branch || '',
+      station: data.station || '',
+      district: data.district || '',
+      region: data.region || currentUser?.region || '',
+      section: data.section || '',
+      dir: data.dir || '',
+      status: data.status || 'ACTIVE'
+    });
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -849,15 +878,15 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </div>
                     </div>
                   )}
-                    
+                     
                   <form onSubmit={handleFormSubmit} className="space-y-3">
                     {operation === 'update' && (formData.sn || formData.fnum) && (
                       <div className="bg-red-50 p-3 rounded-lg border border-red-200 space-y-2 mb-3 shadow-xs">
-                        <h4 className="text-[11px] font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={12} className="mr-1.5"/> Archive / Remove</h4>
+                        <h4 className="text-[11px] font-bold text-red-700 uppercase border-b border-red-200 pb-1 flex items-center"><AlertTriangle size={12} className="mr-1.5"/> Archive / Remove Officer (Optional)</h4>
                          
                         <div className="space-y-2">
                             <div>
-                                <label className="block text-[10px] font-bold text-red-800 mb-0.5">Removal Reason *</label>
+                                <label className="block text-[10px] font-bold text-red-800 mb-0.5">Removal Reason</label>
                                 <select value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} className="w-full text-xs border-red-300 rounded shadow-xs border py-1.5 px-2 font-bold text-red-700 outline-none focus:ring-1 focus:ring-red-400 bg-white">
                                     <option value="TRANSFERRED">Transferred</option>
                                     <option value="DEATH">Death</option>
@@ -868,26 +897,24 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-bold text-red-800 mb-0.5">Destination / Date Context *</label>
+                                <label className="block text-[10px] font-bold text-red-800 mb-0.5">Destination / Date Context</label>
                                 <input 
                                     type="text"
                                     placeholder={archiveReason === 'TRANSFERRED' ? "e.g. CPS Kampala to Arua" : "e.g. 15/08/2026 at Mulago"}
                                     value={archiveDetail}
                                     onChange={(e) => setArchiveDetail(e.target.value)}
                                     className="w-full text-xs border border-red-300 rounded p-1.5 bg-white text-slate-800 outline-none"
-                                    required
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-bold text-red-800 mb-0.5">Correspondence Ref (Message / Letter) *</label>
+                                <label className="block text-[10px] font-bold text-red-800 mb-0.5">Correspondence Ref (Message / Letter)</label>
                                 <input 
                                     type="text"
                                     placeholder="e.g. CR/123/2026 or POL/MSG/89"
                                     value={corrRef}
                                     onChange={(e) => setCorrRef(e.target.value)}
                                     className="w-full text-xs border border-red-300 rounded p-1.5 bg-white text-slate-800 font-mono outline-none"
-                                    required
                                 />
                             </div>
 
@@ -897,7 +924,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     )}
 
                     {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Editing: {formData.fnum}</div>}
-                      
+                       
                     <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 space-y-2">
                       <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">1. Identifiers</h4>
                       <div className="grid grid-cols-2 gap-2">
@@ -973,7 +1000,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               className="w-full text-xs py-1.5 px-2 border border-slate-300 rounded shadow-xs focus:ring-1 focus:ring-amber-500 outline-none bg-white text-slate-800"
                             />
                           </div>
-                            
+                             
                           <div>
                             <label className="block text-[10px] font-bold text-slate-700 mb-0.5 flex items-center">
                               Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
@@ -1028,7 +1055,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </span>
                   )}
               </div>
-               
+                 
               {bulkSelectMode && selectedOfficers.length > 0 && (
                   <div className="flex flex-col sm:flex-row items-center gap-2 animate-in fade-in slide-in-from-left-4 bg-white p-2.5 rounded-lg shadow-xs border border-red-200">
                       <select
@@ -1301,4 +1328,5 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   );
 };
 
+self.Nominal_Roll = Nominal_Roll;
 export default Nominal_Roll;
