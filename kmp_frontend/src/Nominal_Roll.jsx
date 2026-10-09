@@ -643,7 +643,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       return true;
     });
 
+    // 🟢 Synchronized Frontend Sorting Engine: Region Priority -> Command Weight (Commander + Deputy paired) -> Rank Seniority -> Force Number
     return list.sort((a, b) => {
+      // 1. Region Priority (KMP Headquarters downwards)
       const regA = getOfficialRegionForStation(a.station, a.region);
       const regB = getOfficialRegionForStation(b.station, b.region);
 
@@ -652,16 +654,19 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
       if (priA !== priB) return priA - priB;
 
+      // 2. Command Precedence Weight (Ensures Commander is immediately followed by Deputy/2I/C)
       const posA = getPositionPrecedence(a.position);
       const posB = getPositionPrecedence(b.position);
 
       if (posA !== posB) return posA - posB;
 
+      // 3. Rank Seniority Weight next
       const weightA = getRankWeight(a.rank);
       const weightB = getRankWeight(b.rank);
 
       if (weightA !== weightB) return weightA - weightB;
 
+      // 4. Finally Force / File Number
       const fnumA = cleanStr(a.fnum || a.f_num);
       const fnumB = cleanStr(b.fnum || b.f_num);
       return fnumA.localeCompare(fnumB);
@@ -734,7 +739,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   const availableAnalyticsFilterOptions = useMemo(() => {
     const setVals = new Set();
-    currentRollDataset.forEach(n => {
+    const dataset = Array.isArray(currentRollDataset) ? currentRollDataset : [];
+    
+    for (let i = 0; i < dataset.length; i++) {
+      const n = dataset[i];
       if (metricCategory === 'RANK') {
         let r = cleanStr(n.rank);
         if (r.includes('DRV')) r = 'PC';
@@ -754,7 +762,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         setVals.add('MALE');
         setVals.add('FEMALE');
       }
-    });
+    }
     return Array.from(setVals).sort();
   }, [currentRollDataset, metricCategory]);
 
