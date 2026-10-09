@@ -313,7 +313,7 @@
 }
 
 /* ========================================================
-   SYSTEM-WIDE MOBILE TABLE & SCROLLING FIX
+   7. SYSTEM-WIDE MOBILE TABLE & SCROLLING FIX
    ======================================================== */
 
 body, html {
@@ -356,4 +356,17 @@ body, html {
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background-color: #cbd5e1;
   border-radius: 8px;
+}
+
+/* =========================================================
+   8. GLOBAL NARRATIVE & QUILL EDITOR WORD-WRAPPING FIX
+   ========================================================= */
+.ql-editor,
+.ql-editor p,
+.ql-editor span,
+.ql-editor div {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: pre-wrap !important;
+  max-width: 100% !important;
 }

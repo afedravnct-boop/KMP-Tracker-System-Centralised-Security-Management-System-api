@@ -702,8 +702,8 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
               <div>
                 <h4 className="font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider mb-1">Complete Narrative Report</h4>
-                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
-                  <div className="ql-editor p-0 dark:text-slate-300" dangerouslySetInnerHTML={{ __html: selectedDossier.narrative || 'No detailed narrative logged.' }} />
+                <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap break-words overflow-hidden w-full">
+                  <div className="ql-editor p-0 dark:text-slate-300 break-words whitespace-pre-wrap" dangerouslySetInnerHTML={{ __html: selectedDossier.narrative || 'No detailed narrative logged.' }} />
                 </div>
               </div>
 

@@ -197,3 +197,14 @@
   right: 0;
   border-right-color: var(--border);
 }
+
+/* 🟢 Global fix for all Quill editor outputs and narrative text containers */
+.ql-editor,
+.ql-editor p,
+.ql-editor span,
+.ql-editor div {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  white-space: pre-wrap !important;
+  max-width: 100% !important;
+}

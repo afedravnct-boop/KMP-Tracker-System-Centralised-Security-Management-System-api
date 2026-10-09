@@ -1120,9 +1120,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   </div>
                 </div>
                 <div>
-                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Official Incident Narrative</div>
-                  <div className="text-xs text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere p-0 min-h-[100px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
-                </div>
+                <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Official Incident Narrative</div>
+                <div className="text-xs text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere w-full max-w-full p-0 min-h-[100px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+              </div>
               </div>
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
                 <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
