@@ -250,6 +250,11 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('audit'); 
   
+  // 🟢 Audit Preview Modal State
+  const [showAuditPreviewModal, setShowAuditPreviewModal] = useState(false);
+  const [auditPreviewData, setAuditPreviewData] = useState([]);
+  const [isLoadingAudit, setIsLoadingAudit] = useState(false);
+  
   const [analyticsMetricFilterValue, setAnalyticsMetricFilterValue] = useState('ALL');
   
   const userRoleClean = cleanStr(currentUser?.role);
@@ -426,6 +431,23 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       setArchiveDetails(null);
       setCustomReason('');
       setPreviousFnum('');
+    }
+  };
+
+  // 🟢 Fetch Missing Audit Data for On-Screen View
+  const handleFetchAuditPreview = async () => {
+    setIsLoadingAudit(true);
+    try {
+      const response = await authFetch(`/api/v1/nominal-roll/audit-missing-preview?region=${encodeURIComponent(targetRegion)}&station=${encodeURIComponent(targetStation)}`, { method: 'GET' });
+      if (!response.ok) throw new Error("Failed to fetch audit preview.");
+      const data = await response.json();
+      setAuditPreviewData(Array.isArray(data) ? data : []);
+      setShowModal(false);
+      setShowAuditPreviewModal(true);
+    } catch (err) {
+      alert(`Audit Preview Error: ${err.message}`);
+    } finally {
+      setIsLoadingAudit(false);
     }
   };
 
@@ -933,10 +955,11 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => { setModalMode('audit'); setShowModal(true); }}
-                  className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 text-xs font-bold rounded-md shadow transition-all cursor-pointer flex items-center"
+                  onClick={handleFetchAuditPreview}
+                  disabled={isLoadingAudit}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 text-xs font-bold rounded-md shadow transition-all cursor-pointer flex items-center disabled:opacity-50"
                 >
-                  <Download className="w-3.5 h-3.5 mr-1" /> Audit Missing Info
+                  <Eye className="w-3.5 h-3.5 mr-1" /> {isLoadingAudit ? 'Loading...' : 'Audit Missing Info'}
                 </button>
                 <button
                   type="button"
@@ -985,6 +1008,69 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         </div>
       </div>
 
+      {/* 🟢 Audit Missing Info Preview Modal */}
+      {showAuditPreviewModal && (
+        <div className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl p-5 space-y-4 flex flex-col max-h-[85vh]">
+            <div className="flex justify-between items-center border-b pb-3 shrink-0">
+              <h3 className="text-sm font-extrabold text-slate-800 uppercase flex items-center">
+                <AlertTriangle className="w-4 h-4 mr-1.5 text-amber-600" /> Manpower Audit: Missing Information ({auditPreviewData.length} Officers Flagged)
+              </h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setModalMode('audit'); setShowAuditPreviewModal(false); setShowModal(true); }}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" /> Download Audit Report
+                </button>
+                <button onClick={() => setShowAuditPreviewModal(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-y-auto flex-1 custom-scrollbar border border-slate-200 rounded-lg">
+              <table className="min-w-full divide-y divide-slate-200 text-xs">
+                <thead className="bg-slate-50 sticky top-0 z-10">
+                  <tr>
+                    <th className="px-3 py-2.5 text-left font-bold text-slate-700 uppercase">S/No</th>
+                    <th className="px-3 py-2.5 text-left font-bold text-slate-700 uppercase">Force No</th>
+                    <th className="px-3 py-2.5 text-left font-bold text-slate-700 uppercase">Rank & Name</th>
+                    <th className="px-3 py-2.5 text-left font-bold text-slate-700 uppercase">Station / Region</th>
+                    <th className="px-3 py-2.5 text-left font-bold text-amber-700 uppercase">Missing Fields</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-100">
+                  {auditPreviewData.map((row, idx) => (
+                    <tr key={row.force_number || idx} className="hover:bg-amber-50/40 transition-colors">
+                      <td className="px-3 py-2 font-bold">{idx + 1}</td>
+                      <td className="px-3 py-2 font-bold text-blue-700">{row.force_number}</td>
+                      <td className="px-3 py-2 uppercase font-medium">{row.rank} {row.name}</td>
+                      <td className="px-3 py-2 text-slate-600">{row.station} <span className="text-[10px] text-slate-400">({row.region})</span></td>
+                      <td className="px-3 py-2 font-bold text-amber-700 bg-amber-50/50 rounded">{row.missing_fields}</td>
+                    </tr>
+                  ))}
+                  {auditPreviewData.length === 0 && (
+                    <tr><td colSpan="5" className="text-center p-8 text-xs text-slate-500 font-medium">✅ Perfect! No missing information found for officers in this scope.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="pt-2 shrink-0 flex justify-end">
+              <button 
+                type="button" 
+                onClick={() => setShowAuditPreviewModal(false)} 
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded text-xs font-bold transition cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showModal && (
         <div className="fixed inset-0 z-[99999] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md p-5 space-y-4">
@@ -999,7 +1085,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
               {modalMode === 'audit' 
-                ? 'Generate an Excel audit report identifying missing personnel information for a specific station or post.' 
+                ? 'Inspect or generate an Excel audit report identifying missing personnel information for a specific station or post.' 
                 : 'Download a complete, perfectly formatted nominal list for any selected station, division, or police post (e.g., BUGOLOBI).'}
             </p>
             <div className="space-y-3">
@@ -1041,13 +1127,24 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
               >
                 Cancel
               </button>
-              <button 
-                type="button" 
-                onClick={handleExecuteExportModal} 
-                className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded text-xs font-bold shadow transition cursor-pointer flex items-center justify-center"
-              >
-                <Download className="w-3.5 h-3.5 mr-1" /> Download Excel File
-              </button>
+              {modalMode === 'audit' ? (
+                <button 
+                  type="button" 
+                  onClick={handleFetchAuditPreview}
+                  disabled={isLoadingAudit}
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2 rounded text-xs font-bold shadow transition cursor-pointer flex items-center justify-center disabled:opacity-50"
+                >
+                  <Eye className="w-3.5 h-3.5 mr-1" /> {isLoadingAudit ? 'Loading...' : 'View Audit List'}
+                </button>
+              ) : (
+                <button 
+                  type="button" 
+                  onClick={handleExecuteExportModal} 
+                  className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded text-xs font-bold shadow transition cursor-pointer flex items-center justify-center"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" /> Download Excel File
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1670,3 +1670,60 @@ def export_filtered_nominal_roll(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Filtered Ledger Export Failed: {str(e)}")
+
+@router.get("/nominal-roll/audit-missing-preview")
+def audit_missing_preview(
+    region: str = "ALL REGIONS",
+    station: str = "ALL STATIONS",
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        ActiveModel = get_active_model()
+        query = get_scoped_nominal_query(db, current_user, ActiveModel)
+        
+        region_clean = region.strip().upper()
+        station_clean = station.strip().upper()
+
+        records = sorted(query.all(), key=hierarchical_sort_key)
+        missing_rows = []
+
+        for r in records:
+            if is_invalid_roster_entry(r): continue
+            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
+
+            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
+            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+
+            rank = str(getattr(r, 'rank', '')).strip().upper()
+            is_constable_tier = rank in ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'] or 'DRV' in rank
+
+            dob = getattr(r, 'dob', None)
+            doe = getattr(r, 'doe', None)
+            contact = getattr(r, 'contact', None)
+            nin = getattr(r, 'nin', None)
+            ipps = getattr(r, 'ipps', None)
+            dopro = getattr(r, 'do_pro', None)
+
+            missing_fields = []
+            if not dob: missing_fields.append("DOB")
+            if not doe: missing_fields.append("DOE")
+            if not contact: missing_fields.append("Contact")
+            if not nin: missing_fields.append("NIN")
+            if not ipps: missing_fields.append("IPPS")
+            if not is_constable_tier and not dopro: missing_fields.append("DO_PRO")
+
+            if missing_fields:
+                missing_rows.append({
+                    "force_number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
+                    "rank": rank,
+                    "name": getattr(r, 'name', ''),
+                    "region": r_reg,
+                    "station": r_stn,
+                    "missing_fields": " | ".join(missing_fields)
+                })
+
+        return missing_rows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audit Preview Failed: {str(e)}")
