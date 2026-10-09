@@ -67,7 +67,7 @@ from auth import router as auth_router
 from docx import Document
 from app.schemas import AgricStatsCreate, AgricStatsResponse
 from routers import exhibits
-from routers.activity_logger import record_neon_activity
+from routers.activity_logger import record_neon_activity, SystemActivityMiddleware  # 🟢 Imported SystemActivityMiddleware here
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
 from routers import hr_router
 
@@ -329,6 +329,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# 🟢 3. MOUNT THE TRANSPARENT SYSTEM WATCHDOG MIDDLEWARE GLOBALLY
+app.add_middleware(SystemActivityMiddleware)
 
 # ==========================================
 # 3. SECURITY & DEPENDENCIES

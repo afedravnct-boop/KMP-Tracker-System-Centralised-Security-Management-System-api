@@ -1184,6 +1184,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
     if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
 
+    // 🟢 Client-side Password Policy Verification
+    if (!signupData.password || signupData.password.length < 8) {
+      return setAuthMessage("⚠️ Error: Password must be at least 8 characters long.");
+    }
+    if (!/(?=.*[A-Za-z])(?=.*\d)/.test(signupData.password)) {
+      return setAuthMessage("⚠️ Error: Password must contain a mix of letters and numbers.");
+    }
+
     if (signupData.nin) {
       const cleanNin = signupData.nin.trim().toUpperCase();
       if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) {
@@ -1385,6 +1393,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
               {mode === 'signup' ? (
                 <form onSubmit={handleSignupSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
                   <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
+
+                  {authMessage && (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2 text-red-700 mb-4">
+                      <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-xs font-semibold leading-tight">{authMessage}</p>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
@@ -1411,7 +1427,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                         placeholder="123456"
                       />
                     </div>
-                    
+                                        
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">National ID (NIN) *</label>
                       <input 
@@ -1568,7 +1584,9 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       value={signupData.password} 
                       onChange={handleSignupChange} 
                       className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
+                      placeholder="Min. 8 characters (letters & numbers)"
                     />
+                    <p className="text-[10px] text-slate-500 mt-1">Must be at least 8 characters long with a mix of letters and numbers.</p>
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
@@ -1688,7 +1706,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           )}
         </div>
       </div>
-
+    
       {/* 🟢 POLICY & TERMS MODAL FOR SIGNUP */}
       {showPolicyModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
