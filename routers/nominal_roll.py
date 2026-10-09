@@ -143,17 +143,18 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
         raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
     return current_user
 
-def aggressive_clean_text(val):
+def clean_nin(val):
     if pd.isna(val) or val is None: return None
-    s = str(val)
-    if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
+    s = str(val).strip().upper()
+    if s.lower() in ['nan', 'nat', 'none', 'null', '', '0', 'N/A', 'NIL']: return None
     
-    s = re.sub(r"[,!?'\"]", "", s)
-    s = re.sub(r'\s+', ' ', s)
-    s = s.strip('. -/\\')
-    
-    if not s: return None
-    return s.upper()
+    # Handle float conversion artifacts from excel like "1234567.0"
+    if s.endswith('.0'):
+        s = s[:-2]
+        
+    # Retain letters (CM, CF) and digits, remove unwanted symbols/spaces
+    s = re.sub(r'[^A-Z0-9]', '', s)
+    return s if len(s) > 0 else None
 
 def clean_numeric(val):
     if pd.isna(val) or val is None: return None
@@ -590,7 +591,10 @@ async def bulk_upload_nominal_roll(
         for idx, row in combined_df.iterrows():
             fnum_val = aggressive_clean_text(row.get("fnum") or row.get("forceno") or row.get("forcenumber") or row.get("fileno") or row.get("fno"))
             ipps_val = clean_numeric(row.get("ipps") or row.get("ippsno") or row.get("ippsnumber"))
-            nin_val = clean_numeric(row.get("nin") or row.get("nationalid") or row.get("ninno"))
+            
+            # 🟢 Change clean_numeric to clean_nin here:
+            nin_val = clean_nin(row.get("nin") or row.get("nationalid") or row.get("ninno"))
+            
             rank_val = aggressive_clean_text(row.get("rank"))
             name_val = aggressive_clean_text(row.get("name"))
             source_filename = row.get("__source_file", "Batch Upload")
