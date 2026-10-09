@@ -109,19 +109,24 @@ const getPositionPrecedence = (position) => {
   const pos = cleanStr(position);
   if (!pos) return 99;
 
-  if (pos.includes('KMP COMMANDER') || ((pos.includes('COMD') || pos.includes('COMDR') || pos.includes('COM') || pos.includes('COMMANDER')) && pos.includes('KMP') && !pos.includes('DEP') && !pos.includes('DEPUTY'))) return 1;
-  if (pos.includes('DEPUTY KMP') || pos.includes('DEP KMP') || ((pos.includes('DEP') || pos.includes('DEPUTY')) && pos.includes('KMP'))) return 2;
+  // 1. KMP Headquarters Supreme Command (Commander / Comdr / Comd / Com / CDR vs Deputy)
+  if (pos.includes('KMP COMMANDER') || (pos.includes('KMP') && (pos.includes('COMD') || pos.includes('COMDR') || pos.includes('COM') || pos.includes('COMMANDER') || pos.includes('CDR')) && !pos.includes('DEP') && !pos.includes('DEPUTY'))) return 1;
+  if (pos.includes('DEPUTY KMP') || pos.includes('DEP KMP') || pos.includes('DEP. KMP') || (pos.includes('KMP') && (pos.includes('DEP') || pos.includes('DEPUTY')))) return 2;
   if (pos.includes('ADMIN KMP') || pos.includes('ADMIN. KMP') || pos.includes('ADMIN OFFICER')) return 3;
 
+  // 2. Regional Commanders (RPC vs Deputy RPC)
   if (pos.includes('RPC') && !pos.includes('DEPUTY') && !pos.includes('DEP')) return 1;
   if (pos.includes('DEPUTY RPC') || pos.includes('DEP RPC') || pos.includes('D/RPC')) return 2;
 
+  // 3. Divisional & Station Commanders (DPC / Division Commander)
   if (pos.includes('DPC') || pos.includes('DIVISION COMMANDER') || pos.includes('DIV COMDR')) return 4;
   if (pos.includes('DEPUTY DPC') || pos.includes('DEP DPC')) return 5;
 
-  if ((pos.includes('COM') || pos.includes('COMD') || pos.includes('COMDR') || pos.includes('COMMANDER')) && !pos.includes('DEP') && !pos.includes('DEPUTY')) return 5;
+  // 4. General Unit Commanders (FFU Cmdr, Traffic Cmdr, etc. vs Deputies)
+  if ((pos.includes('COM') || pos.includes('COMD') || pos.includes('COMDR') || pos.includes('COMMANDER') || pos.includes('CDR')) && !pos.includes('DEP') && !pos.includes('DEPUTY')) return 5;
   if (pos.includes('DEP') || pos.includes('DEPUTY')) return 6;
 
+  // 5. OC Station / Unit / Post / 2I/C
   if (pos.includes('OC STATION') || pos.includes('OC DIV') || (pos.includes('OC') && !pos.includes('CID') && !pos.includes('CI'))) return 7;
   if (pos.includes('OC CID') || pos.includes('HEAD CID')) return 8;
   if (pos.includes('OC CI') || pos.includes('CRIME INTELLIGENCE')) return 9;
@@ -643,9 +648,21 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       return true;
     });
 
-    // 🟢 Synchronized Frontend Sorting Engine: Region Priority -> Command Weight (Commander + Deputy paired) -> Rank Seniority -> Force Number
+    // 🟢 Strict Instruction Order: Rank Seniority First -> Position Precedence -> Region Hierarchy -> Force Number
     return list.sort((a, b) => {
-      // 1. Region Priority (KMP Headquarters downwards)
+      // 1. Rank Seniority Weight First (Highest rank like ACP, SSP at the top)
+      const weightA = getRankWeight(a.rank);
+      const weightB = getRankWeight(b.rank);
+
+      if (weightA !== weightB) return weightA - weightB;
+
+      // 2. Position Precedence Second (e.g. Comdr KMP before Deputy within same rank)
+      const posA = getPositionPrecedence(a.position);
+      const posB = getPositionPrecedence(b.position);
+
+      if (posA !== posB) return posA - posB;
+
+      // 3. Region Hierarchy Third (KMP Headquarters downwards)
       const regA = getOfficialRegionForStation(a.station, a.region);
       const regB = getOfficialRegionForStation(b.station, b.region);
 
@@ -653,18 +670,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       const priB = REGION_SORT_PRIORITY[regB] || 50;
 
       if (priA !== priB) return priA - priB;
-
-      // 2. Command Precedence Weight (Ensures Commander is immediately followed by Deputy/2I/C)
-      const posA = getPositionPrecedence(a.position);
-      const posB = getPositionPrecedence(b.position);
-
-      if (posA !== posB) return posA - posB;
-
-      // 3. Rank Seniority Weight next
-      const weightA = getRankWeight(a.rank);
-      const weightB = getRankWeight(b.rank);
-
-      if (weightA !== weightB) return weightA - weightB;
 
       // 4. Finally Force / File Number
       const fnumA = cleanStr(a.fnum || a.f_num);
