@@ -8,13 +8,25 @@ import { authFetch } from './api';
 import BulkNominalRollUpload from './BulkNominalRollUpload';
 import OfficerDossierModal from './OfficerDossierModal';
 
-// 🟢 Initial Major Regions & Stations mapping
+// 🟢 Enriched Regional Hierarchy with Major Divisions / CPS
 const REGIONAL_HIERARCHY = {
-  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+  "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+};
+
+// 🟢 Strict Regional Priority Order for Sorting
+const REGION_SORT_PRIORITY = {
+  "KMP HEADQUARTERS": 1,
+  "KMP NORTH HEADQUARTERS": 2,
+  "KMP NORTH": 3,
+  "KMP EAST HEADQUARTERS": 4,
+  "KMP EAST": 5,
+  "KMP SOUTH HEADQUARTERS": 6,
+  "KMP SOUTH": 7,
+  "POLICE HEADQUARTERS": 8
 };
 
 const cleanStr = (str) => {
@@ -32,20 +44,68 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = cleanStr(stationName);
-  const cleanDbRegion = cleanStr(dbRegion);
+// 🟢 Intelligent Station & Post Parsing Engine
+const parseStationHierarchy = (rawStation) => {
+  const cleaned = cleanStr(rawStation);
+  if (!cleaned) return { division: 'UNASSIGNED', station: 'UNASSIGNED', subStation: '', post: '', type: 'POST' };
 
-  if (!cleanStation && !cleanDbRegion) return 'UNASSIGNED';
+  // Handle slashed compounds e.g., "JINJA ROAD CPS / WAMPEWO P/P" or "CPS KAMPALA/PARLIAMENT"
+  if (cleaned.includes('/') || cleaned.includes('\\')) {
+    const parts = cleaned.split(/[\/\\]/).map(p => cleanStr(p));
+    const parent = parts[0];
+    const child = parts[1] || '';
+    
+    let type = 'POST';
+    if (child.includes('SUB-STATION') || child.includes('SUBSTATION')) type = 'SUBSTATION';
+    else if (child.includes('STATION')) type = 'STATION';
 
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) return cleanDbRegion;
-
-  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) return regionName;
+    return {
+      division: parent,
+      station: parent,
+      subStation: type === 'SUBSTATION' ? child : '',
+      post: type === 'POST' ? child : '',
+      type
+    };
   }
-  return cleanDbRegion || cleanStation || 'UNASSIGNED';
+
+  // Handle abbreviation checks e.g., "WAMPEWO P/P" or "WATUBA P.S"
+  if (cleaned.endsWith(' P/P') || cleaned.endsWith(' P.P') || cleaned.includes('POLICE POST')) {
+    const name = cleaned.replace(/P\/P|P\.P|POLICE POST/g, '').trim();
+    return { division: 'GENERAL', station: 'GENERAL', subStation: '', post: name, type: 'POST' };
+  }
+  if (cleaned.endsWith(' P/S') || cleaned.endsWith(' P.S') || cleaned.includes('POLICE STATION')) {
+    const name = cleaned.replace(/P\/S|P\.S|POLICE STATION/g, '').trim();
+    return { division: name, station: name, subStation: '', post: '', type: 'STATION' };
+  }
+
+  // Check if it's a major Division / CPS in our mapping hierarchy
+  for (const stationsList of Object.values(REGIONAL_HIERARCHY)) {
+    if (stationsList.includes(cleaned)) {
+      return { division: cleaned, station: cleaned, subStation: '', post: '', type: 'DIVISION' };
+    }
+  }
+
+  return { division: cleaned, station: cleaned, subStation: '', post: '', type: 'STATION' };
 };
 
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const parsed = parseStationHierarchy(stationName);
+  const cleanDbRegion = cleanStr(dbRegion);
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion]) {
+    const matches = REGIONAL_HIERARCHY[cleanDbRegion].some(s => isStationEquivalent(s, parsed.division) || isStationEquivalent(s, parsed.station));
+    if (matches) return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.some(s => isStationEquivalent(s, parsed.division) || isStationEquivalent(s, parsed.station))) {
+      return regionName;
+    }
+  }
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
+// 🟢 21-Rank Normalization Engine (Handling Detectives & Drivers cleanly)
 const getRankWeight = (rank) => {
   if (!rank) return 99;
   let r = cleanStr(rank);
@@ -67,50 +127,78 @@ const getRankWeight = (rank) => {
 
   if (!r) r = 'PC';
 
-  let baseWeight = 50;
-  if (r === 'IGP') baseWeight = 1;
-  else if (r === 'DIGP') baseWeight = 2;
-  else if (r === 'AIGP') baseWeight = 3;
-  else if (r === 'SCP') baseWeight = 4;
-  else if (r === 'CP') baseWeight = 5;
-  else if (r === 'ACP') baseWeight = 6;
-  else if (r === 'SSP') baseWeight = 7;
-  else if (r === 'SP') baseWeight = 8;
-  else if (r === 'SASP') baseWeight = 9;
-  else if (r === 'ASP') baseWeight = 10;
-  else if (r === 'IP') baseWeight = 11;
-  else if (r === 'AIP') baseWeight = 12;
-  else if (r === 'HCM') baseWeight = 13;
-  else if (r === 'HC') baseWeight = 14;
-  else if (r === 'S/SGT' || r === 'SSGT') baseWeight = 15;
-  else if (r === 'SGT') baseWeight = 16;
-  else if (r === 'CPL') baseWeight = 17;
-  else if (r === 'L/CPL' || r === 'LCPL') baseWeight = 18;
-  else if (r === 'PC' || r === 'CONSTABLE') baseWeight = 19;
-  else if (r === 'PPC') baseWeight = 20;
-  else if (r === 'SPC') baseWeight = 21;
-  else if (r === 'CIVILIAN') baseWeight = 98;
+  if (r === 'IGP') return 1;
+  if (r === 'DIGP') return 2;
+  if (r === 'AIGP') return 3;
+  if (r === 'SCP') return 4;
+  if (r === 'CP') return 5;
+  if (r === 'ACP') return 6;
+  if (r === 'SSP') return 7;
+  if (r === 'SP') return 8;
+  if (r === 'SASP') return 9;
+  if (r === 'ASP') return 10;
+  if (r === 'IP') return 11;
+  if (r === 'AIP') return 12;
+  if (r === 'HCM') return 13;
+  if (r === 'HC') return 14;
+  if (r === 'S/SGT' || r === 'SSGT') return 15;
+  if (r === 'SGT') return 16;
+  if (r === 'CPL') return 17;
+  if (r === 'L/CPL' || r === 'LCPL') return 18;
+  if (r === 'PC' || r === 'CONSTABLE') return 19;
+  if (r === 'PPC') return 20;
+  if (r === 'SPC') return 21;
+  if (r === 'CIVILIAN') return 98;
 
-  return baseWeight;
+  return 50;
 };
 
+// 🟢 Command & Supervisory Precedence Weighting for Sorting
+const getPositionPrecedence = (position) => {
+  const pos = cleanStr(position);
+  if (!pos) return 99;
+  if (pos.includes('COMMANDER KMP') || pos === 'COMD KMP' || pos === 'CDR KMP') return 1;
+  if (pos.includes('DEPUTY COMMANDER') || pos.includes('DEP COMDR') || pos.includes('DEPUTY KMP')) return 2;
+  if (pos.includes('ADMIN KMP') || pos.includes('ADMIN OFFICER')) return 3;
+  if (pos.includes('RPC') && !pos.includes('DEPUTY')) return 1;
+  if (pos.includes('DEPUTY RPC') || pos.includes('DEP RPC')) return 2;
+  if (pos.includes('OC STATION') || pos.includes('DPC') || pos.includes('DIVISION COMMANDER')) return 4;
+  if (pos.includes('OC CID') || pos.includes('OC CI') || pos.includes('OC')) return 5;
+  if (pos.includes('2I/C') || pos.includes('DEPUTY OC') || pos.includes('I/C')) return 6;
+  return 50;
+};
+
+// 🟢 Granular Education Bracketing
 const parseEducationLevel = (educ) => {
-  if (!educ) return 'UNKNOWN';
+  if (!educ) return 'UNEDUCATED / UNRECORDED';
   const e = cleanStr(educ);
   
-  if (e.includes('DEGREE') || e.includes('BACHELOR') || e.includes('MASTER') || e.includes('PHD')) return 'DEGREE / POSTGRAD';
-  if (e.includes('DIPLOMA')) return 'DIPLOMA';
-  if (e.includes('CERT')) return 'CERTIFICATE';
-  if (e.includes('UACE') || e.includes('S.6') || e.includes('SENIOR 6')) return 'UACE (A-LEVEL)';
-  if (e.includes('UCE') || e.includes('S.4') || e.includes('SENIOR 4')) return 'UCE (O-LEVEL)';
-  
+  if (e.includes('MASTER') || e.includes('MSC') || e.includes('MA') || e.includes('MBA') || e.includes('PHD') || e.includes('DOCTORATE')) return 'MASTERS / DOCTORATE';
+  if (e.includes('PGD') || e.includes('POST GRADUATE')) return 'POST-GRADUATE DIPLOMA (PGD)';
+  if (e.includes('DEGREE') || e.includes('BACHELOR') || e.includes('BA') || e.includes('BSC') || e.includes('BED') || e.includes('LLB') || e.includes('BBA')) return 'DEGREES / BACHELORS';
+  if (e.includes('DIPLOMA') || e.includes('DIP')) return 'DIPLOMA';
+  if (e.includes('CERTIFICATE') || e.includes('CERT')) return 'CERTIFICATE';
+  if (e.includes('UACE') || e.includes('A LEVEL') || e.includes('A-LEVEL') || e.includes('S.6') || e.includes('S6')) return 'UACE (ADVANCED CERTIFICATE)';
+  if (e.includes('UCE') || e.includes('O LEVEL') || e.includes('O-LEVEL') || e.includes('S.4') || e.includes('S4')) return 'UCE (O-LEVEL)';
+  if (e.includes('S.3') || e.includes('S3')) return 'S.3';
+  if (e.includes('S.2') || e.includes('S2')) return 'S.2';
+  if (e.includes('S.1') || e.includes('S1')) return 'S.1';
+  if (e.includes('P.7') || e.includes('P7') || e.includes('PLE')) return 'P.7 (PLE)';
+  if (e.includes('P.6') || e.includes('P6')) return 'P.6';
+  if (e.includes('P.5') || e.includes('P5')) return 'P.5';
+  if (e.includes('P.4') || e.includes('P4')) return 'P.4';
+  if (e.includes('P.3') || e.includes('P3')) return 'P.3';
+  if (e.includes('P.2') || e.includes('P2')) return 'P.2';
+  if (e.includes('P.1') || e.includes('P1')) return 'P.1';
+  if (e.includes('NONE') || e.includes('NIL') || e.includes('UNEDUCATED')) return 'UNEDUCATED';
+
   return 'OTHER / UNRECORDED';
 };
 
 const MetricCard = ({ title, value, colorClass }) => (
-  <div className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center">
-    <h4 className="text-[9px] font-extrabold mb-1 uppercase tracking-wider text-slate-500">{title}</h4>
-    <div className={`text-base font-black leading-none ${colorClass}`}>{value}</div>
+  <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center">
+    <h4 className="text-[8px] sm:text-[9px] font-extrabold mb-1 uppercase tracking-wider text-slate-500 leading-tight">{title}</h4>
+    <div className={`text-sm sm:text-base font-black leading-none ${colorClass}`}>{value}</div>
   </div>
 );
 
@@ -240,7 +328,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     return Array.from(list);
   }, [Nominal_Rolls, filterRegion]);
 
-  // 🟢 Fixed: Fully populate all available fields so existing data remains intact during updates
   const populateUpdateForm = (data) => {
     setFormData({
       sn: data.sn !== undefined ? data.sn : null,
@@ -494,9 +581,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 Filter Engine (Backend already handles sorting hierarchy)
+  // 🟢 Enriched Sorting & Filtering Engine based on Strict Hierarchy & Rank Precedence
   const filteredRolls = useMemo(() => {
-    return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
+    const list = (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const statusStr = cleanStr(n.status);
       if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
 
@@ -525,6 +612,31 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         }
       }
       return true;
+    });
+
+    // 🟢 Apply Multi-Tier Strict Sorting Protocol
+    return list.sort((a, b) => {
+      const regA = getOfficialRegionForStation(a.station, a.region);
+      const regB = getOfficialRegionForStation(b.station, b.region);
+
+      const priA = REGION_SORT_PRIORITY[regA] || 50;
+      const priB = REGION_SORT_PRIORITY[regB] || 50;
+
+      if (priA !== priB) return priA - priB;
+
+      const posA = getPositionPrecedence(a.position);
+      const posB = getPositionPrecedence(b.position);
+
+      if (posA !== posB) return posA - posB;
+
+      const weightA = getRankWeight(a.rank);
+      const weightB = getRankWeight(b.rank);
+
+      if (weightA !== weightB) return weightA - weightB;
+
+      const fnumA = cleanStr(a.fnum || a.f_num);
+      const fnumB = cleanStr(b.fnum || b.f_num);
+      return fnumA.localeCompare(fnumB);
     });
   }, [Nominal_Rolls, filterRegion, filterStation, searchTerm]);
 
@@ -593,8 +705,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           const bankBranch = cleanStr(n.bankbranch || n.bank_branch || n.bank || n.bank_name);
           const educLevel = cleanStr(n.educlevel || n.educ_level || n.education);
            
-          const stationStr = cleanStr(n.station) || 'UNKNOWN';
-          const sectionStr = cleanStr(n.section);
+          const parsedStn = parseStationHierarchy(n.station);
 
           if (metricCategory === 'RANK') {
               let r = cleanStr(n.rank);
@@ -605,7 +716,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
               }
               key = r || 'UNRANKED';
           }
-          else if (metricCategory === 'UNIT') key = `${stationStr} ${sectionStr ? '- ' + sectionStr : ''}`.trim();
+          else if (metricCategory === 'UNIT') key = parsedStn.division || parsedStn.station || 'UNKNOWN DIVISION';
           else if (metricCategory === 'SEX') key = isFemale ? 'FEMALE' : (isMale ? 'MALE' : 'UNSPECIFIED');
           else if (metricCategory === 'BANK') key = bankBranch || 'BANK UNKNOWN';
           else if (metricCategory === 'DISTRICT') key = homeDistrict || 'DISTRICT UNKNOWN';
@@ -631,10 +742,14 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       return Object.values(grouped).sort((a, b) => b.total - a.total);
   }, [currentRollDataset, metricCategory]);
 
+  // 🟢 Fixed Entity Tiers for Accurate Metrics Counting
   const metricsData = useMemo(() => {
     let maleCount = 0;
     let femaleCount = 0;
-    const uniqueStations = {};
+    const divisionsSet = new Set();
+    const stationsSet = new Set();
+    const substationsSet = new Set();
+    const postsSet = new Set();
 
     currentRollDataset.forEach(n => {
       const sexStr = cleanStr(n.sex);
@@ -647,8 +762,11 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       }
 
       if (n.station) {
-        const cleanStation = cleanStr(n.station);
-        if (cleanStation) uniqueStations[cleanStation] = true;
+        const parsed = parseStationHierarchy(n.station);
+        if (parsed.division) divisionsSet.add(parsed.division);
+        if (parsed.station) stationsSet.add(parsed.station);
+        if (parsed.subStation) substationsSet.add(parsed.subStation);
+        if (parsed.post) postsSet.add(parsed.post);
       }
     });
 
@@ -657,7 +775,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       male: maleCount,
       female: femaleCount,
       unassigned: currentRollDataset.length - (maleCount + femaleCount),
-      stations: Object.keys(uniqueStations).length
+      divisions: divisionsSet.size,
+      stations: stationsSet.size,
+      substations: substationsSet.size,
+      posts: postsSet.size
     };
   }, [currentRollDataset]);
 
@@ -720,12 +841,16 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+        {/* 🟢 Resized & Wrapped Metric Tabs */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 gap-2">
            <MetricCard title="Total Personnel" value={metricsData.total} colorClass={viewMode === 'archive' ? "text-red-700" : "text-blue-700"} />
            <MetricCard title="Male Officers" value={metricsData.male} colorClass="text-indigo-600" />
            <MetricCard title="Female Officers" value={metricsData.female} colorClass="text-pink-600" />
            <MetricCard title="Unassigned Sex" value={metricsData.unassigned} colorClass="text-slate-400" />
+           <MetricCard title="Divisions/CPS" value={metricsData.divisions} colorClass="text-purple-600" />
            <MetricCard title="Stations" value={metricsData.stations} colorClass="text-emerald-600" />
+           <MetricCard title="Substations" value={metricsData.substations} colorClass="text-teal-600" />
+           <MetricCard title="Police Posts" value={metricsData.posts} colorClass="text-amber-600" />
         </div>
       </div>
 

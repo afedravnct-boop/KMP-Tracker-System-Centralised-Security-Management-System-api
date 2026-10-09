@@ -1,5 +1,6 @@
+// src/components/BulkNominalRollUpload.jsx
 import React, { useState, useRef } from 'react';
-import { Upload, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle, AlertTriangle, Loader2, X, FileSpreadsheet } from 'lucide-react';
 import { authFetch } from './api';
 
 const ReintegrationHelper = ({ skipped, onDismiss }) => {
@@ -19,7 +20,7 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
   const handleRestore = async () => {
     if (selected.length === 0) return alert("Select at least one officer.");
     if (!reason.trim()) return alert("Please enter a reason for re-integration.");
-    
+     
     setProcessing(true);
     let successCount = 0;
     let failCount = 0;
@@ -27,7 +28,7 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
     for (const fnum of selected) {
       const officerData = skipped.find(o => o.fnum === fnum);
       if (!officerData) continue;
-      
+       
       try {
         const res = await authFetch('/api/v1/nominal-roll', {
           method: "POST",
@@ -45,7 +46,7 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
         failCount++;
       }
     }
-    
+     
     setProcessing(false);
     setResults(`Successfully re-integrated ${successCount} officers. ${failCount > 0 ? `Failed: ${failCount}` : ''}`);
   };
@@ -78,7 +79,7 @@ const ReintegrationHelper = ({ skipped, onDismiss }) => {
           className="w-full text-xs p-1.5 rounded border border-amber-300 dark:bg-slate-800 dark:border-amber-700 mb-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
         />
       </div>
-      
+       
       <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded p-1.5 max-h-32 overflow-y-auto custom-scrollbar mb-2 w-full">
         <ul className="space-y-1">
           {skipped.map((off, i) => (
@@ -120,16 +121,27 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState(null);
   const [status, setStatus] = useState('idle');
-  
+   
   const fileInputRef = useRef(null);
 
+  // 🟢 Accumulate files properly instead of overwriting
   const handleFileChange = (e) => {
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length > 0) {
-      setFiles(selectedFiles);
+      setFiles(prev => {
+        // Prevent duplicate file entries by name/size check
+        const existingNames = new Set(prev.map(f => f.name + f.size));
+        const uniqueNewFiles = selectedFiles.filter(f => !existingNames.has(f.name + f.size));
+        return multiple ? [...prev, ...uniqueNewFiles] : uniqueNewFiles;
+      });
       setMessage(null);
       setStatus('idle');
     }
+  };
+
+  const handleRemoveFile = (indexToRemove) => {
+    setFiles(prev => prev.filter((_, idx) => idx !== indexToRemove));
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleUpload = async () => {
@@ -158,7 +170,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
 
       if (response.ok) {
         setStatus(data.status === 'warning' ? 'warning' : 'success');
-        
+         
         const hasArchived = data.skipped && data.skipped.length > 0;
         const hasBlanks = data.skipped_blank && data.skipped_blank.length > 0;
 
@@ -177,7 +189,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
                   Dismiss & Refresh
                 </button>
               </div>
-              
+               
               {hasArchived && (
                 <ReintegrationHelper 
                   skipped={data.skipped} 
@@ -188,7 +200,6 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
                 />
               )}
 
-              {/* 🟢 EXPANDED WIDE SCROLLABLE BOX FOR REJECTED ROWS */}
               {hasBlanks && (
                 <div className="bg-slate-100 dark:bg-slate-800 p-3 rounded-lg border border-slate-300 dark:border-slate-600 w-full">
                   <p className="font-bold text-slate-700 dark:text-slate-300 text-[11px] mb-1.5 uppercase">
@@ -235,7 +246,7 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
           multiple={multiple}
           className="text-xs w-full file:mr-4 file:py-2.5 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-blue-50 dark:file:bg-blue-900/40 file:text-blue-700 dark:file:text-blue-400 hover:file:bg-blue-100 dark:hover:file:bg-blue-800/60 border border-slate-300 dark:border-slate-700 rounded-md p-1 shadow-sm bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
         />
-        
+         
         <button
           onClick={handleUpload}
           disabled={files.length === 0 || uploading}
@@ -249,6 +260,27 @@ const BulkNominalRollUpload = ({ onUploadSuccess, multiple = false }) => {
           {uploading ? 'Processing Data...' : `Upload ${files.length > 1 ? `(${files.length} Files)` : 'to Database'}`}
         </button>
       </div>
+
+      {/* 🟢 Queued Files Preview List */}
+      {files.length > 0 && (
+        <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 space-y-1.5">
+          <div className="flex justify-between items-center text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase">
+            <span>Queued Files ({files.length}):</span>
+            <button type="button" onClick={() => setFiles([])} className="text-red-600 hover:underline text-[10px]">Clear All</button>
+          </div>
+          <div className="max-h-28 overflow-y-auto space-y-1 custom-scrollbar">
+            {files.map((f, idx) => (
+              <div key={idx} className="flex justify-between items-center bg-white dark:bg-slate-900 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 text-xs">
+                <span className="font-mono text-slate-800 dark:text-slate-200 truncate flex items-center">
+                  <FileSpreadsheet size={13} className="mr-1.5 text-emerald-600 shrink-0" />
+                  {f.name} <span className="text-[10px] text-slate-400 ml-2">({(f.size / 1024).toFixed(1)} KB)</span>
+                </span>
+                <button type="button" onClick={() => handleRemoveFile(idx)} className="text-slate-400 hover:text-red-500 p-0.5 cursor-pointer"><X size={14}/></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {message && (
         <div className={`p-4 rounded-xl border text-xs leading-relaxed font-medium shadow-sm w-full overflow-hidden transition-colors ${

@@ -101,7 +101,7 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
 const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) => {
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
-  
+   
   const [lockupData, setLockupData] = useState([]);
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
@@ -118,7 +118,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
   const canViewGlobalActive = canViewGlobalLevel;
-  
+   
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
@@ -151,7 +151,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  
+   
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
 
@@ -265,7 +265,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const finalFilteredReports = useMemo(() => {
     if (!Array.isArray(serverReports)) return [];
-      
+       
     const filtered = serverReports.filter(r => {
       if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
 
@@ -276,8 +276,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         // Global viewing allowed
       } else {
         const belongsToRegion = filterRegion === 'ALL REGIONS' ||  
-                                reg === filterRegion ||  
-                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
+                              reg === filterRegion ||  
+                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
 
         if (!belongsToRegion) return false;
 
@@ -290,7 +290,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         const isCatAgri = (r.category || '').toUpperCase() === 'AGRIC_CRIME';
         if (!isCatAgri) return false;
       }
-        
+         
       const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
       if (dateFilter === 'TODAY') {
         const todayStr = getTodayString();
@@ -304,7 +304,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
       else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
       else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
-        
+         
       return true;
     });
 
@@ -321,7 +321,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
       if (!canViewGlobalActive) {
         const belongsToRegion = reg === userRegClean ||  
-                                (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
+                              (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
         if (!belongsToRegion) return false;
       }
 
@@ -336,14 +336,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const metrics = useMemo(() => {
     const stationCellPop = {};
     const todayStr = getTodayString(); 
-    
+     
     let hqGrandTotalToday = 0; 
     let hasLockupUpdateToday = false;
 
     lockupData.forEach(l => {
       const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
       const lRegion = getOfficialRegionForStation(lStation, l.region);
-      
+       
       const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' ||  
                         lStation.includes('GENERAL TOTAL') ||  
                         lRegion === 'KMP HEADQUARTERS';
@@ -446,17 +446,17 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       try {
         const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
         const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
-        
+         
         const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
             method: "POST", 
             headers: { "Authorization": `Bearer ${token}` }, 
             body: uploadData 
         });
-        
+         
         if (!response.ok) throw new Error("Upload failed");
-        
+         
         const data = await response.json();
-        
+         
         if (data.full_s3_url || data.cloud_storage_path || data.url) {
           setNewSuspect({ 
               ...newSuspect, 
@@ -477,7 +477,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
-        
+         
     setNotification("⏳ Submitting HQ General Grand Total to Independent Matrix...");
     const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
 
@@ -518,7 +518,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-        
+         
     let formattedTime = stripHtmlTags(formData.time || '');
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
@@ -527,14 +527,28 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     if (operation === 'new') {
       const cleanRefType = stripHtmlTags(formData.ref_type);
-      const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase();
+      const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase().trim();
       const final_reference = `${cleanRefType} ${cleanRefNumber}`.trim();
-        
-      const referenceRegex = /^(SD Ref:|CRB:|DEF:|GEF:|TAR:|CID:)\s*\d+(\/\d+)+$/i;
-      
-      if (!referenceRegex.test(final_reference)) {
-        setNotification("⚠️ Invalid Reference Format. Do NOT type station names. The number field must only contain digits and slashes (e.g., 04/2026 or 12/05/11/2026).");
-        return; 
+       
+      // 🟢 STRICT VALIDATION RULES FOR REFERENCES
+      if (cleanRefType === 'SD Ref:') {
+        // Must match 01/01/01/2026 format (serial number/day/month/year)
+        const sdRegex = /^\d{1,3}\/\d{2}\/\d{2}\/\d{4}$/;
+        if (!sdRegex.test(cleanRefNumber)) {
+          return setNotification("⚠️ Invalid SD Ref format! Must follow the format 01/01/01/2026 (Serial Number / Day / Month / Year).");
+        }
+      } else if (['CRB:', 'DEF:', 'GEF:', 'CID:'].includes(cleanRefType)) {
+        // Must match 001/2026 format (incident number / year)
+        const caseRegex = /^\d{1,4}\/\d{4}$/;
+        if (!caseRegex.test(cleanRefNumber)) {
+          return setNotification(`⚠️ Invalid ${cleanRefType} format! Must follow the format 001/2026 (Incident Number / Year).`);
+        }
+      } else if (cleanRefType === 'TAR:') {
+        // Can be either 001/2026 or 01/01/01/2026
+        const tarRegex = /^(\d{1,4}\/\d{4}|\d{1,3}\/\d{2}\/\d{2}\/\d{4})$/;
+        if (!tarRegex.test(cleanRefNumber)) {
+          return setNotification("⚠️ Invalid TAR format! Must follow either 001/2026 or 01/01/01/2026.");
+        }
       }
 
       const isDuplicate = serverReports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
@@ -559,12 +573,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         suspectDetails: formData.suspectDetails,
         daily_lock_up: 0 
       };
-        
+         
       try {
         const response = await authFetch(`/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload) });
         const resData = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected the entry.");
-          
+           
         fetchFilteredDatabaseReports();
         setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         resetFormToBlank();
@@ -575,13 +589,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a case first.");
-        
+         
       const plainUpdateText = extractPlainText(formData.updateText || '').trim();
       let updatedNarrative = formData.narrative;
       if (plainUpdateText) {
           updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
       }
-        
+         
       const finalOffenceValue = formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence);
 
       const updatedRecord = { 
@@ -596,12 +610,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`, 
         daily_lock_up: 0
       };
-      
+       
       delete updatedRecord.updateText; 
       delete updatedRecord.ref_type; 
       delete updatedRecord.ref_number;
       delete updatedRecord.customOffence; 
-        
+         
       try {
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
         const resData = await response.json().catch(() => ({}));
@@ -619,7 +633,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
    
   return (
     <div className="p-4 max-w-[1600px] mx-auto space-y-4 relative z-10 font-sans">
-        
+         
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
@@ -857,7 +871,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                           <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="DEF:">DEF:</option>
                           <option value="GEF:">GEF:</option><option value="TAR:">TAR:</option><option value="CID:">CID:</option>
                         </select>
-                        <input type="text" name="ref_number" value={stripHtmlTags(formData.ref_number || '')} onChange={handleInputChange} required className="flex-1 text-xs border-gray-300 dark:border-slate-700 border-y border-r rounded-r p-1.5 focus:ring-blue-500 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" placeholder="e.g. 04/27/06/2026" />
+                        <input type="text" name="ref_number" value={stripHtmlTags(formData.ref_number || '')} onChange={handleInputChange} required className="flex-1 text-xs border-gray-300 dark:border-slate-700 border-y border-r rounded-r p-1.5 focus:ring-blue-500 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" placeholder="e.g. 01/01/01/2026 or 001/2026" />
                       </div>
                     )}
                   </div>
@@ -896,14 +910,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                     {STANDARD_OFFENCES.map(off => (
                       <option key={off} value={off}>{off}</option>
                     ))}
-                    
+                     
                     {formData.offence && formData.offence !== 'Other' && !STANDARD_OFFENCES.some(o => o.toUpperCase() === formData.offence.toUpperCase()) && (
                       <option value={formData.offence}>{formData.offence}</option>
                     )}
-                    
+                     
                     <option value="Other">Other (Specify Below)</option>
                   </select>
-                  
+                   
                   {formData.offence === 'Other' && operation === 'new' && (
                     <input type="text" name="customOffence" required value={stripHtmlTags(formData.customOffence || '')} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-1.5 w-full text-xs border-blue-400 dark:border-slate-700 rounded shadow-sm border p-1.5 focus:ring-blue-500 bg-blue-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 uppercase" />
                   )}
@@ -1039,11 +1053,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
                     return (
                       <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
-  {/* 🟢 Replace report.id/sn with the dynamic array sequence index */}
-  <td className="px-3.5 py-3 whitespace-nowrap text-xs font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">
-    {finalFilteredReports.length - index}
-  </td>
-  <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-blue-700 dark:text-blue-400 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
+ <td className="px-3.5 py-3 whitespace-nowrap text-xs font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">
+   {finalFilteredReports.length - index}
+ </td>
+ <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-blue-700 dark:text-blue-400 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[9px] text-gray-400 dark:text-slate-500">{stripHtmlTags(report.time)}</span></td>
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-700 dark:text-slate-300 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">{rRegion}</span></td>
                         <td className="px-3.5 py-3 text-[11px] text-gray-700 dark:text-slate-300 align-top whitespace-normal break-words overflow-wrap-anywhere">
@@ -1101,10 +1114,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             </div>
             <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900 text-xs" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
               <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 dark:border-slate-700 pb-4">
-                 <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
-                 <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
-                 <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
-              </div>
+                  <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
+                  <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
+               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
                 <div className="border-l-4 border-blue-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Database SN (ID)</div><div className="text-xs font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
                 <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Time & Date Logged</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
@@ -1129,14 +1142,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
                     <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
                   </div>
-                  
+                   
                   <div className="flex flex-col gap-4 w-full">
                     {selectedCase.suspectDetails.map((s, idx) => {
                       const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
 
                       return (
                         <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
-                          
+                           
                           <div className="shrink-0">
                             {isValidPhoto ? ( 
                               <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
@@ -1147,12 +1160,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                               </div> 
                             )}
                           </div>
-                          
+                           
                           <div className="flex-1 min-w-0 py-1">
                             <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
                             <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
                             <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
-                            
+                             
                             {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( 
                               <div className="inline-flex mt-1 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-black px-2.5 py-1 rounded shadow-sm uppercase tracking-wider w-max">
                                 Status: {stripHtmlTags(s.mental_health_status)}
