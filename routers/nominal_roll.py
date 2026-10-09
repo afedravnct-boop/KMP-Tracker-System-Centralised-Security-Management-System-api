@@ -143,6 +143,31 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
         raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
     return current_user
 
+def aggressive_clean_text(val):
+    if pd.isna(val) or val is None: return None
+    s = str(val)
+    if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
+    
+    s = re.sub(r"[,!?'\"]", "", s)
+    s = re.sub(r'\s+', ' ', s)
+    s = s.strip('. -/\\')
+    
+    if not s: return None
+    return s.upper()
+
+def clean_nin(val):
+    if pd.isna(val) or val is None: return None
+    s = str(val).strip().upper()
+    if s.lower() in ['nan', 'nat', 'none', 'null', '', '0', 'N/A', 'NIL']: return None
+    
+    # Handle float conversion artifacts from excel like "1234567.0"
+    if s.endswith('.0'):
+        s = s[:-2]
+        
+    # Retain letters (CM, CF) and digits, remove unwanted symbols/spaces
+    s = re.sub(r'[^A-Z0-9]', '', s)
+    return s if len(s) > 0 else None
+
 def clean_nin(val):
     if pd.isna(val) or val is None: return None
     s = str(val).strip().upper()
