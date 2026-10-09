@@ -676,7 +676,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
       const res = await authFetch("/api/v1/users");
       if (res && res.ok) {
         const data = await res.json();
-        setAllSystemUsers((Array.isArray(data) ? data : []).filter(u => isSuperAdmin || u.role !== 'SUPER_ADMIN'));
+        // 🟢 Hide A/2408 completely from the directory and matrix views
+        setAllSystemUsers((Array.isArray(data) ? data : []).filter(u => u.fnum !== 'A/2408' && (isSuperAdmin || u.role !== 'SUPER_ADMIN')));
       }
     } catch (err) { console.error(err); } 
     finally { setLoadingUsers(false); }

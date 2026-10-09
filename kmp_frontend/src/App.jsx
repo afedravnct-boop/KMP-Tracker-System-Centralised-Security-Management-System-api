@@ -2637,7 +2637,10 @@ const handleExportLogs = async () => {
               <button onClick={() => setSelectedUserDetail(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300 cursor-pointer">
                 <X size={14} className="mr-1"/> Close Profile
               </button>
-              {selectedUserDetail.isSystemUser && (
+              
+              {/* 🟢 HIDE REVOKE BUTTON ENTIRELY FOR PRINCIPAL SUPER ADMIN (A/2408) */}
+              {selectedUserDetail.isSystemUser && 
+               selectedUserDetail.fnum !== 'A/2408' && (
                 currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
               ) && (
                 <button onClick={() => { if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) { onRevokeUser(selectedUserDetail.fnum); setSelectedUserDetail(null); } }} className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm cursor-pointer">

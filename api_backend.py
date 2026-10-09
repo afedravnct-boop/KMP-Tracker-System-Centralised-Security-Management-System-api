@@ -818,6 +818,13 @@ def update_user_access(
 
     clean_fnum = unquote(unquote(target_fnum)).strip().upper()
     
+    # 🟢 ULTIMATE BACKEND SAFEGUARD: A/2408 is completely immutable
+    if clean_fnum == "A/2408":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="SECURITY OVERRIDE DENIED: Principal Super Admin (A/2408) account is immutable and cannot be modified."
+        )
+    
     user = db.query(models.Users).filter(
         func.trim(func.upper(models.Users.fnum)) == clean_fnum
     ).first()
