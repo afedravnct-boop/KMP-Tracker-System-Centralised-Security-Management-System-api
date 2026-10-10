@@ -201,7 +201,7 @@ const AnalyticsDashboard = ({
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedCrimeCategory, setSelectedCrimeCategory] = useState('ALL');
   const [dateFilter, setDateFilter] = useState('ALL'); 
-  
+   
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
@@ -275,11 +275,11 @@ const AnalyticsDashboard = ({
       }
 
       const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
-      
+       
       const belongsToRegion = activeTargetRegion === 'ALL REGIONS' || 
-                              reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
-                              (item.region && item.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
-                              (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
+                            reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
+                            (item.region && item.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
+                            (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
 
       if (!belongsToRegion) return false;
 
@@ -293,7 +293,7 @@ const AnalyticsDashboard = ({
       baseData = timeFilteredData(baseData);
     }
     return baseData;
-  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedMonth, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, dateFilter, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
 
   // 🟢 Parsed Success Stories with intelligent narrative scanning
   const parsedSuccessStories = useMemo(() => {
@@ -476,7 +476,7 @@ const AnalyticsDashboard = ({
 
   return (
     <div className="p-3 max-w-[1600px] mx-auto space-y-3 font-sans min-h-screen pb-24" style={{ backgroundColor: '#f4eee2' }}>
-      
+        
       {/* Top Header Card */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-4 py-2.5 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
         <div>

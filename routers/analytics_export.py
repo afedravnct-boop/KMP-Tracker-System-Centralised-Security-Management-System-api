@@ -122,7 +122,6 @@ def export_analytics_report(
             user_reg in REGIONAL_HIERARCHY
         )
         
-        # 1. Flexible ORM Model Resolution with robust fallbacks
         CrimeModel = None
         for name in ['Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports']:
             if hasattr(models, name):
@@ -213,7 +212,6 @@ def export_analytics_report(
         agric_records = get_scoped_records(AgricModel)
         ex_records = get_scoped_records(ExhibitModel)
 
-        # 2. Build Specialized Datasets
         agric_breakdown = {"ANIMALS": [0, 0], "PRODUCE": [0, 0], "EQUIPMENT": [0, 0]}
         for ag in agric_records:
             rep_type = str(getattr(ag, 'agric_crime_report', '')).upper()

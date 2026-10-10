@@ -67,7 +67,7 @@ from auth import router as auth_router
 from docx import Document
 from app.schemas import AgricStatsCreate, AgricStatsResponse
 from routers import exhibits
-from routers.activity_logger import record_neon_activity, SystemActivityMiddleware  # 🟢 Imported SystemActivityMiddleware here
+from routers.activity_logger import record_neon_activity, SystemActivityMiddleware 
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
 from routers import hr_router
 
@@ -818,7 +818,6 @@ def update_user_access(
 
     clean_fnum = unquote(unquote(target_fnum)).strip().upper()
     
-    # 🟢 ULTIMATE BACKEND SAFEGUARD: A/2408 is completely immutable
     if clean_fnum == "A/2408":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
@@ -1130,7 +1129,6 @@ def log_user_session(data: dict, db: Session = Depends(get_db)):
         )
     return {"status": "success"}
 
-# 🟢 NEW: Explicit Logout and Timeout Tracking Endpoints
 @app.post("/api/v1/auth/log-logout")
 def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
     try:
@@ -1139,7 +1137,6 @@ def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Se
             payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
             fnum = payload.get("sub")
             if fnum:
-                # 1. Write to Audit Logs (Admin Approvals Tab)
                 log_semantic_audit(
                     db=db,
                     fnum=fnum,
@@ -1148,7 +1145,6 @@ def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Se
                     changes={},
                     remarks="Officer performed a secure manual logout."
                 )
-                # 2. Write to Neon Branch Activity Logs (Activity stream)
                 log_independent_activity(
                     logs_db=logs_db,
                     fnum=fnum,
@@ -1168,7 +1164,6 @@ def log_user_timeout(request: Request, db: Session = Depends(get_db), logs_db: S
             payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
             fnum = payload.get("sub")
             if fnum:
-                # 1. Write to Audit Logs (Admin Approvals Tab)
                 log_semantic_audit(
                     db=db,
                     fnum=fnum,
@@ -1177,7 +1172,6 @@ def log_user_timeout(request: Request, db: Session = Depends(get_db), logs_db: S
                     changes={},
                     remarks="Session expired due to inactivity curtain timeout."
                 )
-                # 2. Write to Neon Branch Activity Logs (Activity stream)
                 log_independent_activity(
                     logs_db=logs_db,
                     fnum=fnum,
