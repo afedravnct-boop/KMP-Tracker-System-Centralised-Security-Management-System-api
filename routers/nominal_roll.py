@@ -40,6 +40,17 @@ RANK_SENIORITY = {
     "CPL": 17, "L/CPL": 18, "LCPL": 18, "PC": 19, "PPC": 20, "SPC": 21, "CIVILIAN": 50
 }
 
+REGION_SORT_PRIORITY = {
+    "KMP HEADQUARTERS": 1,
+    "KMP NORTH HEADQUARTERS": 2,
+    "KMP NORTH": 3,
+    "KMP EAST HEADQUARTERS": 4,
+    "KMP EAST": 5,
+    "KMP SOUTH HEADQUARTERS": 6,
+    "KMP SOUTH": 7,
+    "POLICE HEADQUARTERS": 8
+}
+
 def clean_str(val) -> str:
     if not val: return ''
     return str(val).strip().upper()
@@ -113,14 +124,22 @@ def hierarchical_sort_key(officer):
         stn = getattr(officer, 'station', '')
         reg = getattr(officer, 'region', '')
         
-        prio = get_station_priority_weight(stn, reg)
+        # 🟢 1. Official Region Priority First so regions never intermingle
+        r_name = getOfficialRegionForStation(stn, reg)
+        reg_pri = REGION_SORT_PRIORITY.get(r_name, 50)
+        
+        # 2. Rank Seniority Weight Second
         rank_w = get_rank_weight(getattr(officer, 'rank', ''))
+        
+        # 3. Position Precedence Third
         cmd = get_command_weight(officer)
+        
+        # 4. Force Number Last
         fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
         
-        return (rank_w, cmd, prio, fnum)
+        return (reg_pri, rank_w, cmd, fnum)
     except Exception:
-        return (99, 50, 50, '')
+        return (50, 99, 50, '')
 
 # ====================================================================
 # GLOBAL HELPER FUNCTIONS & OPSEC SCOPING

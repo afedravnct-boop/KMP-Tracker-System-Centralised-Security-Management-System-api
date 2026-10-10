@@ -250,7 +250,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('audit'); 
   
-  // 🟢 Audit Preview Modal State
   const [showAuditPreviewModal, setShowAuditPreviewModal] = useState(false);
   const [auditPreviewData, setAuditPreviewData] = useState([]);
   const [isLoadingAudit, setIsLoadingAudit] = useState(false);
@@ -321,7 +320,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  // 🟢 Pure Stations List (Excluding Police Posts)
   const availableStationsList = useMemo(() => {
     const list = new Set();
     const activeReg = filterRegion;
@@ -352,7 +350,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     return Array.from(list).sort();
   }, [Nominal_Rolls, filterRegion]);
 
-  // 🟢 Dedicated Posts List (Filtered dynamically by Region and Station)
   const availablePostsList = useMemo(() => {
     const list = new Set();
     const activeReg = filterRegion;
@@ -434,7 +431,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 Fetch Missing Audit Data for On-Screen View
   const handleFetchAuditPreview = async () => {
     setIsLoadingAudit(true);
     try {
@@ -706,30 +702,26 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       return true;
     });
 
-    // 🟢 Strict Instruction Order: Rank Seniority First -> Position Precedence -> Region Hierarchy -> Force Number
+    // 🟢 Strict Instruction Order: Region Priority First -> Rank Seniority -> Position Precedence -> Force Number
     return list.sort((a, b) => {
-      // 1. Rank Seniority Weight First (Highest rank like ACP, SSP at the top)
-      const weightA = getRankWeight(a.rank);
-      const weightB = getRankWeight(b.rank);
-
-      if (weightA !== weightB) return weightA - weightB;
-
-      // 2. Position Precedence Second (e.g. Comdr KMP before Deputy within same rank)
-      const posA = getPositionPrecedence(a.position);
-      const posB = getPositionPrecedence(b.position);
-
-      if (posA !== posB) return posA - posB;
-
-      // 3. Region Hierarchy Third (KMP Headquarters downwards)
+      // 1. Region Priority First so regions never intermingle
       const regA = getOfficialRegionForStation(a.station, a.region);
       const regB = getOfficialRegionForStation(b.station, b.region);
-
       const priA = REGION_SORT_PRIORITY[regA] || 50;
       const priB = REGION_SORT_PRIORITY[regB] || 50;
-
       if (priA !== priB) return priA - priB;
 
-      // 4. Finally Force / File Number
+      // 2. Rank Seniority Weight Second
+      const weightA = getRankWeight(a.rank);
+      const weightB = getRankWeight(b.rank);
+      if (weightA !== weightB) return weightA - weightB;
+
+      // 3. Position Precedence Third
+      const posA = getPositionPrecedence(a.position);
+      const posB = getPositionPrecedence(b.position);
+      if (posA !== posB) return posA - posB;
+
+      // 4. Force Number Last
       const fnumA = cleanStr(a.fnum || a.f_num);
       const fnumB = cleanStr(b.fnum || b.f_num);
       return fnumA.localeCompare(fnumB);
@@ -780,7 +772,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
   }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
-  // 🟢 Live Analytics Filtered Dataset
   const analyticsFilteredDataset = useMemo(() => {
     if (analyticsMetricFilterValue === 'ALL') return currentRollDataset;
 
@@ -1008,7 +999,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         </div>
       </div>
 
-      {/* 🟢 Audit Missing Info Preview Modal */}
       {showAuditPreviewModal && (
         <div className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl p-5 space-y-4 flex flex-col max-h-[85vh]">
