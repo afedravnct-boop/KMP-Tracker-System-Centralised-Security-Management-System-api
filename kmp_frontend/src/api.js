@@ -1,5 +1,5 @@
 // src/api.js
-const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-centralised-security-data-management.onrender.com';
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-ops-data.onrender.com';
 
 let inMemoryToken = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_authToken') : null;
 let inMemoryUserFNum = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_currentUser_fnum') : null;
