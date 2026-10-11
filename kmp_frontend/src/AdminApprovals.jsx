@@ -833,25 +833,25 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
   const filteredSystemUsers = useMemo(() => filterByRegionStation(allSystemUsers, 'region', 'station', ['fnum', 'name', 'rank', 'station', 'region', 'ipps', 'phone', 'email', 'role']), [allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
 
   const filteredLogs = useMemo(() => {
-    return auditLogs.filter(log => {
-      const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
-      const logRegion = stripHtmlTags(log.region || logUser?.region || '').trim().toUpperCase();
-      const logStation = stripHtmlTags(log.station || logUser?.station || '').trim().toUpperCase();
-      const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
-      const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
+  return auditLogs.filter(log => {
+    const logUser = allSystemUsers.find(u => u.fnum === log.user_fnum);
+    const logRegion = stripHtmlTags(log.region || logUser?.region || '').trim().toUpperCase();
+    const logStation = stripHtmlTags(log.station || logUser?.station || '').trim().toUpperCase();
+    const activeReg = stripHtmlTags(filterRegion || '').trim().toUpperCase();
+    const activeStat = stripHtmlTags(filterStation || '').trim().toUpperCase();
 
-      if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
-       
-      const belongsToRegion = activeReg === 'ALL REGIONS' || 
-                            logRegion === activeReg || 
-                            (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, logStation)));
+    if (canViewGlobalActive && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
 
-      if (!belongsToRegion) return false;
-      if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(logStation, activeStat)) return false;
-       
-      return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
-    });
-  }, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive, searchTerm]);
+    const belongsToRegion = activeReg === 'ALL REGIONS' || 
+                          logRegion === activeReg || 
+                          (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, logStation)));
+
+    if (!belongsToRegion) return false;
+    if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(logStation, activeStat)) return false;
+
+    return matchesSearch(log, ['user_fnum', 'event_type', 'target_user', 'details']);
+  });
+}, [auditLogs, allSystemUsers, filterRegion, filterStation, canViewGlobalActive]); // 🟢 Removed searchTerm here
 
   const getRevocationReason = useCallback((fnum) => {
     const cleanF = String(fnum || '').trim().toUpperCase();
