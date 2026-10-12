@@ -1,3 +1,4 @@
+# routers/analytics.py
 import io
 import json
 import re
@@ -31,20 +32,53 @@ def strip_html_tags(text_str: str) -> str:
         return ""
     return re.sub('<.*?>', '', str(text_str))
 
+# 🟢 ADVANCED SUCCESS STORY PARSER RELYING ON BOLD HEADLINES & NARRATIVE EXTRACTION
 def parse_success_story_backend(raw_narrative: str):
-    plain_text = strip_html_tags(raw_narrative or '')
+    if not raw_narrative:
+        return {
+            "suspects": 0,
+            "recoveries": "None recorded",
+            "legalStatus": "UNDER INVESTIGATION",
+            "classification": "Operational breakthrough & suspect apprehension"
+        }
+
+    # 1. Extract bold title/headline if structured with <strong>...</strong>
+    headline_match = re.search(r'<strong>(.*?)<\/strong>', raw_narrative, re.IGNORECASE)
+    if headline_match:
+        classification = strip_html_tags(headline_match.group(1)).strip().upper()
+    else:
+        classification = "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION"
+
+    plain_text = strip_html_tags(raw_narrative)
     lower_text = plain_text.lower()
     
+    # 2. Parse Suspects Count
     suspects_count = 0
-    suspect_matches = [
-        re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang)', lower_text),
-        re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text)
+    suspect_patterns = [
+        re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)', lower_text),
+        re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?|detain(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text),
+        re.search(r'(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+suspect', lower_text)
     ]
-    for m in suspect_matches:
-        if m and m.group(1):
-            suspects_count = int(m.group(1))
+    
+    word_to_num = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10}
+    for m in suspect_patterns:
+        if m:
+            val = m.group(1) if m.lastindex and m.group(1) else m.group(0)
+            if val.isdigit():
+                suspects_count = int(val)
+                break
+            else:
+                for w, num in word_to_num.items():
+                    if w in val:
+                        suspects_count = num
+                        break
+        if suspects_count > 0:
             break
 
+    if suspects_count == 0 and ('suspect' in lower_text or 'arrest' in lower_text or 'apprehend' in lower_text):
+        suspects_count = 1  # Default fallback if arrest happened without explicit numeric digits
+
+    # 3. Parse Legal Status
     legal_status = 'UNDER INVESTIGATION'
     if 'remand' in lower_text or 'remanded' in lower_text:
         legal_status = 'REMANDED'
@@ -52,28 +86,23 @@ def parse_success_story_backend(raw_narrative: str):
         legal_status = 'CONVICTED'
     elif 'acquit' in lower_text:
         legal_status = 'ACQUITTED'
-    elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text:
+    elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text or 'arraign' in lower_text:
         legal_status = 'UNDERGOING COURT TRIAL'
 
+    # 4. Parse Recovered Properties & Quantities (Pipe-Separated Format e.g., 01 | suspect || 02 | phones)
     recoveries_list = []
-    recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|money|cash|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|birds|chicken|produce|maize|beans|items))', lower_text, re.IGNORECASE)
+    recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))', lower_text, re.IGNORECASE)
+    
     for count_val, item_val in recovery_matches:
-        recoveries_list.append(f"{count_val} {item_val.strip()}")
+        formatted_count = str(count_val).zfill(2) # Zero-pad format e.g. 01
+        recoveries_list.append(f"{formatted_count} | {item_val.strip()}")
 
-    if not recoveries_list and ('recovery' in lower_text or 'recovered' in lower_text or 'recover' in lower_text):
-        recoveries_list.append('Recovered exhibits / assets')
-
-    classification = 'Operational breakthrough & suspect apprehension'
-    if 'cattle' in lower_text or 'cow' in lower_text or 'livestock' in lower_text or 'farm' in lower_text or 'agric' in lower_text:
-        classification = 'Arrest of suspects in cattle / agricultural theft & recovery'
-    elif 'phone' in lower_text or 'computer' in lower_text or 'electronics' in lower_text:
-        classification = 'Apprehension of suspects & electronic asset recovery'
-    elif 'robbery' in lower_text or 'gang' in lower_text or 'theft' in lower_text:
-        classification = 'Dismantling of criminal gang & property recovery'
+    if not recoveries_list and ('recovery' in lower_text or 'recovered' in lower_text or 'recover' in lower_text or 'impound' in lower_text):
+        recoveries_list.append("01 | recovered exhibit / asset")
 
     return {
         "suspects": suspects_count,
-        "recoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded",
+        "recoveries": " || ".join(recoveries_list) if recoveries_list else "None recorded",
         "legalStatus": legal_status,
         "classification": classification
     }
@@ -278,14 +307,15 @@ def export_analytics_report(
             date_val = str(getattr(st, 'date', ''))
             reg_val = getattr(st, 'region', '')
             stat_val = getattr(st, 'station', '')
-            narrative_text = strip_html_tags(getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.')))
-            parsed = parse_success_story_backend(narrative_text)
+            raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
+            parsed = parse_success_story_backend(raw_narrative)
             
             suspects = getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or parsed['suspects']
             recoveries = getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or parsed['recoveries']
-            legal_status = getattr(st, 'legal_status', 'UNDER INVESTIGATION') or parsed['legalStatus']
+            legal_status = getattr(st, 'legal_status', '') or parsed['legalStatus']
+            classification = parsed['classification']
             
-            success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, narrative_text])
+            success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, classification])
 
         exhibit_summary_map = {}
         for ex in ex_records:
@@ -373,7 +403,7 @@ def export_analytics_report(
 
         add_individual_sheet("Manpower Analysis", manpower_headers, manpower_table_rows)
         add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Narrative"], success_detailed_data)
+        add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
         add_individual_sheet("Exhibits Grouped", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
         add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
         add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
@@ -403,7 +433,7 @@ def export_analytics_report(
 
         append_stacked_section("1. Manpower Analysis (Officers & NCOs breakdown)", manpower_headers, manpower_table_rows)
         append_stacked_section("2. Agricultural Crimes Breakdown", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        append_stacked_section("3. Success Stories Breakdown", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Narrative"], success_detailed_data)
+        append_stacked_section("3. Success Stories Breakdown", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
         append_stacked_section("4. Exhibits Grouped Summary", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
         append_stacked_section("5. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
         append_stacked_section("6. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)

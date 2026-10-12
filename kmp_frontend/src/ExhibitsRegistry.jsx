@@ -1,7 +1,8 @@
+// src/components/ExhibitsRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
-  Filter, Save, Truck, Loader2, Lock, RefreshCw, Box
+  Filter, Save, Truck, Loader2, Lock, RefreshCw, Box, HardDrive
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -140,6 +141,22 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
+  const getDateRangeParams = (filterOption) => {
+    if (filterOption === 'ALL TIME') return { start: null, end: null };
+    const end = new Date();
+    const start = new Date();
+    if (filterOption === 'LAST 7 DAYS') { start.setDate(start.getDate() - 7); }
+    else if (filterOption === 'LAST 30 DAYS') { start.setDate(start.getDate() - 30); }
+    else if (filterOption === 'LAST 90 DAYS') { start.setDate(start.getDate() - 90); }
+    const pad = (n) => n.toString().padStart(2, '0');
+    const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    
+    // For "TODAY", start and end are the same day
+    if (filterOption === 'TODAY') return { start: format(start), end: format(start) };
+    
+    return { start: format(start), end: format(end) };
+  };
+
   const [formData, setFormData] = useState({
     id: null,
     category: 'MOTOR VEHICLE',
@@ -175,7 +192,17 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       const params = new URLSearchParams();
       if (filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      
+      if (filterCaseType && filterCaseType !== 'ALL') params.append('case_type', filterCaseType);
+      if (filterStatus && filterStatus !== 'ALL') params.append('status_filter', filterStatus);
+      if (filterUnit && filterUnit !== 'ALL') params.append('unit', filterUnit);
+      
       if (debouncedSearch) params.append('search', debouncedSearch);
+
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
       params.append('limit', '300');
 
       const res = await authFetch(`/api/v1/exhibits?${params.toString()}`);
@@ -188,7 +215,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     } finally {
       setIsFetching(false);
     }
-  }, [filterRegion, filterStation, debouncedSearch]);
+  }, [filterRegion, filterStation, filterCaseType, filterStatus, filterUnit, debouncedSearch, dateFilter]);
 
   useEffect(() => {
     fetchExhibits();
@@ -360,51 +387,10 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Because filtering is done on the backend, we just map server data
   const filteredExhibits = useMemo(() => {
-    return serverExhibits.filter(item => {
-      const stn = stripHtmlTags(item.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, item.region);
-
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        // Global view allowed
-      } else {
-        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                                reg === filterRegion || 
-                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
-
-        if (!belongsToRegion) return false;
-
-        if (filterStation !== 'ALL STATIONS') {
-          if (!isStationEquivalent(stn, filterStation)) return false;
-        }
-      }
-
-      const diffDays = Math.ceil(Math.abs(new Date() - new Date(item.date_impounded || item.created_at)) / (1000 * 60 * 60 * 24));
-      if (dateFilter === 'TODAY') {
-        const todayStr = getTodayString();
-        if (item.date_impounded !== todayStr) return false;
-      } else if (dateFilter === 'LAST 7 DAYS' && diffDays > 7) return false;
-      else if (dateFilter === 'LAST 30 DAYS' && diffDays > 30) return false;
-      else if (dateFilter === 'LAST 90 DAYS' && diffDays > 90) return false;
-
-      if (filterCaseType !== 'ALL') {
-        const baseCaseType = filterCaseType.replace(':', '');
-        if (!(item.case_no || '').toUpperCase().startsWith(baseCaseType)) return false;
-      }
-
-      if (filterStatus !== 'ALL') {
-        if (filterStatus === 'CUSTOM') {
-          if (STATUS_OPTIONS.includes((item.status || '').toUpperCase())) return false;
-        } else if ((item.status || '').toUpperCase() !== filterStatus) {
-          return false;
-        }
-      }
-
-      if (filterUnit !== 'ALL' && (item.unit_responsible || '').toUpperCase() !== filterUnit) return false;
-
-      return true;
-    });
-  }, [serverExhibits, dateFilter, filterCaseType, filterStatus, filterUnit, filterRegion, filterStation, canViewGlobalActive]);
+    return [...serverExhibits];
+  }, [serverExhibits]);
 
   const metrics = useMemo(() => {
     const getCount = (statusName) => 
@@ -428,6 +414,59 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     if (formData.category === 'CURRENCY/MONEY') return "e.g. BATCH NO / TRACE ID (Or type NIL)";
     if (formData.category === 'WATERCRAFT/BOAT') return "e.g. REGISTRATION NO / HULL ID";
     return "e.g. SERIAL NO OR 'NIL'";
+  };
+
+  const handleExportFilteredData = async () => {
+    if (!serverExhibits.length) {
+      alert("No records available to export for the selected filters.");
+      return;
+    }
+    
+    setNotification({ type: 'success', text: "⏳ Generating official CSV export from database. Please wait..." });
+    
+    try {
+      const params = new URLSearchParams();
+      if (filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      
+      if (filterCaseType && filterCaseType !== 'ALL') params.append('case_type', filterCaseType);
+      if (filterStatus && filterStatus !== 'ALL') params.append('status_filter', filterStatus);
+      if (filterUnit && filterUnit !== 'ALL') params.append('unit', filterUnit);
+      
+      if (debouncedSearch) params.append('search', debouncedSearch);
+
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const response = await authFetch(`/api/v1/exhibits/export?${params.toString()}`);
+      if (!response.ok) throw new Error("Export failed on server.");
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = 'KMP_EXHIBITS_EXPORT.csv';
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          filename = disposition.split('filename=')[1].replace(/["']/g, '');
+      } else {
+          const timestamp = new Date().toISOString().split('T')[0];
+          const fileLabel = filterStatus === 'ALL' ? 'ALL_EXHIBITS' : filterStatus.replace(/\s+/g, '_');
+          filename = `KMP_EXHIBITS_${fileLabel}_${timestamp}.csv`;
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification(null);
+    } catch (err) {
+      console.error("Export error:", err);
+      setNotification({ type: 'error', text: "❌ Failed to generate export file." });
+    }
   };
 
   return (
@@ -672,10 +711,15 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
               </select>
 
               {(filterCaseType !== 'ALL' || filterStatus !== 'ALL' || filterUnit !== 'ALL') && (
-                <button onClick={() => { setFilterCaseType('ALL'); setFilterStatus('ALL'); setFilterUnit('ALL'); }} className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer ml-auto flex items-center">
+                <button onClick={() => { setFilterCaseType('ALL'); setFilterStatus('ALL'); setFilterUnit('ALL'); }} className="text-[10px] text-red-500 font-bold hover:underline cursor-pointer ml-2 flex items-center">
                   <X size={10} className="mr-1"/> Clear Advanced
                 </button>
               )}
+
+              <button type="button" onClick={handleExportFilteredData} className="ml-auto px-3 py-1.5 text-[11px] font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-emerald-700 text-white border-emerald-800 hover:bg-emerald-800">
+                <HardDrive className="w-3 h-3 mr-1.5" />
+                Export CSV
+              </button>
             </div>
 
           </div>
@@ -721,7 +765,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
                       return (
                         <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} title="Click to edit this record" className="hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
-                          <td className="px-3 py-2.5 text-center font-black">{index + 1}</td>
+                          <td className="px-3 py-2.5 text-center font-black">{filteredExhibits.length - index}</td>
                           <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
                           <td className="px-3 py-2.5 font-black text-[10px] text-slate-500">{displayCategory}</td>
                           <td className="px-3 py-2.5 font-bold uppercase">{displayType}</td>

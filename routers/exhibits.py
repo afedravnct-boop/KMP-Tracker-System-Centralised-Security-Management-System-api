@@ -1,5 +1,11 @@
+# routers/exhibits.py
 import json
-from fastapi import APIRouter, Depends, HTTPException, status
+import re
+import csv
+import io
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, text
 from typing import Optional, List
@@ -21,6 +27,31 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
+
+def strip_html_tags(text_str: str) -> str:
+    if not text_str:
+        return ""
+    return re.sub('<.*?>', '', str(text_str))
+
+# 🟢 Local serializer to prevent circular imports with api_backend
+def serialize_model_row(row):
+    if not row:
+        return {}
+    if isinstance(row, dict):
+        d = row.copy()
+    elif hasattr(row, '__dict__'):
+        d = row.__dict__.copy()
+        d.pop('_sa_instance_state', None)
+    else:
+        return {}
+    for k, v in d.items():
+        if isinstance(v, datetime):
+            d[k] = v.strftime("%Y-%m-%d %H:%M:%S")
+        elif hasattr(v, 'isoformat'):
+            d[k] = v.isoformat()
+        elif hasattr(v, '__float__') and not isinstance(v, (int, float, str, bool)):
+            d[k] = float(v)
+    return d
 
 def apply_opsec_scope(current_user, query, ModelClass):
     if not ModelClass or not current_user:
@@ -85,17 +116,24 @@ def apply_opsec_scope(current_user, query, ModelClass):
         
     return query.filter(text("1=0"))
 
+# ====================================================================
+# 1. RETRIEVE EXHIBITS
+# ====================================================================
 @router.get("")
 def get_exhibits(
-    region: Optional[str] = None, 
-    station: Optional[str] = None, 
-    search: Optional[str] = None, 
-    limit: int = 300, 
+    region: Optional[str] = Query(default=None), 
+    station: Optional[str] = Query(default=None), 
+    case_type: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None),
+    unit: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None), 
+    limit: int = Query(default=300, le=1000), 
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
-    from api_backend import serialize_model_row
     try:
         Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
         if not Model: return []
@@ -103,10 +141,34 @@ def get_exhibits(
         query = db.query(Model)
         query = apply_opsec_scope(current_user, query, Model)
             
-        if region and region != 'ALL REGIONS':
+        if region and region.upper() not in ['ALL REGIONS', 'ALL']:
             query = query.filter(func.upper(Model.region) == region.upper())
-        if station and station != 'ALL STATIONS':
-            query = query.filter(func.upper(Model.station) == station.upper())
+            
+        if station and station.upper() not in ['ALL STATIONS', 'ALL']:
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(Model.station) == station.upper(),
+                    func.upper(Model.station) == clean_stn,
+                    func.upper(Model.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+        if case_type and case_type.upper() not in ['ALL', 'ANY CASE TYPE']:
+            base_case_type = case_type.replace(':', '').upper()
+            query = query.filter(func.upper(Model.case_no).startswith(base_case_type))
+
+        if status_filter and status_filter.upper() not in ['ALL', 'ANY STATUS']:
+            query = query.filter(func.upper(Model.status) == status_filter.upper())
+
+        if unit and unit.upper() not in ['ALL', 'ANY UNIT RESPONSIBLE']:
+            query = query.filter(func.upper(Model.unit_responsible) == unit.upper())
+
+        if start_date and hasattr(Model, 'date_impounded'):
+            query = query.filter(Model.date_impounded >= start_date)
+            
+        if end_date and hasattr(Model, 'date_impounded'):
+            query = query.filter(Model.date_impounded <= end_date)
             
         if search:
             term = f"%{search.strip().upper()}%"
@@ -131,13 +193,11 @@ def get_exhibits(
         records = query.order_by(Model.id.desc()).limit(limit).all()
         serialized_records = [serialize_model_row(r) for r in records]
 
-        # 🟢 Precision forensic check: Log search query vs regular view
         if search:
             summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched exhibits ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
         else:
             summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Exhibits & Impounded Fleet Ledger (Fetched {len(serialized_records)} items)."
 
-        # 🟢 Record VIEW activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -152,6 +212,140 @@ def get_exhibits(
         print(f"Error fetching exhibits: {e}")
         return []
 
+# ====================================================================
+# 1B. EXPORT EXHIBITS TO CSV
+# ====================================================================
+@router.get("/export")
+def export_exhibits_csv(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    case_type: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None),
+    unit: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    try:
+        Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
+        if not Model:
+            raise HTTPException(status_code=500, detail="Exhibits model not found")
+
+        query = db.query(Model)
+        query = apply_opsec_scope(current_user, query, Model)
+
+        if region and region.upper() not in ['ALL REGIONS', 'ALL']:
+            query = query.filter(func.upper(Model.region) == region.upper())
+            
+        if station and station.upper() not in ['ALL STATIONS', 'ALL']:
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(Model.station) == station.upper(),
+                    func.upper(Model.station) == clean_stn,
+                    func.upper(Model.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+        if case_type and case_type.upper() not in ['ALL', 'ANY CASE TYPE']:
+            base_case_type = case_type.replace(':', '').upper()
+            query = query.filter(func.upper(Model.case_no).startswith(base_case_type))
+
+        if status_filter and status_filter.upper() not in ['ALL', 'ANY STATUS']:
+            query = query.filter(func.upper(Model.status) == status_filter.upper())
+
+        if unit and unit.upper() not in ['ALL', 'ANY UNIT RESPONSIBLE']:
+            query = query.filter(func.upper(Model.unit_responsible) == unit.upper())
+
+        if start_date and hasattr(Model, 'date_impounded'):
+            query = query.filter(Model.date_impounded >= start_date)
+            
+        if end_date and hasattr(Model, 'date_impounded'):
+            query = query.filter(Model.date_impounded <= end_date)
+
+        if search:
+            term = f"%{search.strip().upper()}%"
+            if hasattr(Model, 'category'):
+                query = query.filter(or_(
+                    Model.reg_no.ilike(term),
+                    Model.category.ilike(term),
+                    Model.type_make.ilike(term),
+                    Model.case_no.ilike(term),
+                    Model.reason.ilike(term),
+                    Model.status.ilike(term)
+                ))
+            else:
+                query = query.filter(or_(
+                    Model.reg_no.ilike(term),
+                    Model.type_make.ilike(term),
+                    Model.case_no.ilike(term),
+                    Model.reason.ilike(term),
+                    Model.status.ilike(term)
+                ))
+
+        records = query.order_by(Model.id.desc()).all()
+
+        stream = io.StringIO()
+        writer = csv.writer(stream)
+        writer.writerow(["ID", "Identifier (Reg/Serial)", "Category", "Description", "Colour/Features", "Date In", "Case No", "Reason", "Status", "Unit Responsible", "Assorted Items", "Impounded By", "Entered By", "Comment"])
+
+        total_records = len(records)
+        for r in records:
+            cat = getattr(r, 'category', 'MOTOR VEHICLE')
+            desc = getattr(r, 'type_make', '')
+            
+            if not getattr(r, 'category', None) and ' - ' in desc:
+                parts = desc.split(' - ')
+                cat = parts[0].strip()
+                desc = ' - '.join(parts[1:]).strip()
+
+            impounded_by_str = ""
+            if getattr(r, 'impounded_by_rank', None):
+                impounded_by_str = f"{getattr(r, 'impounded_by_rank')} {getattr(r, 'impounded_by_name', '')} ({getattr(r, 'impounded_by_fnum', '')})"
+
+            writer.writerow([
+                getattr(r, 'id', ''),
+                getattr(r, 'reg_no', ''),
+                cat,
+                desc,
+                getattr(r, 'colour', ''),
+                getattr(r, 'date_impounded', ''),
+                getattr(r, 'case_no', ''),
+                getattr(r, 'reason', ''),
+                getattr(r, 'status', ''),
+                getattr(r, 'unit_responsible', ''),
+                getattr(r, 'assorted_items', ''),
+                impounded_by_str.strip(),
+                getattr(r, 'entered_by', ''),
+                getattr(r, 'comment', '')
+            ])
+
+        response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+        
+        file_label = status_filter.replace(" ", "_").upper() if status_filter and status_filter not in ["ALL", "ANY STATUS"] else "ALL_EXHIBITS"
+        timestamp = datetime.now().strftime("%Y-%m-%d")
+        response.headers["Content-Disposition"] = f"attachment; filename=KMP_EXHIBITS_{file_label}_{timestamp}.csv"
+        
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="EXPORT",
+            module="EXHIBITS_REGISTRY",
+            target_id="CSV_EXPORT",
+            changes_summary=f"Officer generated and exported backend CSV containing {total_records} exhibit records (Filter: {file_label})."
+        )
+
+        return response
+    except Exception as e:
+        print(f"Export error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate CSV export.")
+
+# ====================================================================
+# 2. IMPOUND NEW EXHIBIT
+# ====================================================================
 @router.post("")
 def create_exhibit(
     data: dict, 
@@ -159,7 +353,6 @@ def create_exhibit(
     logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
-    from api_backend import serialize_model_row
     try:
         Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
         if not Model: raise HTTPException(status_code=500, detail="Exhibits model not initialized.")
@@ -195,7 +388,6 @@ def create_exhibit(
         db.commit()
         db.refresh(new_item)
 
-        # 🟢 Record precise forensic REGISTER activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -211,6 +403,9 @@ def create_exhibit(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+# ====================================================================
+# 3. UPDATE EXHIBIT RECORD
+# ====================================================================
 @router.put("/{item_id}")
 def update_exhibit(
     item_id: int, 
@@ -219,7 +414,6 @@ def update_exhibit(
     logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
-    from api_backend import serialize_model_row
     try:
         Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
         item = db.query(Model).filter(Model.id == item_id).first()
@@ -238,7 +432,6 @@ def update_exhibit(
         db.commit()
         db.refresh(item)
 
-        # 🟢 Record precise forensic UPDATE activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,

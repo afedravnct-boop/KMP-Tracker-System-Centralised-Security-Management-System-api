@@ -154,10 +154,36 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
    
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
+  
+  const [filterOffence, setFilterOffence] = useState('ALL OFFENCES');
+  const [uniqueOffences, setUniqueOffences] = useState([]);
 
   const [showLockup, setShowLockup] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
   const [editingSuspectId, setEditingSuspectId] = useState(null);
+
+  const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
+
+  const getDateRangeParams = (filterOption) => {
+    if (filterOption === 'ALL TIME') return { start: null, end: null };
+    
+    const end = new Date();
+    const start = new Date();
+    
+    if (filterOption === 'LAST 7 DAYS') { start.setDate(start.getDate() - 7); }
+    else if (filterOption === 'LAST 14 DAYS') { start.setDate(start.getDate() - 14); }
+    else if (filterOption === 'LAST 21 DAYS') { start.setDate(start.getDate() - 21); }
+    else if (filterOption === 'LAST 30 DAYS') { start.setDate(start.getDate() - 30); }
+    else if (filterOption === 'LAST 60 DAYS') { start.setDate(start.getDate() - 60); }
+    else if (filterOption === 'LAST 90 DAYS') { start.setDate(start.getDate() - 90); }
+    else if (filterOption === 'LAST 120 DAYS') { start.setDate(start.getDate() - 120); }
+    else if (filterOption === 'LAST 180 DAYS') { start.setDate(start.getDate() - 180); }
+    
+    const pad = (n) => n.toString().padStart(2, '0');
+    const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    
+    return { start: format(start), end: format(end) };
+  };
 
   const handleSelectSuspectToEdit = (suspect) => {
     setNewSuspect({
@@ -173,8 +199,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     });
     setEditingSuspectId(suspect.id);
   };
-
-  const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
   const [formData, setFormData] = useState({
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
@@ -206,6 +230,32 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
+  // NEW: Lightweight backend fetch for unique offences
+  const fetchUniqueOffences = useCallback(async () => {
+    if (!hasValidSession()) return;
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') {
+        params.append('region', filterRegion);
+      }
+      if (filterStation && filterStation !== 'ALL STATIONS') {
+        params.append('station', filterStation);
+      }
+      const response = await authFetch(`/api/v1/reports/offences?${params.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setUniqueOffences(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch unique offences:", err);
+    }
+  }, [filterRegion, filterStation, canViewGlobalActive]);
+
+  useEffect(() => {
+    fetchUniqueOffences();
+  }, [fetchUniqueOffences]);
+
+  // NEW: Send all filter constraints to the backend
   const fetchFilteredDatabaseReports = useCallback(async () => {
     if (!hasValidSession()) return;
     setIsFetchingReports(true);
@@ -214,7 +264,23 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') {
         params.append('region', filterRegion);
       }
-      if (debouncedSearch) params.append('search', debouncedSearch);
+      if (filterStation && filterStation !== 'ALL STATIONS') {
+        params.append('station', filterStation);
+      }
+      if (filterOffence && filterOffence !== 'ALL OFFENCES') {
+        params.append('offence', filterOffence);
+      }
+      if (showAgriculturalOnly) {
+        params.append('agri_only', 'true');
+      }
+      if (debouncedSearch) {
+        params.append('search', debouncedSearch);
+      }
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+      
       params.append('limit', '300');
 
       const response = await authFetch(`/api/v1/reports?${params.toString()}`);
@@ -228,7 +294,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     } finally {
       setIsFetchingReports(false);
     }
-  }, [filterRegion, debouncedSearch, setReports, canViewGlobalActive]);
+  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, dateFilter, debouncedSearch, setReports, canViewGlobalActive]);
 
   useEffect(() => {
     fetchFilteredDatabaseReports();
@@ -263,54 +329,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     });
   };
 
+  // Because the backend now perfectly pre-filters the array, we just sort it safely.
   const finalFilteredReports = useMemo(() => {
     if (!Array.isArray(serverReports)) return [];
-       
-    const filtered = serverReports.filter(r => {
-      if (r.is_hq_general_total || (r.offence || '').toUpperCase().includes("LOCK-UP TOTAL")) return false;
-
-      const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, r.region);
-
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        // Global viewing allowed
-      } else {
-        const belongsToRegion = filterRegion === 'ALL REGIONS' ||  
-                              reg === filterRegion ||  
-                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
-
-        if (!belongsToRegion) return false;
-
-        if (filterStation !== 'ALL STATIONS') {
-          if (!isStationEquivalent(stn, filterStation)) return false;
-        }
-      }
-
-      if (showAgriculturalOnly) {
-        const isCatAgri = (r.category || '').toUpperCase() === 'AGRIC_CRIME';
-        if (!isCatAgri) return false;
-      }
-         
-      const diffDays = Math.ceil(Math.abs(new Date() - new Date(r.date)) / (1000 * 60 * 60 * 24));
-      if (dateFilter === 'TODAY') {
-        const todayStr = getTodayString();
-        if (r.date !== todayStr) return false;
-      } 
-      else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
-      else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
-      else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
-      else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
-      else if (dateFilter === 'LAST 60 DAYS') { if (diffDays > 60) return false; } 
-      else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
-      else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
-      else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
-         
-      return true;
-    });
-
-    return filtered.sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
-
-  }, [serverReports, dateFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalActive]);
+    return [...serverReports].sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
+  }, [serverReports]);
 
   const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
@@ -336,14 +359,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const metrics = useMemo(() => {
     const stationCellPop = {};
     const todayStr = getTodayString(); 
-     
+      
     let hqGrandTotalToday = 0; 
     let hasLockupUpdateToday = false;
 
     lockupData.forEach(l => {
       const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
       const lRegion = getOfficialRegionForStation(lStation, l.region);
-       
+        
       const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' ||  
                         lStation.includes('GENERAL TOTAL') ||  
                         lRegion === 'KMP HEADQUARTERS';
@@ -446,17 +469,17 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       try {
         const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
         const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
-         
+          
         const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
             method: "POST", 
             headers: { "Authorization": `Bearer ${token}` }, 
             body: uploadData 
         });
-         
+          
         if (!response.ok) throw new Error("Upload failed");
-         
+          
         const data = await response.json();
-         
+          
         if (data.full_s3_url || data.cloud_storage_path || data.url) {
           setNewSuspect({ 
               ...newSuspect, 
@@ -477,7 +500,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
-         
+          
     setNotification("⏳ Submitting HQ General Grand Total to Independent Matrix...");
     const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
 
@@ -518,7 +541,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-         
+          
     let formattedTime = stripHtmlTags(formData.time || '');
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
@@ -529,22 +552,18 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const cleanRefType = stripHtmlTags(formData.ref_type);
       const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase().trim();
       const final_reference = `${cleanRefType} ${cleanRefNumber}`.trim();
-       
-      // 🟢 STRICT VALIDATION RULES FOR REFERENCES
+        
       if (cleanRefType === 'SD Ref:') {
-        // Must match 01/01/01/2026 format (serial number/day/month/year)
         const sdRegex = /^\d{1,3}\/\d{2}\/\d{2}\/\d{4}$/;
         if (!sdRegex.test(cleanRefNumber)) {
           return setNotification("⚠️ Invalid SD Ref format! Must follow the format 01/01/01/2026 (Serial Number / Day / Month / Year).");
         }
       } else if (['CRB:', 'DEF:', 'GEF:', 'CID:'].includes(cleanRefType)) {
-        // Must match 001/2026 format (incident number / year)
         const caseRegex = /^\d{1,4}\/\d{4}$/;
         if (!caseRegex.test(cleanRefNumber)) {
           return setNotification(`⚠️ Invalid ${cleanRefType} format! Must follow the format 001/2026 (Incident Number / Year).`);
         }
       } else if (cleanRefType === 'TAR:') {
-        // Can be either 001/2026 or 01/01/01/2026
         const tarRegex = /^(\d{1,4}\/\d{4}|\d{1,3}\/\d{2}\/\d{2}\/\d{4})$/;
         if (!tarRegex.test(cleanRefNumber)) {
           return setNotification("⚠️ Invalid TAR format! Must follow either 001/2026 or 01/01/01/2026.");
@@ -573,12 +592,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         suspectDetails: formData.suspectDetails,
         daily_lock_up: 0 
       };
-         
+          
       try {
         const response = await authFetch(`/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload) });
         const resData = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected the entry.");
-           
+            
         fetchFilteredDatabaseReports();
         setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         resetFormToBlank();
@@ -589,13 +608,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a case first.");
-         
+          
       const plainUpdateText = extractPlainText(formData.updateText || '').trim();
       let updatedNarrative = formData.narrative;
       if (plainUpdateText) {
           updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
       }
-         
+          
       const finalOffenceValue = formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence);
 
       const updatedRecord = { 
@@ -615,7 +634,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       delete updatedRecord.ref_type; 
       delete updatedRecord.ref_number;
       delete updatedRecord.customOffence; 
-         
+          
       try {
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
         const resData = await response.json().catch(() => ({}));
@@ -630,10 +649,61 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       }
     }
   };
+
+  // NEW: Triggers robust backend CSV generation
+  const handleExportFilteredData = async () => {
+    if (!serverReports.length) {
+      alert("No records available to export for the selected filters.");
+      return;
+    }
+    
+    setNotification("⏳ Generating official CSV export from database. Please wait...");
+    
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      if (filterOffence && filterOffence !== 'ALL OFFENCES') params.append('offence', filterOffence);
+      if (showAgriculturalOnly) params.append('agri_only', 'true');
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const response = await authFetch(`/api/v1/reports/export?${params.toString()}`);
+      if (!response.ok) throw new Error("Export failed on server.");
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = 'KMP_REGISTRY_EXPORT.csv';
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          filename = disposition.split('filename=')[1].replace(/["']/g, '');
+      } else {
+          const timestamp = new Date().toISOString().split('T')[0];
+          const fileLabel = filterOffence === 'ALL OFFENCES' ? 'ALL_CRIMES' : filterOffence.replace(/\s+/g, '_');
+          filename = `KMP_REGISTRY_${fileLabel}_${timestamp}.csv`;
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification(null);
+    } catch (err) {
+      console.error("Export error:", err);
+      setNotification("❌ Failed to generate export file.");
+    }
+  };
    
   return (
     <div className="p-4 max-w-[1600px] mx-auto space-y-4 relative z-10 font-sans">
-         
+          
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
@@ -999,8 +1069,8 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         </div>
 
         <div className="lg:col-span-7 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-2.5 items-center">
-             <div className="relative flex-1 w-full"> 
+          <div className="flex flex-col sm:flex-row gap-2.5 items-center flex-wrap">
+             <div className="relative flex-1 w-full min-w-[250px]"> 
                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
                <input type="text" placeholder="Search Reference, narrative, station or offence..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-1.5 border dark:border-slate-700 rounded-lg text-xs shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
              </div>
@@ -1028,6 +1098,18 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                 <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>
               )}
             </select>
+
+            <select value={filterOffence} onChange={(e) => setFilterOffence(e.target.value)} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer max-w-[200px] truncate">
+              <option value="ALL OFFENCES">ALL OFFENCES</option>
+              {uniqueOffences.map((off, idx) => (
+                <option key={idx} value={off}>{off}</option>
+              ))}
+            </select>
+
+            <button type="button" onClick={handleExportFilteredData} className="px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800 ring-2 ring-blue-500/20">
+              <HardDrive className="w-3.5 h-3.5 mr-1" />
+              Export CSV
+            </button>
           </div>
 
           <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
@@ -1142,14 +1224,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
                     <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
                   </div>
-                   
+                    
                   <div className="flex flex-col gap-4 w-full">
                     {selectedCase.suspectDetails.map((s, idx) => {
                       const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
 
                       return (
                         <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
-                           
+                            
                           <div className="shrink-0">
                             {isValidPhoto ? ( 
                               <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
@@ -1160,12 +1242,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                               </div> 
                             )}
                           </div>
-                           
+                            
                           <div className="flex-1 min-w-0 py-1">
                             <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
                             <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
                             <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
-                             
+                              
                             {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( 
                               <div className="inline-flex mt-1 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-black px-2.5 py-1 rounded shadow-sm uppercase tracking-wider w-max">
                                 Status: {stripHtmlTags(s.mental_health_status)}

@@ -1,7 +1,12 @@
 # routers/success_stories.py
 import json
+import re
+import csv
+import io
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, text
 
@@ -19,6 +24,11 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
+
+def strip_html_tags(text_str: str) -> str:
+    if not text_str:
+        return ""
+    return re.sub('<.*?>', '', str(text_str))
 
 def get_officer_signature(user):
     if not user:
@@ -95,19 +105,64 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station'):
-        return query.filter(func.upper(ModelClass.station) == user_stn)
+        clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        return query.filter(
+            or_(
+                func.upper(ModelClass.station) == user_stn,
+                func.upper(ModelClass.station) == clean_user_stn,
+                func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+            )
+        )
         
     return query.filter(text("1=0"))
 
+# ====================================================================
+# 1. RETRIEVE SUCCESS STORIES (WITH BACKEND CASE LINKING)
+# ====================================================================
 @router.get("/stories")
 def get_stories(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    category: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    agri_only: bool = Query(default=False),
+    limit: int = Query(default=200, le=1000),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     query = db.query(models.Success_Stories)
     query = apply_opsec_scope(current_user, query, models.Success_Stories)
+    
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(models.Success_Stories, 'region'):
+            query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(models.Success_Stories, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(models.Success_Stories.station) == station.upper(),
+                    func.upper(models.Success_Stories.station) == clean_stn,
+                    func.upper(models.Success_Stories.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    if category and category.upper() not in ["ALL CATEGORIES", "ALL", ""]:
+        if hasattr(models.Success_Stories, 'category'):
+            query = query.filter(func.upper(models.Success_Stories.category) == category.upper())
+
+    if agri_only and hasattr(models.Success_Stories, 'category'):
+        query = query.filter(func.upper(models.Success_Stories.category) == 'AGRIC_CRIME')
+
+    if start_date and hasattr(models.Success_Stories, 'date'):
+        query = query.filter(models.Success_Stories.date >= start_date)
+    
+    if end_date and hasattr(models.Success_Stories, 'date'):
+        query = query.filter(models.Success_Stories.date <= end_date)
     
     if search:
         term = f"%{search.strip().upper()}%"
@@ -121,12 +176,49 @@ def get_stories(
         if search_conds:
             query = query.filter(or_(*search_conds))
 
-    records = query.order_by(models.Success_Stories.sn.desc()).all()
+    records = query.order_by(models.Success_Stories.sn.desc()).limit(limit).all()
+
+    # 🟢 HEAVY LIFTING SHIFTED TO BACKEND: Attach linked crime reports internally
+    CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
+    serialized_records = []
+    
+    for r in records:
+        r_dict = r.__dict__.copy()
+        r_dict.pop('_sa_instance_state', None)
+        
+        narrative_str = r_dict.get('narrative', '')
+        linked_case = None
+
+        if CrimeModel and narrative_str:
+            ref_regex = re.compile(r'(sd\s*ref|crb|def|gef|tar|cid)\s*:?\s*([A-Z0-9/\-]+)', re.IGNORECASE)
+            matches = ref_regex.findall(narrative_str)
+            
+            for prefix, ref_num in matches:
+                search_num = ref_num.strip().upper()
+                # Fast DB query for exact or like match
+                db_case = db.query(CrimeModel).filter(
+                    or_(
+                        func.upper(CrimeModel.sd_ref).like(f"%{search_num}%"),
+                        func.upper(CrimeModel.sdRef).like(f"%{search_num}%") if hasattr(CrimeModel, 'sdRef') else text("1=0")
+                    )
+                ).first()
+                
+                if db_case:
+                    linked_case = {
+                        "sdRef": getattr(db_case, 'sd_ref', getattr(db_case, 'sdRef', '')),
+                        "offence": getattr(db_case, 'offence', 'Unknown Offence'),
+                        "date_reported": getattr(db_case, 'date_reported', getattr(db_case, 'date', '')),
+                        "status": getattr(db_case, 'status', 'OPEN')
+                    }
+                    break # Stop looking after finding the primary link
+
+        r_dict['linked_case'] = linked_case
+        serialized_records.append(r_dict)
         
     if search:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched success stories ledger for query: \"{search}\" (Returned {len(records)} matches)."
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched success stories ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
     else:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Success Stories ledger (Fetched {len(records)} records)."
+        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Success Stories ledger (Fetched {len(serialized_records)} records)."
 
     record_neon_activity(
         logs_db=logs_db,
@@ -137,8 +229,143 @@ def get_stories(
         changes_summary=summary_text
     )
 
-    return records
+    return serialized_records
 
+# ====================================================================
+# 1B. GET UNIQUE STORY CATEGORIES (LIGHTWEIGHT)
+# ====================================================================
+@router.get("/stories/categories")
+def get_unique_categories(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if not hasattr(models.Success_Stories, 'category'):
+        return []
+
+    query = db.query(models.Success_Stories.category).distinct()
+    query = apply_opsec_scope(current_user, query, models.Success_Stories)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(models.Success_Stories, 'region'):
+            query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(models.Success_Stories, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(models.Success_Stories.station) == station.upper(),
+                    func.upper(models.Success_Stories.station) == clean_stn,
+                    func.upper(models.Success_Stories.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    categories = [row[0].strip().upper() for row in query.all() if row[0]]
+    return sorted(list(set(categories)))
+
+# ====================================================================
+# 1C. EXPORT SUCCESS STORIES TO CSV (BACKEND GENERATION)
+# ====================================================================
+@router.get("/stories/export")
+def export_stories_csv(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    category: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    agri_only: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    query = db.query(models.Success_Stories)
+    query = apply_opsec_scope(current_user, query, models.Success_Stories)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(models.Success_Stories, 'region'):
+            query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(models.Success_Stories, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(models.Success_Stories.station) == station.upper(),
+                    func.upper(models.Success_Stories.station) == clean_stn,
+                    func.upper(models.Success_Stories.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    if category and category.upper() not in ["ALL CATEGORIES", "ALL", ""]:
+        if hasattr(models.Success_Stories, 'category'):
+            query = query.filter(func.upper(models.Success_Stories.category) == category.upper())
+
+    if agri_only and hasattr(models.Success_Stories, 'category'):
+        query = query.filter(func.upper(models.Success_Stories.category) == 'AGRIC_CRIME')
+
+    if start_date and hasattr(models.Success_Stories, 'date'):
+        query = query.filter(models.Success_Stories.date >= start_date)
+    
+    if end_date and hasattr(models.Success_Stories, 'date'):
+        query = query.filter(models.Success_Stories.date <= end_date)
+
+    if search:
+        term = f"%{search.strip().upper()}%"
+        search_conds = []
+        if hasattr(models.Success_Stories, 'title'): search_conds.append(models.Success_Stories.title.ilike(term))
+        if hasattr(models.Success_Stories, 'narrative'): search_conds.append(models.Success_Stories.narrative.ilike(term))
+        if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
+        if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
+        if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
+        if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
+        if search_conds:
+            query = query.filter(or_(*search_conds))
+
+    records = query.order_by(models.Success_Stories.sn.desc()).all()
+
+    # Generate CSV in-memory
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow(["SN", "Date Recorded", "Region", "Station", "Category / Focus", "Narrative Extract", "Logged By"])
+
+    total_records = len(records)
+    for idx, r in enumerate(records):
+        # The narrative contains both the headline and body because we merged them
+        narrative_clean = strip_html_tags(getattr(r, 'narrative', ''))
+        
+        writer.writerow([
+            total_records - idx,
+            getattr(r, 'date', getattr(r, 'created_at', '')),
+            getattr(r, 'region', ''),
+            getattr(r, 'station', ''),
+            getattr(r, 'category', 'GENERAL CRIMES'),
+            narrative_clean,
+            getattr(r, 'last_updated_by', '')
+        ])
+
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    
+    file_label = category.replace(" ", "_").upper() if category and category not in ["ALL CATEGORIES", "ALL"] else "ALL_STORIES"
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    response.headers["Content-Disposition"] = f"attachment; filename=KMP_SUCCESS_STORIES_{file_label}_{timestamp}.csv"
+    
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="SUCCESS_STORIES",
+        target_id="CSV_EXPORT",
+        changes_summary=f"Officer generated and exported backend CSV containing {total_records} success stories (Filter: {file_label})."
+    )
+
+    return response
+
+# ====================================================================
+# 2. CREATE SUCCESS STORY
+# ====================================================================
 @router.post("/stories")
 def create_story(
     data: dict, 
@@ -195,6 +422,9 @@ def create_story(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+# ====================================================================
+# 3. UPDATE SUCCESS STORY
+# ====================================================================
 @router.put("/stories/{sn}")
 def update_story(
     sn: int, 

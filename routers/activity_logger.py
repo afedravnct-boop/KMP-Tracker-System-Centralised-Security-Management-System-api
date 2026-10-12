@@ -1,5 +1,7 @@
 # routers/activity_logger.py
 from datetime import datetime
+import base64
+import json
 import pytz
 from sqlalchemy.orm import Session
 from fastapi import Request
@@ -9,14 +11,14 @@ from app import models, database
 def record_neon_activity(
     logs_db: Session, 
     fnum: str, 
-    action_type: str,     # 'VIEW', 'REGISTER', 'READ', 'EDIT', 'UPDATE', 'DELETE', 'ANALYTICS_SYNC', 'BACKGROUND_FETCH'
-    module: str,           # e.g., 'CRIME_REGISTRY', 'EXHIBITS', 'LOCKUP', 'ANALYTICS_DASHBOARD'
+    action_type: str,      # 'VIEW', 'REGISTER', 'READ', 'EDIT', 'UPDATE', 'DELETE', 'ANALYTICS_SYNC', 'BACKGROUND_FETCH'
+    module: str,             # e.g., 'CRIME_REGISTRY', 'EXHIBITS', 'LOCKUP', 'ANALYTICS_DASHBOARD'
     target_id: str = None, # Specific record ID, case number, or SD reference
     changes_summary: str = None # Fine details like category, record parameters, etc.
 ):
     """
     Directly commits a granular forensic event into the NeonDB ActivityLogs branch.
-    Separates human manual operations from automated background module processes.
+    Guarantees precise auditing for human administrative actions and mutations.
     """
     try:
         eat_tz = pytz.timezone('Africa/Nairobi')
@@ -26,7 +28,7 @@ def record_neon_activity(
         upper_module = str(module or "GENERAL").strip().upper()
         clean_fnum = str(fnum or "SYSTEM").strip().upper()
         
-        # 🟢 Filter out silent background polling, heartbeats, and browser noise
+        # Filter out noisy background polls
         target_str = str(target_id or "").lower()
         if any(noise in target_str for noise in ["/heartbeat", "/ping", "/poll", "/notifications", "/unread", "/favicon.ico"]):
             return
@@ -40,9 +42,6 @@ def record_neon_activity(
             clean_fnum = f"MODULE_{clean_fnum}" if clean_fnum != "SYSTEM" else "SYSTEM_AUTOMATION"
 
         elif upper_action in ["VIEW", "READ"]:
-            # Only log direct human navigation views on core resources, ignore silent background fetches
-            if clean_fnum in ["SYSTEM", "USER", "ANONYMOUS"] and not target_str.startswith("/api/v1/"):
-                return
             details = (
                 f"Officer [{clean_fnum}] accessed module '{upper_module}' in read-only inspection mode. "
                 f"Target Reference: {target_id or 'GENERAL_VIEW'}. No data mutations performed."
@@ -90,26 +89,23 @@ def record_neon_activity(
 class SystemActivityMiddleware(BaseHTTPMiddleware):
     """
     Transparently watches active system mutations and direct user navigation,
-    ignoring background pre-fetches and component auto-mounting noise.
+    capturing sign-up approvals, edits, and administrative state changes with precision.
     """
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         
         path = request.url.path
         
-        # Filter out static files, documentation, preflights, heartbeats, and favicons
+        # Skip static assets, docs, and browser noise
         if any(skip in path for skip in ["/static/", "/favicon.ico", "/docs", "/openapi.json", "/heartbeat", "/ping"]) or request.method == "OPTIONS":
             return response
 
-        # Only watch active system API endpoints
         if not path.startswith("/api/"):
             return response
 
-        # 🟢 CRITICAL: Do NOT automatically log every background GET request as a human "VIEW" 
-        # unless it is an explicit state-changing request (POST, PUT, PATCH, DELETE) 
-        # or an explicitly designated manual report/export endpoint.
+        # Always record state-changing mutations (POST, PUT, PATCH, DELETE)
         if request.method == "GET":
-            if not any(explicit in path for explicit in ["export", "audit", "dossier"]):
+            if not any(explicit in path for explicit in ["export", "audit", "dossier", "users", "approve"]):
                 return response
 
         path_parts = path.strip("/").split("/")
@@ -124,17 +120,34 @@ class SystemActivityMiddleware(BaseHTTPMiddleware):
         }
         action_type = method_map.get(request.method, "EXECUTE")
 
+        if "approve" in path.lower() or "status" in path.lower():
+            action_type = "UPDATE"
+            module_name = "USER_MANAGEMENT"
+
         is_system_call = request.headers.get("X-System-Module") is not None
         if is_system_call:
             action_type = "ANALYTICS_SYNC"
             module_name = request.headers.get("X-System-Module").upper()
 
+        # Precision FNUM resolution: Extract from state, headers, or safely decode Bearer token
         fnum = getattr(request.state, "user_fnum", None) or request.headers.get("X-User-Fnum", None)
         
-        if not fnum and request.method == "GET":
-            return response
+        if not fnum:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                try:
+                    token = auth_header.split(" ")[1]
+                    parts = token.split(".")
+                    if len(parts) >= 2:
+                        payload_segment = parts[1]
+                        padding = '=' * (-len(payload_segment) % 4)
+                        decoded_bytes = base64.urlsafe_b64decode(payload_segment + padding)
+                        payload = json.loads(decoded_bytes.decode('utf-8'))
+                        fnum = payload.get("sub") or payload.get("fnum") or payload.get("username")
+                except Exception:
+                    pass
 
-        fnum = fnum or "SYSTEM"
+        fnum = fnum or "ADMIN_OFFICER"
 
         try:
             logs_db = next(database.get_logs_db())
@@ -144,7 +157,7 @@ class SystemActivityMiddleware(BaseHTTPMiddleware):
                 action_type=action_type,
                 module=module_name,
                 target_id=path,
-                changes_summary=f"System operation: HTTP {request.method} -> {path} [Status: {response.status_code}]"
+                changes_summary=f"Precise system operation: HTTP {request.method} -> {path} [Status: {response.status_code}]"
             )
             logs_db.close()
         except Exception:

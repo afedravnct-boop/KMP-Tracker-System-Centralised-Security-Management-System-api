@@ -1,9 +1,9 @@
 // src/components/SuccessStories.jsx
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield, Sprout } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield, Sprout, Search, HardDrive, Loader2 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import { authFetch } from './api';
+import { authFetch, hasValidSession } from './api';
 import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
@@ -103,6 +103,9 @@ const autoCapitalize = (text) => {
 };
 
 const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase, isReadOnlyObserver }) => {
+  const [serverStories, setServerStories] = useState([]);
+  const [isFetchingStories, setIsFetchingStories] = useState(false);
+  
   const [operation, setOperation] = useState('new');
   const [selectedDossier, setSelectedDossier] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
@@ -127,6 +130,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : userStnClean);
   const [categoryFilter, setCategoryFilter] = useState('ALL CATEGORIES');
+  const [uniqueCategories, setUniqueCategories] = useState([]);
 
   const isFilterInitialized = useRef(false);
   useEffect(() => {
@@ -148,10 +152,85 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
   const [notification, setNotification] = useState(null);
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
-
-  if (!stories) return <div className="p-4 text-gray-500 dark:text-slate-400">Loading mission logs...</div>;
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
   const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
+
+  const getDateRangeParams = (filterOption) => {
+    if (filterOption === 'ALL TIME') return { start: null, end: null };
+    const end = new Date();
+    const start = new Date();
+    if (filterOption === 'LAST 7 DAYS') { start.setDate(start.getDate() - 7); }
+    else if (filterOption === 'LAST 14 DAYS') { start.setDate(start.getDate() - 14); }
+    else if (filterOption === 'LAST 21 DAYS') { start.setDate(start.getDate() - 21); }
+    else if (filterOption === 'LAST 30 DAYS') { start.setDate(start.getDate() - 30); }
+    else if (filterOption === 'LAST 60 DAYS') { start.setDate(start.getDate() - 60); }
+    else if (filterOption === 'LAST 90 DAYS') { start.setDate(start.getDate() - 90); }
+    else if (filterOption === 'LAST 120 DAYS') { start.setDate(start.getDate() - 120); }
+    else if (filterOption === 'LAST 180 DAYS') { start.setDate(start.getDate() - 180); }
+    const pad = (n) => n.toString().padStart(2, '0');
+    const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return { start: format(start), end: format(end) };
+  };
+
+  const fetchUniqueCategories = useCallback(async () => {
+    if (!hasValidSession()) return;
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      const res = await authFetch(`/api/v1/stories/categories?${params.toString()}`);
+      if (res.ok) setUniqueCategories(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
+  }, [filterRegion, filterStation, canViewGlobalActive]);
+
+  useEffect(() => {
+    fetchUniqueCategories();
+  }, [fetchUniqueCategories]);
+
+  const fetchFilteredDatabaseStories = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setIsFetchingStories(true);
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      if (categoryFilter && categoryFilter !== 'ALL CATEGORIES') params.append('category', categoryFilter);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+      
+      params.append('limit', '300');
+
+      const response = await authFetch(`/api/v1/stories?${params.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setServerStories(data);
+        if (setStories) setStories(data);
+      }
+    } catch (err) {
+      console.error("Failed to execute SQL fetch:", err);
+    } finally {
+      setIsFetchingStories(false);
+    }
+  }, [filterRegion, filterStation, categoryFilter, dateFilter, debouncedSearch, setStories, canViewGlobalActive]);
+
+  useEffect(() => {
+    fetchFilteredDatabaseStories();
+  }, [fetchFilteredDatabaseStories]);
 
   const [formData, setFormData] = useState({
     sn: null, 
@@ -159,7 +238,11 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     station: canViewGlobalActive ? REGIONAL_HIERARCHY['KMP NORTH'][0] : userStnClean,
     date: getTodayString(), 
     time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: '',
+    headline: '',
+    narrative: '', 
+    status: 'COMPLETED / SUCCESS', 
+    updateText: '', 
+    photo_url: '',
     category: 'GENERAL CRIMES'
   });
 
@@ -167,69 +250,13 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     setExpandedRows(prev => ({ ...prev, [sn]: !prev[sn] }));
   };
 
-  const findLinkedCrimeCase = (successStoryNarrative, allReports) => {
-    if (!successStoryNarrative || !Array.isArray(allReports)) return null;
-    
-    const refRegex = /(sd\s*ref|crb|def|gef|tar|cid)\s*:?\s*([A-Z0-9/\-]+)/gi;
-    const matches = [...successStoryNarrative.matchAll(refRegex)];
-    
-    for (const match of matches) {
-      const searchNum = match[2].trim().toUpperCase();
-      const foundCase = allReports.find(r => {
-        const dbRef = (r.sdRef || r.sd_ref || '').trim().toUpperCase();
-        return dbRef.includes(searchNum);
-      });
-      if (foundCase) return foundCase;
-    }
-    return null;
-  };
-
   const filteredStories = useMemo(() => {
-    return (Array.isArray(stories) ? stories : []).filter(s => {
-      const stn = stripHtmlTags(s.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, s.region);
-
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        // Global viewing allowed
-      } else {
-        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                                reg === filterRegion || 
-                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, stn)));
-
-        if (!belongsToRegion) return false;
-
-        if (filterStation !== 'ALL STATIONS') {
-          if (!isStationEquivalent(stn, filterStation)) return false;
-        }
-      }
-
-      // 🟢 Category Filter
-      if (categoryFilter !== 'ALL CATEGORIES') {
-        const storyCategory = (s.category || 'GENERAL CRIMES').toUpperCase();
-        if (storyCategory !== categoryFilter.toUpperCase()) return false;
-      }
-
-      const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
-      
-      if (dateFilter === 'TODAY') {
-        const todayStr = getTodayString();
-        if (s.date !== todayStr) return false;
-      } 
-      else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
-      else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
-      else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
-      else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
-      else if (dateFilter === 'LAST 60 DAYS') { if (diffDays > 60) return false; } 
-      else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
-      else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
-      else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
-      
-      return true;
-    });
-  }, [stories, filterRegion, filterStation, categoryFilter, dateFilter, canViewGlobalActive]);
+    if (!Array.isArray(serverStories)) return [];
+    return [...serverStories].sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
+  }, [serverStories]);
 
   const availableUpdateStories = useMemo(() => {
-    return (Array.isArray(stories) ? stories : []).filter(s => {
+    return (Array.isArray(serverStories) ? serverStories : []).filter(s => {
       const stn = stripHtmlTags(s.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, s.region);
 
@@ -241,20 +268,21 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
 
       if (updateSearch) {
         const query = stripHtmlTags(updateSearch).toLowerCase();
-        return s.sn.toString().includes(query) || s.narrative.toLowerCase().includes(query);
+        return (s.sn || '').toString().includes(query) || (s.narrative || '').toLowerCase().includes(query);
       }
       return true;
     });
-  }, [stories, updateSearch, canViewGlobalActive, userRegClean]);
+  }, [serverStories, updateSearch, canViewGlobalActive, userRegClean]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    const cleanValue = stripHtmlTags(value);
+    const finalValue = name === 'headline' ? value.toUpperCase() : stripHtmlTags(value);
+    
     if (name === 'region') {
-      const firstStation = REGIONAL_HIERARCHY[cleanValue]?.[0] || '';
-      setFormData({ ...formData, region: cleanValue, station: firstStation });
+      const firstStation = REGIONAL_HIERARCHY[finalValue]?.[0] || '';
+      setFormData({ ...formData, region: finalValue, station: firstStation });
     } else {
-      setFormData({ ...formData, [name]: cleanValue });
+      setFormData({ ...formData, [name]: finalValue });
     }
   };
 
@@ -271,7 +299,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         uploadData.append("file", file);
         uploadData.append("category", "scene");
         uploadData.append("case_id", stripHtmlTags(formData.sn || "NEW_STORY"));
-        uploadData.append("narrative", stripHtmlTags(formData.narrative || "Exhibit Upload"));
+        uploadData.append("narrative", stripHtmlTags(formData.headline || formData.narrative || "Exhibit Upload"));
 
         try {
           const response = await authFetch("/api/v1/investigation/upload/", { method: "POST", body: uploadData });
@@ -315,31 +343,58 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         region: canViewGlobalActive ? 'KMP NORTH' : userRegClean, 
         station: canViewGlobalActive ? REGIONAL_HIERARCHY['KMP NORTH'][0] : userStnClean,
         date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-        narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: '',
+        headline: '', narrative: '', status: 'COMPLETED / SUCCESS', updateText: '', photo_url: '',
         category: 'GENERAL CRIMES'
       });
       setUpdateSearch('');
     }
   };
 
-  const populateUpdateForm = (storyData) => setFormData({ ...storyData, updateText: '' });
+  const populateUpdateForm = (storyData) => {
+    let extractedHeadline = '';
+    let extractedNarrative = storyData.narrative || '';
+
+    const match = extractedNarrative.match(/^<strong>(.*?)<\/strong><br\s*\/><br\s*\/>(.*)$/s);
+    if (match) {
+        extractedHeadline = stripHtmlTags(match[1]).trim();
+        extractedNarrative = match[2].trim();
+    } else {
+        const fallbackMatch = extractedNarrative.match(/^<strong>(.*?)<\/strong>\s*(.*)$/s);
+        if (fallbackMatch) {
+            extractedHeadline = stripHtmlTags(fallbackMatch[1]).trim();
+            extractedNarrative = fallbackMatch[2].trim();
+        }
+    }
+
+    setFormData({ 
+        ...storyData, 
+        headline: extractedHeadline,
+        narrative: extractedNarrative,
+        updateText: '' 
+    });
+  };
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
 
-    const cleanedNarrative = formData.narrative
+    const cleanedNarrativeBody = formData.narrative
       ? formData.narrative.replace(/color:\s*(white|#fff|#ffffff);?/gi, '')
       : '';
 
-    const submissionData = { ...formData, narrative: cleanedNarrative };
+    const finalNarrativeString = formData.headline.trim() 
+      ? `<strong>${formData.headline.trim()}</strong><br/><br/>${cleanedNarrativeBody}`
+      : cleanedNarrativeBody;
+
+    const submissionData = { ...formData, narrative: finalNarrativeString };
+    delete submissionData.headline;
 
     if (operation === 'new') {
       const cleanNewText = stripHtmlTags(submissionData.narrative).toLowerCase();
-      const isDuplicate = stories.some(s => stripHtmlTags(s.narrative).toLowerCase() === cleanNewText);
+      const isDuplicate = serverStories.some(s => stripHtmlTags(s.narrative).toLowerCase() === cleanNewText);
 
       if (isDuplicate) return setNotification("Error: This exact success story has already been logged.");
 
-      const exactNextSN = (stories && stories.length > 0) ? Math.max(...stories.map(s => s.sn || s.id || 0)) + 1 : 1;
+      const exactNextSN = (serverStories && serverStories.length > 0) ? Math.max(...serverStories.map(s => s.sn || s.id || 0)) + 1 : 1;
       const newStory = { ...submissionData, sn: exactNextSN, last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})` };
       delete newStory.updateText;
       
@@ -353,9 +408,11 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         
         if (resData.sn) newStory.sn = resData.sn;
         
-        setStories([newStory, ...stories]);
+        setServerStories([newStory, ...serverStories]);
+        if (setStories) setStories([newStory, ...serverStories]);
+
         setNotification(`Success story SN ${newStory.sn} logged successfully!`);
-        setFormData({ ...formData, time: '', narrative: '', sn: null, updateText: '', photo_url: '', category: 'GENERAL CRIMES' });
+        setFormData({ ...formData, time: '', headline: '', narrative: '', sn: null, updateText: '', photo_url: '', category: 'GENERAL CRIMES' });
 
       } catch (err) {
         console.error("Cloud sync failed:", err);
@@ -380,7 +437,10 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         const resData = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Failed to update record in database");
 
-        setStories((stories || []).map(s => (s.sn === submissionData.sn || s.id === submissionData.sn) ? updatedRecord : s));
+        const updatedStories = (serverStories || []).map(s => (s.sn === submissionData.sn || s.id === submissionData.sn) ? updatedRecord : s);
+        setServerStories(updatedStories);
+        if (setStories) setStories(updatedStories);
+
         setNotification(`Success story SN ${submissionData.sn} successfully updated!`);
 
       } catch (err) {
@@ -390,6 +450,55 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
     }
 
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  const handleExportFilteredData = async () => {
+    if (!serverStories.length) {
+      alert("No records available to export for the selected filters.");
+      return;
+    }
+    
+    setNotification("⏳ Generating official CSV export from database. Please wait...");
+    
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      if (categoryFilter && categoryFilter !== 'ALL CATEGORIES') params.append('category', categoryFilter);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const response = await authFetch(`/api/v1/stories/export?${params.toString()}`);
+      if (!response.ok) throw new Error("Export failed on server.");
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = 'KMP_SUCCESS_STORIES_EXPORT.csv';
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          filename = disposition.split('filename=')[1].replace(/["']/g, '');
+      } else {
+          const timestamp = new Date().toISOString().split('T')[0];
+          const fileLabel = categoryFilter === 'ALL CATEGORIES' ? 'ALL_STORIES' : categoryFilter.replace(/\s+/g, '_');
+          filename = `KMP_SUCCESS_STORIES_${fileLabel}_${timestamp}.csv`;
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification(null);
+    } catch (err) {
+      console.error("Export error:", err);
+      setNotification("❌ Failed to generate export file.");
+    }
   };
 
   return (
@@ -409,7 +518,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                 <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-green-600 shadow text-white font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
               </div>
 
-              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-900 text-green-800 dark:text-green-300'}`}>{notification.includes('Error') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{stripHtmlTags(notification)}</span></div>}
+              {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-900 text-green-800 dark:text-green-300'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{stripHtmlTags(notification)}</span></div>}
 
               {operation === 'update' && (
                 <div className="bg-yellow-50 dark:bg-slate-800 border border-yellow-200 dark:border-slate-700 rounded-lg p-3">
@@ -466,8 +575,22 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Success Headline / Title *</label>
+                  <input 
+                    type="text" 
+                    name="headline" 
+                    value={formData.headline} 
+                    onChange={handleInputChange} 
+                    disabled={operation === 'update'} 
+                    required 
+                    placeholder="e.g. ARREST OF SUSPECTS IN A SPATE OF ROBBERIES AND RECOVERY OF A PISTOL" 
+                    className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm border p-2 uppercase bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 font-bold outline-none focus:ring-1 focus:ring-blue-500" 
+                  />
+                </div>
+
                 <div className="pb-8"> 
-                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">{operation === 'update' ? 'Original Narrative (Read-Only)' : 'Success Report Narrative *'}</label>
+                  <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">{operation === 'update' ? 'Original Narrative Body (Read-Only)' : 'Success Narrative Body *'}</label>
                   <ReactQuill theme="snow" value={formData.narrative} onChange={(content) => setFormData({ ...formData, narrative: autoCapitalize(content) })} readOnly={operation === 'update'} className={`bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-md ${operation === 'update' ? 'opacity-70 grayscale pointer-events-none' : ''}`} modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} />
                 </div>
 
@@ -520,30 +643,39 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         </div>
 
         <div className="lg:col-span-7 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-2.5 items-center flex-wrap">
+            <div className="relative flex-1 w-full min-w-[250px]"> 
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+              <input type="text" placeholder="Search narrative, reference, station or category..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-2 border dark:border-slate-700 rounded-lg text-sm shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+            </div>
+
             <select value={filterRegion} onChange={(e) => { setFilterRegion(stripHtmlTags(e.target.value)); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {canViewGlobalLevel ? (
                 <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
               ) : <option value={userRegClean}>{userRegClean}</option>}
             </select>
+            
             <select value={filterStation} onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border dark:border-slate-700 rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
               {(canViewGlobalLevel || isRegionalCommand) ? (
                 <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
               ) : <option value={userStnClean}>{userStnClean}</option>}
             </select>
+            
             <select 
               value={categoryFilter} 
               onChange={(e) => setCategoryFilter(e.target.value)} 
-              className="border dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+              className="border dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer max-w-[200px] truncate"
             >
               <option value="ALL CATEGORIES">ALL CATEGORIES</option>
-              <option value="GENERAL CRIMES">GENERAL CRIMESS</option>
-              <option value="AGRIC_CRIME">🌾 AGRIC CRIMES & SECURITY</option>
+              {uniqueCategories.map((cat, idx) => (
+                <option key={idx} value={cat}>{cat}</option>
+              ))}
             </select>
+            
             <select 
               value={dateFilter} 
               onChange={(e) => setDateFilter(e.target.value)} 
-              className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+              className="border border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
             >
               <option value="ALL TIME">ALL TIME</option>
               <option value="TODAY">TODAY ONLY</option>
@@ -556,6 +688,11 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
               <option value="LAST 120 DAYS">LAST 120 DAYS</option>
               <option value="LAST 180 DAYS">LAST 180 DAYS</option>
             </select>
+
+            <button type="button" onClick={handleExportFilteredData} className="px-4 py-2 text-sm font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800 ring-2 ring-blue-500/20">
+              <HardDrive className="w-4 h-4 mr-1.5" />
+              Export CSV
+            </button>
           </div>
           
           <ExpandableTableCard title="Achievements Overview Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
@@ -572,10 +709,14 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
-                  {filteredStories?.map((story) => {
+                  {isFetchingStories ? (
+                    <tr><td colSpan="6" className="text-center py-8 text-gray-500 dark:text-slate-400 font-medium text-sm border-b-0"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" /> Syncing mission logs...</td></tr>
+                  ) : filteredStories?.map((story) => {
                     const rowId = story.sn || story.id;
                     const isRowExpanded = Boolean(expandedRows[rowId]);
-                    const linkedCase = findLinkedCrimeCase(story.narrative, reports);
+                    
+                    // Retrieve backend-attached case data
+                    const linkedCase = story.linked_case || null;
                     const isAgricCrime = (story.category || '').toUpperCase() === 'AGRIC_CRIME';
 
                     return (
@@ -649,7 +790,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
                       </tr>
                     );
                   })}
-                  {filteredStories.length === 0 && (
+                  {filteredStories.length === 0 && !isFetchingStories && (
                     <tr>
                       <td colSpan="6" className="text-center py-6 text-gray-500 dark:text-slate-400">
                         No success stories logged for this jurisdiction.

@@ -1,7 +1,7 @@
 // src/components/Statistics.jsx
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle, Sprout, Save } from 'lucide-react';
-import { authFetch, getAuthToken } from './api';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle, Sprout, Save, HardDrive } from 'lucide-react';
+import { authFetch, getAuthToken, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -87,38 +87,24 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, stats = [], agricStats = [], setStats, setAgricStats, setSidebarOpen, isReadOnlyObserver }) => {
+const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, setSidebarOpen, isReadOnlyObserver }) => {
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
   const [statsDomain, setStatsDomain] = useState('DISRUPTIVE');
+  
+  // Backend Fetched Data States
+  const [currentDomainStats, setCurrentDomainStats] = useState([]);
+  const [agricSummaryRecords, setAgricSummaryRecords] = useState([]);
 
   const [expandedAgricRegions, setExpandedAgricRegions] = useState({
-    "KMP NORTH": true,
-    "KMP SOUTH": false,
-    "KMP EAST": false,
-    "KMP HEADQUARTERS": false,
-    "POLICE HEADQUARTERS": false
+    "KMP NORTH": true, "KMP SOUTH": false, "KMP EAST": false,
+    "KMP HEADQUARTERS": false, "POLICE HEADQUARTERS": false
   });
 
   const toggleAgricRegion = (region) => {
     setExpandedAgricRegions(prev => ({ ...prev, [region]: !prev[region] }));
   };
-
-  const currentDomainStats = statsDomain === 'AGRICULTURAL' ? agricStats : stats;
-  const activeSetter = statsDomain === 'AGRICULTURAL' ? setAgricStats : setStats;
-
-  const [agricSummaryRecords, setAgricSummaryRecords] = useState([]);
-  const [agricFormData, setAgricFormData] = useState({
-    region: currentUser.region || 'KMP NORTH',
-    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-    agric_crime_report: '',
-    number_count_label: '',
-    recovery_report: '',
-    recoveries_label: '',
-    status: 'UNDER INVESTIGATION',
-    date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]
-  });
 
   const userRoleClean = cleanStr(currentUser?.role);
   const userPosClean = cleanStr(currentUser?.position);
@@ -141,6 +127,30 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
 
+  const [updateSearch, setUpdateSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState('ALL TIME');
+
+  const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
+
+  const getDateRangeParams = (filterOption) => {
+    if (filterOption === 'ALL TIME') return { start: null, end: null };
+    const end = new Date();
+    const start = new Date();
+    if (filterOption === 'LAST 7 DAYS') { start.setDate(start.getDate() - 7); }
+    else if (filterOption === 'LAST 14 DAYS') { start.setDate(start.getDate() - 14); }
+    else if (filterOption === 'LAST 21 DAYS') { start.setDate(start.getDate() - 21); }
+    else if (filterOption === 'LAST 30 DAYS') { start.setDate(start.getDate() - 30); }
+    else if (filterOption === 'LAST 60 DAYS') { start.setDate(start.getDate() - 60); }
+    else if (filterOption === 'LAST 90 DAYS') { start.setDate(start.getDate() - 90); }
+    else if (filterOption === 'LAST 120 DAYS') { start.setDate(start.getDate() - 120); }
+    else if (filterOption === 'LAST 180 DAYS') { start.setDate(start.getDate() - 180); }
+    const pad = (n) => n.toString().padStart(2, '0');
+    const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    
+    if (filterOption === 'TODAY') return { start: format(start), end: format(start) };
+    return { start: format(start), end: format(end) };
+  };
+
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
@@ -158,22 +168,53 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     }
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
-  useEffect(() => {
-    if (statsDomain === 'AGRICULTURAL') {
-      const fetchAgricSummaries = async () => {
-        try {
-          const res = await authFetch('/api/v1/agric-summary');
-          if (res.ok) {
-            const data = await res.json();
-            setAgricSummaryRecords(data);
-          }
-        } catch (err) {
-          console.error("Failed to load agricultural summary ledger:", err);
-        }
-      };
-      fetchAgricSummaries();
+  // Unified Backend Fetcher for 8-Field Table (Disruptive or Agric Stats)
+  const fetchDomainStats = useCallback(async () => {
+    if (!hasValidSession()) return;
+    try {
+      const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats' : '/api/v1/stats';
+      const params = new URLSearchParams();
+      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const res = await authFetch(`${targetEndpoint}?${params.toString()}`);
+      if (res.ok) {
+        setCurrentDomainStats(await res.json());
+      }
+    } catch (err) {
+      console.error("Failed to load statistics ledger:", err);
     }
-  }, [statsDomain]);
+  }, [statsDomain, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
+
+  // Unified Backend Fetcher for Agric Summaries (Accordion Table)
+  const fetchAgricSummaries = useCallback(async () => {
+    if (!hasValidSession() || statsDomain !== 'AGRICULTURAL') return;
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const res = await authFetch(`/api/v1/agric-summary?${params.toString()}`);
+      if (res.ok) {
+        setAgricSummaryRecords(await res.json());
+      }
+    } catch (err) {
+      console.error("Failed to load agricultural summary ledger:", err);
+    }
+  }, [statsDomain, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
+
+  useEffect(() => {
+    fetchDomainStats();
+    fetchAgricSummaries();
+  }, [fetchDomainStats, fetchAgricSummaries]);
 
   const groupedAgricData = useMemo(() => {
     const groups = {};
@@ -193,6 +234,17 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     return groups;
   }, [agricSummaryRecords]);
 
+  const [agricFormData, setAgricFormData] = useState({
+    region: currentUser.region || 'KMP NORTH',
+    station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+    agric_crime_report: '',
+    number_count_label: '',
+    recovery_report: '',
+    recoveries_label: '',
+    status: 'UNDER INVESTIGATION',
+    date: getTodayString()
+  });
+
   const handleAgricInputChange = (e) => {
     const { name, value } = e.target;
     if (name === 'region') {
@@ -204,9 +256,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
 
   const handleAgricFormSubmit = async (e) => {
     e.preventDefault();
-    const token = getAuthToken();
-    if (!token) return setNotification("Error: Security token missing. Please re-authenticate.");
-
     if (!canEditRecords) return setNotification("Security Restriction: You do not have clearance to modify analytical records.");
 
     try {
@@ -236,19 +285,8 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
         throw new Error(errData.detail || "Failed to save agricultural entry.");
       }
 
-      const savedEntry = await response.json().catch(() => payload);
-      
-      const displayEntry = {
-        ...payload,
-        id: savedEntry.id,
-        number_count_label: agricFormData.number_count_label,
-        recovery_report: agricFormData.recovery_report,
-        recoveries_label: agricFormData.recoveries_label,
-        status: agricFormData.status
-      };
-
-      setAgricSummaryRecords([displayEntry, ...agricSummaryRecords]);
       setNotification(`✅ Agricultural summary successfully logged!`);
+      fetchAgricSummaries();
       setAgricFormData({
         ...agricFormData,
         agric_crime_report: '',
@@ -262,13 +300,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
       setNotification(`❌ Error: ${err.message}`);
     }
   };
-
-  const [updateSearch, setUpdateSearch] = useState('');
-  const [dateFilter, setDateFilter] = useState('ALL TIME');
   
   const [formData, setFormData] = useState({
     sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-    date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
+    date: getTodayString(),
     arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
   });
 
@@ -304,45 +339,8 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     return null;
   }, [currentDomainStats, currentUser?.station, filterStation, statsDomain]);
 
-  const filteredStats = useMemo(() => {
-    return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
-      const statRegion = cleanStr(s.region);
-      const statStation = cleanStr(s.station);
-      
-      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        // Global viewing, proceed to date check
-      } else {
-        const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                                statRegion === filterRegion || 
-                                (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, statStation)));
-
-        if (!belongsToRegion) return false;
-        
-        if (filterStation !== 'ALL STATIONS') {
-          if (!isStationEquivalent(statStation, filterStation)) return false;
-        }
-      }
-
-      const diffDays = Math.ceil(Math.abs(new Date() - new Date(s.date)) / (1000 * 60 * 60 * 24));
-      
-      if (dateFilter === 'TODAY') {
-        const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-        if (s.date !== todayStr) return false;
-      } 
-      else if (dateFilter === 'LAST 7 DAYS') { if (diffDays > 7) return false; } 
-      else if (dateFilter === 'LAST 14 DAYS') { if (diffDays > 14) return false; } 
-      else if (dateFilter === 'LAST 21 DAYS') { if (diffDays > 21) return false; } 
-      else if (dateFilter === 'LAST 30 DAYS') { if (diffDays > 30) return false; } 
-      else if (dateFilter === 'LAST 90 DAYS') { if (diffDays > 90) return false; } 
-      else if (dateFilter === 'LAST 120 DAYS') { if (diffDays > 120) return false; } 
-      else if (dateFilter === 'LAST 180 DAYS') { if (diffDays > 180) return false; }
-      
-      return true;
-    });
-  }, [currentDomainStats, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
-
   const availableUpdateStats = useMemo(() => {
-    return (Array.isArray(currentDomainStats) ? currentDomainStats : []).filter(s => {
+    return currentDomainStats.filter(s => {
       const statRegion = cleanStr(s.region);
       const statStation = cleanStr(s.station);
       
@@ -361,17 +359,17 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
       }
       return true;
     });
-  }, [currentDomainStats, currentUser, updateSearch, canViewGlobalLevel, userRegClean]);
+  }, [currentDomainStats, updateSearch, canViewGlobalLevel, userRegClean]);
 
   const totals = useMemo(() => {
-    return filteredStats.reduce((acc, curr) => {
+    return currentDomainStats.reduce((acc, curr) => {
       acc.arrested += (parseInt(curr.arrested) || 0); acc.given_bond += (parseInt(curr.given_bond) || 0);
       acc.cautioned += (parseInt(curr.cautioned) || 0); acc.pending_court += (parseInt(curr.pending_court) || 0);
       acc.taken_to_court += (parseInt(curr.taken_to_court) || 0); acc.released += (parseInt(curr.released) || 0);
       acc.remanded += (parseInt(curr.remanded) || 0); acc.convicted += (parseInt(curr.convicted) || 0);
       return acc;
     }, { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 });
-  }, [filteredStats]);
+  }, [currentDomainStats]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
@@ -384,7 +382,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
     if (op === 'new') {
       setFormData({
         sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-        date: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0],
+        date: getTodayString(),
         arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
       });
       setUpdateSearch('');
@@ -399,9 +397,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
   const handleFormSubmit = async (e) => {  
     e.preventDefault();
     if (!canEditRecords) return setNotification("Security Restriction: You do not have clearance to modify analytical records.");
-    
-    const token = getAuthToken();
-    if (!token) return setNotification("Error: Security token missing. Please re-authenticate.");
     
     const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats' : '/api/v1/stats';
 
@@ -438,8 +433,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
             throw new Error(errData.detail || "Database rejected the entry.");
         }
         
-        const savedData = await response.json().catch(() => newStat);
-        activeSetter([savedData, ...currentDomainStats]);  
+        fetchDomainStats();  
         setNotification(`✅ Statistics recorded successfully for ${activeStation}!`);
         setFormData({  
           ...formData, arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0,  
@@ -480,13 +474,77 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
           throw new Error(errText || "Failed to update record in database.");
         }
         
-        const updatedStats = currentDomainStats.map(s => (s.id === recordKey || s.sn === recordKey) ? updatedRecord : s);
-        activeSetter(updatedStats);  
+        fetchDomainStats();
         setNotification(`✅ Statistics ID ${recordKey} successfully updated!`);
         handleOperationToggle('new');
       } catch (err) {  
         setNotification(`❌ Error: ${err.message}`);  
       }
+    }
+  };
+
+  const handleExportDomainStats = async () => {
+    if (!currentDomainStats.length) return alert("No records available to export.");
+    setNotification("⏳ Generating official statistics export...");
+    
+    try {
+      const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats/export' : '/api/v1/stats/export';
+      const params = new URLSearchParams();
+      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const response = await authFetch(`${targetEndpoint}?${params.toString()}`);
+      if (!response.ok) throw new Error("Export failed on server.");
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `KMP_${statsDomain}_STATS_${getTodayString()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification(null);
+    } catch (err) {
+      console.error(err);
+      setNotification("❌ Failed to export statistics.");
+    }
+  };
+
+  const handleExportAgricSummary = async () => {
+    if (!agricSummaryRecords.length) return alert("No records available to export.");
+    setNotification("⏳ Generating agricultural summary export...");
+    
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const response = await authFetch(`/api/v1/agric-summary/export?${params.toString()}`);
+      if (!response.ok) throw new Error("Export failed on server.");
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `KMP_AGRIC_SUMMARY_${getTodayString()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification(null);
+    } catch (err) {
+      console.error(err);
+      setNotification("❌ Failed to export summaries.");
     }
   };
 
@@ -617,26 +675,29 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
           
           <div className="lg:col-span-8 space-y-4">
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative">
-              <div className="absolute top-4 right-4 z-10">
-              <select 
-                value={dateFilter} 
-                onChange={(e) => setDateFilter(e.target.value)} 
-                className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
-              >
-                <option value="ALL TIME">ALL TIME</option>
-                <option value="TODAY">TODAY ONLY</option>
-                <option value="LAST 7 DAYS">LAST 7 DAYS</option>
-                <option value="LAST 14 DAYS">LAST 14 DAYS</option>
-                <option value="LAST 21 DAYS">LAST 21 DAYS</option>
-                <option value="LAST 30 DAYS">LAST 30 DAYS</option>
-                <option value="LAST 60 DAYS">LAST 60 DAYS</option>
-                <option value="LAST 90 DAYS">LAST 90 DAYS</option>
-                <option value="LAST 120 DAYS">LAST 120 DAYS</option>
-                <option value="LAST 180 DAYS">LAST 180 DAYS</option>
-              </select>
+              <div className="absolute top-4 right-4 z-10 flex gap-2">
+                <button type="button" onClick={handleExportDomainStats} className="px-3 py-1.5 text-[11px] font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800">
+                  <HardDrive className="w-3 h-3 mr-1.5" /> Export Data
+                </button>
+                <select 
+                  value={dateFilter} 
+                  onChange={(e) => setDateFilter(e.target.value)} 
+                  className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-3 py-2 text-sm shadow-sm bg-white dark:bg-slate-800 outline-none cursor-pointer"
+                >
+                  <option value="ALL TIME">ALL TIME</option>
+                  <option value="TODAY">TODAY ONLY</option>
+                  <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+                  <option value="LAST 14 DAYS">LAST 14 DAYS</option>
+                  <option value="LAST 21 DAYS">LAST 21 DAYS</option>
+                  <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+                  <option value="LAST 60 DAYS">LAST 60 DAYS</option>
+                  <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+                  <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+                  <option value="LAST 180 DAYS">LAST 180 DAYS</option>
+                </select>
               </div>
               <h4 className="text-sm font-bold text-slate-400 dark:text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mt-4">
                 <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700 dark:text-blue-400" />
                 <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600 dark:text-indigo-400" />
                 <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600 dark:text-slate-400" />
@@ -691,7 +752,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
                     </tr>
                   </thead>
                   <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
-                    {filteredStats.map((stat) => (
+                    {currentDomainStats.map((stat) => (
                       <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
                         <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900 dark:text-slate-100">{stat.id || stat.sn}</td>
                         <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{stat.date}</td>
@@ -706,7 +767,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
                         <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-purple-600 dark:text-purple-400">{stat.convicted}</td>
                       </tr>
                     ))}
-                    {filteredStats.length > 0 && (
+                    {currentDomainStats.length > 0 && (
                       <tr className="bg-slate-200 dark:bg-slate-800 font-bold text-gray-900 dark:text-slate-100 border-t-2 border-slate-400 dark:border-slate-700">
                         <td colSpan="3" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total</td>
                         <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.arrested}</td>
@@ -719,7 +780,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
                         <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.convicted}</td>
                       </tr>
                     )}
-                    {filteredStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No statistics logged for this jurisdiction.</td></tr>}
+                    {currentDomainStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No statistics logged for this jurisdiction.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -775,7 +836,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
                 <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-300 dark:border-slate-800 overflow-hidden">
                   <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 text-white font-extrabold text-xs uppercase tracking-wider flex items-center justify-between">
                     <span>📋 Regional Agricultural & Produce Theft Command Ledger</span>
-                    <span className="bg-emerald-700 text-white px-2.5 py-0.5 rounded-full text-[10px]">Accordion Expansion</span>
+                    <button type="button" onClick={handleExportAgricSummary} className="px-3 py-1.5 text-[10px] font-black rounded border border-emerald-500 transition-all flex items-center shadow-sm cursor-pointer bg-emerald-700 text-white hover:bg-emerald-800">
+                      <HardDrive className="w-3 h-3 mr-1.5" /> Export Ledger
+                    </button>
                   </div>
 
                   <div className="overflow-x-auto w-full custom-scrollbar dark:bg-slate-900">
@@ -796,8 +859,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
                           const isExpanded = expandedAgricRegions[regionName];
                           const hasData = Object.keys(regionData.stations).length > 0;
 
-                          if (filterRegion !== 'ALL REGIONS' && regionName !== filterRegion) return null;
-
                           const allRegionRecords = Object.values(regionData.stations).flat();
                           const regionalTotalStolen = allRegionRecords.reduce((sum, r) => sum + (parseInt(r.number_count) || 0), 0);
                           const regionalTotalRecovered = allRegionRecords.reduce((sum, r) => sum + (parseInt(r.recoveries) || 0), 0);
@@ -816,10 +877,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, sta
                               {isExpanded && hasData && Object.keys(regionData.stations).map((stationName, idx) => {
                                 const records = regionData.stations[stationName];
                                 
-                                if (filterStation !== 'ALL STATIONS') {
-                                  if (!isStationEquivalent(stationName, filterStation)) return null;
-                                }
-
                                 return (
                                   <tr key={stationName} className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-300 dark:border-slate-800">
                                     <td className="p-3 font-bold text-slate-800 dark:text-slate-200 text-center align-top border-r border-slate-300 dark:border-slate-800">{idx + 1}</td>

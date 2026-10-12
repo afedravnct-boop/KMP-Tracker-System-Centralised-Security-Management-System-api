@@ -1,9 +1,13 @@
+# routers/lockup_matrix.py
+import json
+import csv
+import io
+from datetime import date, datetime, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
-from datetime import date, timedelta
-import json
-from typing import Optional
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -12,7 +16,6 @@ from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Lockup Matrix & Operations"])
 
-# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -29,10 +32,36 @@ def get_officer_signature(user):
     name = (user.name or "").strip()
     return f"{fnum} {rank} {name}".strip().upper()
 
-# 🟢 CORE OPSEC SCOPING ENGINE
+def get_model_safe(*names):
+    for name in names:
+        if hasattr(models, name):
+            return getattr(models, name)
+    return None
+
+# 🟢 Local serializer to prevent circular imports with api_backend
+fn = lambda v: v.isoformat() if hasattr(v, 'isoformat') else v
+def serialize_model_row(row):
+    if not row:
+        return {}
+    if isinstance(row, dict):
+        d = row.copy()
+    elif hasattr(row, '__dict__'):
+        d = row.__dict__.copy()
+        d.pop('_sa_instance_state', None)
+    else:
+        return {}
+    for k, v in d.items():
+        if isinstance(v, datetime):
+            d[k] = v.strftime("%Y-%m-%d %H:%M:%S")
+        elif hasattr(v, 'isoformat'):
+            d[k] = v.isoformat()
+        elif hasattr(v, '__float__') and not isinstance(v, (int, float, str, bool)):
+            d[k] = float(v)
+    return d
+
 def apply_opsec_scope(current_user, query, ModelClass):
-    if not ModelClass:
-        return query
+    if not ModelClass or not current_user:
+        return query.filter(text("1=0"))
     
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     user_pos = str(current_user.position).strip().upper() if current_user.position else ""
@@ -82,7 +111,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         if hasattr(ModelClass, 'region'):
             conds.append(func.upper(ModelClass.region) == user_reg)
         
-        # 🟢 Station Dual-Equivalence Check for missing regional tags (plus Headquarters totals)
         if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
             expanded_stns = set()
             for s in REGIONAL_HIERARCHY[user_reg]:
@@ -110,33 +138,62 @@ def apply_opsec_scope(current_user, query, ModelClass):
         
     return query.filter(text("1=0"))
 
-# --- LOCKUP MATRIX ---
-@router.post("/lockup-matrix", response_model=schemas.LockupMatrixResponse)
+# ====================================================================
+# 1. LOCKUP MATRIX ENDPOINTS
+# ====================================================================
+@router.post("/lockup-matrix")
 def create_lockup_entry(
-    entry: schemas.LockupMatrixCreate, 
+    data: dict, 
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        entry_data = entry.dict()
-        entry_data['last_updated_by'] = get_officer_signature(current_user)
-        new_entry = models.LockupMatrix(**entry_data)
+        station_val = data.get('station', '').strip().upper()
+        date_val = data.get('date', date.today().isoformat())
+
+        existing = db.query(models.LockupMatrix).filter(
+            func.upper(models.LockupMatrix.station) == station_val,
+            func.date(models.LockupMatrix.date) == date_val
+        ).first()
+
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Census for {station_val} on {date_val} already exists. Please update the existing entry.")
+
+        new_entry = models.LockupMatrix(
+            sd_ref=data.get('sd_ref', f"POP-{station_val[:3]}-{int(datetime.now().timestamp())}"),
+            region=data.get('region', current_user.region),
+            station=station_val,
+            date=date_val,
+            time=data.get('time', datetime.now().strftime("%H%M") + "Hrs"),
+            suspects=data.get('suspects', 0),
+            male_count=data.get('male_count', 0),
+            male_juvenile_count=data.get('male_juvenile_count', 0),
+            female_count=data.get('female_count', 0),
+            female_juvenile_count=data.get('female_juvenile_count', 0),
+            detention_1day=data.get('detention_1day', 0),
+            detention_2days=data.get('detention_2days', 0),
+            detention_3days_over=data.get('detention_3days_over', 0),
+            last_updated_by=get_officer_signature(current_user)
+        )
+
         db.add(new_entry)
         db.commit()
         db.refresh(new_entry)
 
-        # 🟢 Record precise forensic REGISTER activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action_type="REGISTER",
             module="LOCKUP_MATRIX",
             target_id=str(new_entry.sn),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} logged cell population for station [{new_entry.station}] (Total Suspects: {new_entry.suspects})."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} logged cell population for station [{new_entry.station}] on [{new_entry.date}] (Total Suspects: {new_entry.suspects})."
         )
 
-        return new_entry
+        return serialize_model_row(new_entry)
+    except HTTPException as he:
+        db.rollback()
+        raise he
     except Exception as e:
         db.rollback()
         logs_db.rollback()
@@ -153,12 +210,10 @@ def get_lockup_entries(
     query = db.query(models.LockupMatrix)
     query = apply_opsec_scope(current_user, query, models.LockupMatrix)
 
-    # 🟢 24-Hour Active Cycle vs Historical Back-Search
     if todays_only:
         today_str = date.today().isoformat()
         query = query.filter(func.date(models.LockupMatrix.date) == today_str)
 
-    # 🟢 Back-Searching / Text Search across station, region, or signature
     if search:
         search_term = f"%{search.strip().upper()}%"
         query = query.filter(
@@ -170,70 +225,12 @@ def get_lockup_entries(
         )
 
     entries = query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
+    return [serialize_model_row(r) for r in entries]
 
-    # 🟢 Calculate increment/decrement margins against previous day's sitrep totals
-    enhanced_entries = []
-    for idx, entry in enumerate(entries):
-        entry_dict = {
-            "sn": entry.sn,
-            "date": entry.date,
-            "time": entry.time,
-            "region": entry.region,
-            "station": entry.station,
-            "suspects": entry.suspects,
-            "male_count": entry.male_count,
-            "male_juvenile_count": entry.male_juvenile_count,
-            "female_count": entry.female_count,
-            "female_juvenile_count": entry.female_juvenile_count,
-            "detention_1day": entry.detention_1day,
-            "detention_2days": entry.detention_2days,
-            "detention_3days_over": entry.detention_3days_over,
-            "last_updated_by": entry.last_updated_by,
-            "margin_diff": 0,
-            "margin_str": "0"
-        }
-
-        # Compare with previous chronological record for the same station/region to compute margin
-        prev_entry = db.query(models.LockupMatrix).filter(
-            func.upper(models.LockupMatrix.station) == str(entry.station).upper(),
-            models.LockupMatrix.date < entry.date
-        ).order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).first()
-
-        if prev_entry:
-            diff = int(entry.suspects or 0) - int(prev_entry.suspects or 0)
-            entry_dict["margin_diff"] = diff
-            if diff > 0:
-                entry_dict["margin_str"] = f"+{diff}"
-            elif diff < 0:
-                entry_dict["margin_str"] = f"{diff}"
-            else:
-                entry_dict["margin_str"] = "0"
-        else:
-            entry_dict["margin_str"] = "BASELINE"
-
-        enhanced_entries.append(entry_dict)
-
-    # 🟢 Record precise forensic VIEW activity into NeonDB Logs
-    if search:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched lockup matrix for query: \"{search}\" (Returned {len(enhanced_entries)} matches)."
-    else:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Lockup Matrix & Cell Populations ledger (Fetched {len(enhanced_entries)} entries)."
-
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="VIEW",
-        module="LOCKUP_MATRIX",
-        target_id=search if search else "ALL_LOCKUPS",
-        changes_summary=summary_text
-    )
-
-    return enhanced_entries
-
-@router.put("/lockup-matrix/{sn}", response_model=schemas.LockupMatrixResponse)
+@router.put("/lockup-matrix/{sn}")
 def update_lockup_entry(
     sn: int,
-    entry: schemas.LockupMatrixCreate,
+    data: dict,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -247,36 +244,27 @@ def update_lockup_entry(
     perms = current_user.permissions or {}
     
     is_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN"] or
+        user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
         perms.get("global_observer", False) is True or 
-        user_role in ["RPC", "DEPUTY COMMANDER"] or
         str(current_user.region).strip().upper() in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     )
     
     if not is_global:
-        entry_station = (entry.station or "").strip().upper()
+        entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
         if entry_station != user_station and entry_station != "HEADQUARTERS GENERAL TOTAL":
             raise HTTPException(status_code=403, detail="Clearance Denied: You can only update lockup records for your own station.")
 
     try:
-        existing_entry.date = entry.date
-        existing_entry.time = entry.time
-        existing_entry.region = entry.region
-        existing_entry.station = entry.station
-        existing_entry.suspects = entry.suspects
-        existing_entry.male_count = entry.male_count
-        existing_entry.male_juvenile_count = entry.male_juvenile_count        
-        existing_entry.female_count = entry.female_count
-        existing_entry.female_juvenile_count = entry.female_juvenile_count     
-        existing_entry.detention_1day = entry.detention_1day
-        existing_entry.detention_2days = entry.detention_2days
-        existing_entry.detention_3days_over = entry.detention_3days_over
+        data.pop('sn', None)
+        for key, value in data.items():
+            if hasattr(existing_entry, key):
+                setattr(existing_entry, key, value)
+
         existing_entry.last_updated_by = f"{get_officer_signature(current_user)} [EDITED]"
         
         db.commit()
         db.refresh(existing_entry)
 
-        # 🟢 Record precise forensic UPDATE activity into NeonDB Logs
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -286,13 +274,231 @@ def update_lockup_entry(
             changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} updated cell lockup record ID [{sn}] for station [{existing_entry.station}]."
         )
 
-        return existing_entry
+        return serialize_model_row(existing_entry)
     except Exception as e:
         db.rollback()
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update entry: {str(e)}")
 
-# --- OPS STATISTICS ---
+# ====================================================================
+# 2. REAL DAILY SUSPECT REGISTER
+# ====================================================================
+@router.get("/suspect-register")
+def get_suspect_register(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    SuspectRegModel = get_model_safe('Daily_Suspect_Register', 'DailySuspectRegister', 'suspect_register')
+    if not SuspectRegModel:
+        return []
+
+    query = db.query(SuspectRegModel)
+    query = apply_opsec_scope(current_user, query, SuspectRegModel)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(SuspectRegModel, 'region'):
+            query = query.filter(func.upper(SuspectRegModel.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(SuspectRegModel, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(SuspectRegModel.station) == station.upper(),
+                    func.upper(SuspectRegModel.station) == clean_stn,
+                    func.upper(SuspectRegModel.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    if status and status.upper() not in ["ALL"]:
+        if hasattr(SuspectRegModel, 'status'):
+            query = query.filter(func.upper(SuspectRegModel.status) == status.upper())
+
+    if search:
+        term = f"%{search.strip().upper()}%"
+        search_conds = []
+        if hasattr(SuspectRegModel, 'name'): search_conds.append(SuspectRegModel.name.ilike(term))
+        if hasattr(SuspectRegModel, 'reference'): search_conds.append(SuspectRegModel.reference.ilike(term))
+        if hasattr(SuspectRegModel, 'reason_for_detention'): search_conds.append(SuspectRegModel.reason_for_detention.ilike(term))
+        if hasattr(SuspectRegModel, 'station'): search_conds.append(SuspectRegModel.station.ilike(term))
+        if search_conds:
+            query = query.filter(or_(*search_conds))
+
+    pk_col = getattr(SuspectRegModel, 'id', getattr(SuspectRegModel, 'sn', None))
+    records = query.order_by(pk_col.desc()).all() if pk_col else query.all()
+    
+    return [serialize_model_row(r) for r in records]
+
+@router.post("/suspect-register")
+def create_suspect_register_entry(
+    data: dict,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    SuspectRegModel = get_model_safe('Daily_Suspect_Register', 'DailySuspectRegister', 'suspect_register')
+    if not SuspectRegModel:
+        raise HTTPException(status_code=500, detail="Daily Suspect Register model not initialized in database.")
+
+    try:
+        data.pop('id', None)
+        data.pop('sn', None)
+
+        user_role = str(current_user.role).strip().upper()
+        if user_role not in ["SUPER_ADMIN", "RPC"]:
+            data["region"] = current_user.region
+            data["station"] = current_user.station
+
+        data["entered_by"] = get_officer_signature(current_user)
+        data["created_at"] = datetime.now().isoformat()
+
+        valid_cols = [c.key for c in SuspectRegModel.__table__.columns]
+        safe_data = {k: v for k, v in data.items() if k in valid_cols}
+
+        new_record = SuspectRegModel(**safe_data)
+        db.add(new_record)
+        db.commit()
+        db.refresh(new_record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="REGISTER",
+            module="SUSPECT_REGISTER",
+            target_id=str(getattr(new_record, 'id', getattr(new_record, 'sn', 1))),
+            changes_summary=f"Registered detailed suspect {data.get('name')} for station {data.get('station')}."
+        )
+        return serialize_model_row(new_record)
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/suspect-register/{record_id}")
+def update_suspect_register_entry(
+    record_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    SuspectRegModel = get_model_safe('Daily_Suspect_Register', 'DailySuspectRegister', 'suspect_register')
+    if not SuspectRegModel:
+        raise HTTPException(status_code=500, detail="Model not initialized.")
+
+    pk_col = getattr(SuspectRegModel, 'id', getattr(SuspectRegModel, 'sn', None))
+    record = db.query(SuspectRegModel).filter(pk_col == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Suspect record not found.")
+
+    try:
+        data.pop('id', None)
+        data.pop('sn', None)
+        
+        user_role = str(current_user.role).strip().upper()
+        if user_role not in ["SUPER_ADMIN", "RPC"]:
+            data.pop("region", None)
+            data.pop("station", None)
+
+        for key, value in data.items():
+            if hasattr(record, key):
+                setattr(record, key, value)
+
+        if hasattr(record, 'last_updated_by'):
+            record.last_updated_by = get_officer_signature(current_user)
+
+        db.commit()
+        db.refresh(record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="SUSPECT_REGISTER",
+            target_id=str(record_id),
+            changes_summary=f"Updated suspect register record ID {record_id}."
+        )
+        return serialize_model_row(record)
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/suspect-register/export")
+def export_suspect_register_csv(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    SuspectRegModel = get_model_safe('Daily_Suspect_Register', 'DailySuspectRegister', 'suspect_register')
+    if not SuspectRegModel:
+        raise HTTPException(status_code=500, detail="Model not found")
+
+    query = db.query(SuspectRegModel)
+    query = apply_opsec_scope(current_user, query, SuspectRegModel)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(SuspectRegModel, 'region'):
+            query = query.filter(func.upper(SuspectRegModel.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(SuspectRegModel, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(SuspectRegModel.station) == station.upper(),
+                    func.upper(SuspectRegModel.station) == clean_stn,
+                    func.upper(SuspectRegModel.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    pk_col = getattr(SuspectRegModel, 'id', getattr(SuspectRegModel, 'sn', None))
+    records = query.order_by(pk_col.desc()).all() if pk_col else query.all()
+
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow([
+        "ID", "Name", "Sex", "Age", "Tribe", "Nationality", "Residence", 
+        "Contact", "Next of Kin", "Reason for Detention", "Reference", 
+        "Date In", "Date Out", "Status", "Station", "Region", "Entered By"
+    ])
+
+    for r in records:
+        writer.writerow([
+            getattr(r, 'id', getattr(r, 'sn', '')),
+            getattr(r, 'name', ''),
+            getattr(r, 'sex', ''),
+            getattr(r, 'age', ''),
+            getattr(r, 'tribe', ''),
+            getattr(r, 'nationality', ''),
+            getattr(r, 'residence', ''),
+            getattr(r, 'contact', ''),
+            getattr(r, 'next_of_kin', ''),
+            getattr(r, 'reason_for_detention', ''),
+            getattr(r, 'reference', ''),
+            getattr(r, 'date_in', ''),
+            getattr(r, 'date_out', ''),
+            getattr(r, 'status', ''),
+            getattr(r, 'station', ''),
+            getattr(r, 'region', ''),
+            getattr(r, 'entered_by', '')
+        ])
+
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    response.headers["Content-Disposition"] = f"attachment; filename=KMP_SUSPECT_REGISTER_{timestamp}.csv"
+    return response
+
+# ==========================================
+# 3. OPS STATISTICS
+# ==========================================
 @router.get("/stats")
 def get_stats(
     search: Optional[str] = Query(default=None),
@@ -312,24 +518,7 @@ def get_stats(
                 func.upper(models.Operational_Statistics.last_updated_by).like(term)
             )
         )
-
     records = query.order_by(models.Operational_Statistics.sn.desc()).all()
-
-    # 🟢 Record precise forensic VIEW activity into NeonDB Logs
-    if search:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched operational statistics for query: \"{search}\" (Returned {len(records)} matches)."
-    else:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Operational Statistics ledger (Fetched {len(records)} entries)."
-
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="VIEW",
-        module="OPERATIONAL_STATISTICS",
-        target_id=search if search else "ALL_STATS",
-        changes_summary=summary_text
-    )
-
     return records
 
 @router.post("/stats")
@@ -350,21 +539,9 @@ def create_stat(
         db.add(new_record)
         db.commit()
         db.refresh(new_record)
-
-        # 🟢 Record precise forensic REGISTER activity into NeonDB Logs
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="REGISTER",
-            module="OPERATIONAL_STATISTICS",
-            target_id=str(new_record.sn),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} logged operational statistics for station [{new_record.station}]."
-        )
-
         return {"status": "success"}
     except Exception as e:
         db.rollback()
-        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/stats/{stat_id}")
@@ -397,19 +574,8 @@ def update_stat(
         existing_stat.last_updated_by = get_officer_signature(current_user)
         db.commit()
         db.refresh(existing_stat)
-
-        # 🟢 Record precise forensic UPDATE activity into NeonDB Logs
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="UPDATE",
-            module="OPERATIONAL_STATISTICS",
-            target_id=str(stat_id),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} updated operational statistics record ID [{stat_id}]."
-        )
         
         return {"status": "success", "message": f"Statistics record {stat_id} updated successfully."}
     except Exception as e:
         db.rollback()
-        logs_db.rollback()
         raise HTTPException(status_code=500, detail=str(e))

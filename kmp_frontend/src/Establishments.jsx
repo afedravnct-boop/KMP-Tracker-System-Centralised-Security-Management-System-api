@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { PlusCircle, Edit, AlertTriangle, CheckCircle, X, Filter, Building, Shield } from 'lucide-react';
-import { authFetch } from './api';
+// src/components/Establishments.jsx
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { PlusCircle, Edit, AlertTriangle, CheckCircle, X, Filter, Building, Shield, HardDrive, Loader2 } from 'lucide-react';
+import { authFetch, hasValidSession } from './api';
 import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
@@ -97,7 +98,10 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false, establishments, setEstablishments, setSidebarOpen, isReadOnlyObserver }) => {
+const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false, setEstablishments, setSidebarOpen, isReadOnlyObserver }) => {
+  const [serverEstablishments, setServerEstablishments] = useState([]);
+  const [isFetching, setIsFetching] = useState(false);
+  
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -124,6 +128,10 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [updateSearch, setUpdateSearch] = useState('');
+
   const isFilterInitialized = useRef(false);
   useEffect(() => {
     if (!isFilterInitialized.current && currentUser?.station) {
@@ -141,7 +149,38 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     }
   }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
 
-  const [updateSearch, setUpdateSearch] = useState('');
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
+
+  const fetchEstablishments = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setIsFetching(true);
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+
+      const res = await authFetch(`/api/v1/establishments?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setServerEstablishments(data);
+        if (setEstablishments) setEstablishments(data);
+      }
+    } catch (err) {
+      console.error("Failed to load establishments", err);
+    } finally {
+      setIsFetching(false);
+    }
+  }, [filterRegion, filterStation, debouncedSearch, canViewGlobalActive, setEstablishments]);
+
+  useEffect(() => {
+    fetchEstablishments();
+  }, [fetchEstablishments]);
 
   const [formData, setFormData] = useState({
     id: null, region: userRegClean, division: stripHtml(currentUser?.division || ''), station: stripHtml(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
@@ -149,30 +188,13 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     booths: 0, location: '', personnel_in_booth: 0, installed_by: '', status: 'OPERATIONAL', comment: ''
   });
   
+  // Because filtering is managed by the backend, we map the server response directly
   const filteredEstablishments = useMemo(() => {
-    return (Array.isArray(establishments) ? establishments : []).filter(e => {
-      const stn = stripHtml(e.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, e.region);
-
-      if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        return true;
-      }
-
-      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                              reg === filterRegion || 
-                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
-
-      if (!belongsToRegion) return false;
-
-      if (filterStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, filterStation)) return false;
-      }
-      return true;
-    });
-  }, [establishments, filterRegion, filterStation, canViewGlobalActive]);
+    return [...serverEstablishments];
+  }, [serverEstablishments]);
 
   const availableUpdateEstablishments = useMemo(() => {
-    return (Array.isArray(establishments) ? establishments : []).filter(e => {
+    return serverEstablishments.filter(e => {
       const stn = stripHtml(e.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, e.region);
 
@@ -189,7 +211,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       }
       return true;
     });
-  }, [establishments, currentUser, updateSearch, canViewGlobalActive, userRegClean]);
+  }, [serverEstablishments, updateSearch, canViewGlobalActive, userRegClean]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
@@ -233,8 +255,8 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.detail || "Failed to post record");
         }
-        const savedData = await response.json();
-        setEstablishments([savedData, ...establishments]); 
+        
+        fetchEstablishments(); 
         setNotification(`Establishment recorded for ${formData.station}!`);
         setFormData({ 
           id: null, region: userRegClean, division: stripHtml(currentUser?.division || ''), station: stripHtml(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''), 
@@ -263,10 +285,8 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
           const errData = await response.json().catch(() => ({}));
           throw new Error(errData.detail || "Failed to update record in database.");
         }
-        const savedData = await response.json();
-        const finalUpdated = { ...savedData, id: savedData.id || recordId };
-
-        setEstablishments(establishments.map(e => (e.id === recordId || e.sn === recordId) ? finalUpdated : e));
+        
+        fetchEstablishments();
         setNotification(`Establishment ID ${recordId} successfully updated!`);
         handleOperationToggle('new');
       } catch (err) { 
@@ -277,6 +297,46 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     }
     
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  const handleExportFilteredData = async () => {
+    if (!serverEstablishments.length) return alert("No records available to export.");
+    setNotification("⏳ Generating official CSV export from database. Please wait...");
+    
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      if (debouncedSearch) params.append('search', debouncedSearch);
+
+      const response = await authFetch(`/api/v1/establishments/export?${params.toString()}`);
+      if (!response.ok) throw new Error("Export failed on server.");
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = 'KMP_ESTABLISHMENTS_EXPORT.csv';
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          filename = disposition.split('filename=')[1].replace(/["']/g, '');
+      } else {
+          const timestamp = new Date().toISOString().split('T')[0];
+          const fileLabel = filterRegion === 'ALL REGIONS' ? 'ALL_REGIONS' : filterRegion.replace(/\s+/g, '_');
+          filename = `KMP_ESTABLISHMENTS_${fileLabel}_${timestamp}.csv`;
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification(null);
+    } catch (err) {
+      console.error("Export error:", err);
+      setNotification("❌ Failed to export CSV.");
+    }
   };
 
   return (
@@ -432,18 +492,23 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
         )}
 
         {/* RIGHT COLUMN: FILTERS & TABLE */}
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {canViewGlobalLevel ? (
-                <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
-              ) : <option value={userRegClean}>{userRegClean}</option>}
-            </select>
-            <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
-              {(canViewGlobalLevel || isRegionalCommand) ? (
-                <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
-              ) : <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase()}</option>}
-            </select>
+        <div className={isReadOnlyObserver ? "lg:col-span-12 space-y-4" : "lg:col-span-8 space-y-4"}>
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
+              <select value={filterRegion} onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} disabled={!canViewGlobalLevel} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                {canViewGlobalLevel ? (
+                  <><option value="ALL REGIONS">ALL REGIONS</option>{Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}</>
+                ) : <option value={userRegClean}>{userRegClean}</option>}
+              </select>
+              <select value={filterStation} onChange={(e) => setFilterStation(e.target.value)} disabled={!(canViewGlobalLevel || isRegionalCommand)} className="border rounded-lg px-3 py-2 text-sm shadow-sm bg-white disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer">
+                {(canViewGlobalLevel || isRegionalCommand) ? (
+                  <><option value="ALL STATIONS">ALL STATIONS</option>{filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] ? REGIONAL_HIERARCHY[filterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>) : null}</>
+                ) : <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase()}</option>}
+              </select>
+            </div>
+            <button type="button" onClick={handleExportFilteredData} className="px-4 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800 ring-2 ring-blue-500/20 w-full sm:w-auto">
+              <HardDrive className="w-4 h-4 mr-1.5" /> Export CSV
+            </button>
           </div>
 
           <ExpandableTableCard title="Regional Establishments Master Ledger" onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
@@ -467,7 +532,9 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredEstablishments.map((est) => {
+                  {isFetching ? (
+                    <tr><td colSpan="13" className="text-center py-8 text-gray-500 font-medium text-sm animate-pulse"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" /> Syncing database records...</td></tr>
+                  ) : filteredEstablishments.map((est) => {
                     const rowKey = est.id || est.sn;
                     return (
                       <tr key={rowKey} className="even:bg-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(est); }}>
@@ -493,7 +560,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                       </tr>
                     );
                   })}
-                  {filteredEstablishments.length === 0 && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
+                  {filteredEstablishments.length === 0 && !isFetching && <tr><td colSpan="13" className="text-center py-6 text-gray-500">No establishments logged for this jurisdiction.</td></tr>}
                 </tbody>
               </table>
             </div>

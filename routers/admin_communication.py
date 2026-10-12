@@ -225,17 +225,15 @@ def get_admin_communications(
     user_region = (current_user.region or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
 
-    # 🟢 STRICT DIRECT MESSAGE PRIVACY ENFORCEMENT:
-    # Direct messages (SPECIFIC_USER) are ONLY visible if the user's fnum matches exactly.
-    # Global admins see everything, but normal users only see general broadcasts OR messages explicitly targeted to them.
+    # 🟢 STRICT 1-ON-1 DIRECT MESSAGE ISOLATION LOGIC:
     if check_global_view(current_user):
-        # Global commanders/admins can see all messages
+        # Global commanders/admins can see all messages unless specifically restricted, 
+        # but for normal operational visibility they view everything.
         pass
     else:
-        # Build precise matching list for non-global officers
         target_fnums_list = [f.strip().upper() for f in clean_user_fnum.split(',')]
         
-        # Construct exact individual matching clause using SQL or_ / checking comma-separated fnums cleanly
+        # Build precise individual matching for SPECIFIC_USER 
         individual_match_conditions = [
             CommModel.target_fnum == clean_user_fnum
         ]
@@ -244,19 +242,23 @@ def get_admin_communications(
                 individual_match_conditions.append(CommModel.target_fnum.ilike(f"%{fnum_item}%"))
 
         visibility_conditions = [
-            # 1. General broadcasts available to everyone
+            # 1. General broadcasts available to all officers
             or_(
                 CommModel.target_audience == "ALL",
                 CommModel.target_audience == "ALL_USERS",
                 CommModel.target_audience == "ALL_REGIONS"
             ),
-            # 2. Messages sent by the user themselves
+            # 2. Messages sent by the user themselves (Outbox)
             CommModel.sender_fnum == current_user.fnum,
-            # 3. STRICT Direct Messages: Only visible if target_audience is SPECIFIC_USER AND user's F-number matches
+            
+            # 3. STRICT ONE-ON-ONE DIRECT MESSAGES: 
+            # Must be target_audience == "SPECIFIC_USER" AND match the recipient's exact F-number.
+            # (We explicitly ensure general broadcasts don't bleed into this block)
             and_(
                 CommModel.target_audience == "SPECIFIC_USER",
                 or_(*individual_match_conditions)
             ),
+            
             # 4. Regional broadcasts matching user's region
             and_(
                 CommModel.target_audience == "SPECIFIC_REGION", 

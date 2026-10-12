@@ -1,7 +1,8 @@
 // src/components/CrimeAnalytics.jsx
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Filter, Search, Shield, Sprout } from 'lucide-react';
-import { authFetch } from './api';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Search, Shield, Sprout, Loader2 } from 'lucide-react';
+import { authFetch, hasValidSession } from './api';
+import { stripHtmlTags } from './App';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -11,14 +12,9 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const stripHtml = (html) => {
-  if (!html) return '';
-  return String(html).replace(/<[^>]*>?/gm, '').trim();
-};
-
 const isStationEquivalent = (statA, statB) => {
-  const a = stripHtml(statA || '').trim().toUpperCase();
-  const b = stripHtml(statB || '').trim().toUpperCase();
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
   if (!a || !b) return false;
   if (a === b) return true;
 
@@ -28,31 +24,15 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = stripHtml(stationName || '').trim().toUpperCase();
-  const cleanDbRegion = stripHtml(dbRegion || '').trim().toUpperCase();
-
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
-    return cleanDbRegion;
-  }
-
-  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) {
-      return regionName;
-    }
-  }
-
-  return cleanDbRegion || 'KMP GENERAL';
-};
-
 export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
-  const [reports, setReports] = useState([]);
+  const [summaryData, setSummaryData] = useState([]);
+  const [isFetching, setIsFetching] = useState(false);
   const [timeFilter, setTimeFilter] = useState("all"); 
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
 
-  const userRoleClean = stripHtml(currentUser?.role || '').toUpperCase();
-  const userPosClean = stripHtml(currentUser?.position || '').toUpperCase();
-  const userRegClean = stripHtml(currentUser?.region || '').toUpperCase();
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
   const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
@@ -66,7 +46,7 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtml(currentUser?.station || '').toUpperCase());
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
   const isFilterInitialized = useRef(false);
 
@@ -80,113 +60,52 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
         setFilterStation('ALL STATIONS');
       } else {
         setFilterRegion(userRegClean);
-        setFilterStation(stripHtml(currentUser?.station || '').toUpperCase());
+        setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
       }
       isFilterInitialized.current = true;
     }
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
+  const getDateRangeParams = (filterOption) => {
+    if (filterOption === 'all') return { start: null, end: null };
+    const end = new Date();
+    const start = new Date();
+    if (filterOption === 'week') { start.setDate(start.getDate() - 7); }
+    const pad = (n) => n.toString().padStart(2, '0');
+    const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    
+    if (filterOption === 'today') return { start: format(start), end: format(start) };
+    return { start: format(start), end: format(end) };
+  };
+
+  const fetchAnalytics = useCallback(async () => {
+    if (!hasValidSession()) return;
+    setIsFetching(true);
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      if (showAgriculturalOnly) params.append('agri_only', 'true');
+      
+      const { start, end } = getDateRangeParams(timeFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const res = await authFetch(`/api/v1/reports/analytics?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSummaryData(data);
+      }
+    } catch (err) {
+      console.error("Failed to load analytics:", err);
+    } finally {
+      setIsFetching(false);
+    }
+  }, [filterRegion, filterStation, timeFilter, showAgriculturalOnly, canViewGlobalLevel]);
+
   useEffect(() => {
-    let isMounted = true;
-    
-    const fetchWrapper = typeof authFetch === 'function' ? authFetch : async (url) => {
-      const token = localStorage.getItem('kmp_authToken');
-      return fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-    };
-
-    const API_URL = import.meta.env?.VITE_API_URL || "http://127.0.0.1:8000";
-    
-    fetchWrapper(`${API_URL}/api/v1/reports`)
-      .then(res => {
-        if (!res.ok) throw new Error("Failed to authenticate");
-        return res.json();
-      })
-      .then(data => {
-        if (isMounted) setReports(Array.isArray(data) ? data : []);
-      })
-      .catch(err => console.error("Failed to fetch reports:", err));
-
-    return () => { isMounted = false; };
-  }, []);
-
-  const filteredReports = useMemo(() => {
-    return reports.filter(report => {
-      if (timeFilter !== "all") {
-        const reportDateStr = report.date || report.createdAt || report.timestamp;
-        if (!reportDateStr) return true;
-        const reportDate = new Date(reportDateStr);
-        const today = new Date();
-        
-        if (timeFilter === "today") {
-          if (reportDate.toDateString() !== today.toDateString()) return false;
-        } else if (timeFilter === "week") {
-          const oneWeekAgo = new Date();
-          oneWeekAgo.setDate(today.getDate() - 7);
-          if (reportDate < oneWeekAgo) return false;
-        }
-      }
-
-      // 🟢 Heavy-Lift Backend Flag Integration with Frontend Fallback
-      if (showAgriculturalOnly) {
-        if (report.isAgriculturalCrime !== undefined) {
-          if (!report.isAgriculturalCrime) return false;
-        } else {
-          const offenceText = stripHtml(report.offence || '').toLowerCase();
-          const narrativeText = stripHtml(report.narrative || '').toLowerCase();
-          const combinedText = `${offenceText} ${narrativeText}`;
-
-          const excludedTerms = ['murder', 'homicide', 'killed', 'death', 'accident', 'tar', 'collision', 'hit and run', 'overturned', 'crash', 'boda boda', 'motorcycle', 'motor cycle', 'bajaj', 'tvs', 'boxer', 'scooter', 'traffic', 'aggravated robbery', 'defilement', 'rape'];
-          if (excludedTerms.some(term => offenceText.includes(term) || combinedText.includes(term))) {
-            return false;
-          }
-
-          const agriCrimeIndicators = ['theft of produce', 'produce theft', 'animal theft', 'cattle theft', 'stole a cow', 'stole cattle', 'stock theft', 'theft of livestock', 'granary', 'granaries', 'broke into food store', 'food stores', 'storehouse', 'barn', 'silo', 'silos', 'cutting down crops', 'cutting crops', 'slashing crops', 'burning crops', 'burning produce', 'destroying crops', 'crop destruction', 'arson of crops', 'arson of produce', 'theft of crops', 'theft of coffee', 'theft of vanilla', 'theft of cassava', 'theft of maize', 'coffee theft', 'vanilla theft', 'maize theft', 'matooke theft', 'theft of matooke', 'bribery to receive farm inputs', 'extortion of farmers', 'farm break-in', 'farm robbery', 'farm trespass', 'fire on crops', 'fire in the sugarcane', 'fire on farm house', 'crop theft', 'suspected stolen cows', 'suspected stolen cattle', 'suspected stolen goats', 'suspected stolen sheep', 'suspected stolen chicken', 'suspected stolen eggs', 'suspected stolen produce', 'suspected stolen coffee', 'suspected stolen vanilla', 'suspected stolen maize', 'suspected stolen matooke', 'suspected stolen cassava', 'suspected stolen livestock', 'suspected stolen funds for farmers'];
-
-          const isAgriCrimeMatch = agriCrimeIndicators.some(indicator => combinedText.includes(indicator));
-          if (!isAgriCrimeMatch) return false;
-        }
-      }
-
-      const stn = stripHtml(report.station || '').toUpperCase();
-      const reg = getOfficialRegionForStation(stn, report.region);
-
-      if (canViewGlobalLevel && filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS') {
-        return true;
-      }
-
-      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                              reg === filterRegion || 
-                              (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
-
-      if (!belongsToRegion) return false;
-
-      if (filterStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, filterStation)) return false;
-      }
-
-      return true;
-    });
-  }, [reports, timeFilter, showAgriculturalOnly, filterRegion, filterStation, canViewGlobalLevel]);
-
-  const summaryData = useMemo(() => {
-    const crimeCounts = {};
-    filteredReports.forEach(report => {
-      if (report.is_hq_general_total || (report.daily_lock_up && !report.offence)) return;
-
-      const crimeName = report.offence || report.crime_category || "Unspecified";
-      if (crimeCounts[crimeName]) {
-        crimeCounts[crimeName] += 1;
-      } else {
-        crimeCounts[crimeName] = 1;
-      }
-    });
-
-    return Object.keys(crimeCounts).map((crimeName, index) => ({
-      sn: index + 1,
-      incident: crimeName,
-      total: crimeCounts[crimeName]
-    })).sort((a, b) => b.total - a.total);
-  }, [filteredReports]);
+    fetchAnalytics();
+  }, [fetchAnalytics]);
 
   const grandTotal = summaryData.reduce((sum, item) => sum + item.total, 0);
 
@@ -261,7 +180,7 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
                 ))}
               </>
             ) : (
-              <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase() || 'UNKNOWN'}</option>
+              <option value={stripHtmlTags(currentUser?.station || '').toUpperCase()}>{stripHtmlTags(currentUser?.station || '').toUpperCase() || 'UNKNOWN'}</option>
             )}
           </select>
         </div>
@@ -277,7 +196,13 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
-            {summaryData.length > 0 ? (
+            {isFetching ? (
+               <tr>
+                 <td colSpan="3" className="px-4 py-8 text-center text-sm text-slate-500 font-medium">
+                    <Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" /> Aggregating analytics...
+                 </td>
+               </tr>
+            ) : summaryData.length > 0 ? (
               summaryData.map((row) => (
                 <tr key={row.sn} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-4 py-3 text-sm font-bold text-slate-500 dark:text-slate-400">{row.sn}</td>

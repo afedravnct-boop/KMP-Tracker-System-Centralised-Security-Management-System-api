@@ -34,16 +34,31 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
-// 🟢 Fully integrated intelligent narrative text parser for suspects and quantities
+// 🟢 INTELLIGENT NARRATIVE PARSER RELYING ON BOLD HEADLINES & NARRATIVE EXTRACTION
 const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
-  const plainText = stripHtmlTags(rawHtmlNarrative || '');
+  if (!rawHtmlNarrative) {
+    return {
+      suspects: 0,
+      recoveries: "None recorded",
+      legalStatus: "UNDER INVESTIGATION",
+      classification: "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION"
+    };
+  }
+
+  // 1. Extract bold title/headline if structured with <strong>...</strong>
+  const headlineMatch = rawHtmlNarrative.match(/<strong>(.*?)<\/strong>/i);
+  let classification = headlineMatch ? stripHtmlTags(headlineMatch[1]).trim().toUpperCase() : "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION";
+
+  const plainText = stripHtmlTags(rawHtmlNarrative);
   const lowerText = plainText.toLowerCase();
   
+  // 2. Parse Suspects Count intelligently
   let suspectsCount = 0;
   const suspectMatches = [
-    lowerText.match(/(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang)/i),
-    lowerText.match(/(?:arrest(?:ed|ing)?|apprehend(?:ed)?)\s*(?:of)?\s*(\d+)/i)
+    lowerText.match(/(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)/i),
+    lowerText.match(/(?:arrest(?:ed|ing)?|apprehend(?:ed)?|detain(?:ed)?)\s*(?:of)?\s*(\d+)/i)
   ];
+  
   for (const m of suspectMatches) {
     if (m && m[1]) {
       suspectsCount = parseInt(m[1], 10);
@@ -51,35 +66,33 @@ const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
     }
   }
 
+  if (suspectsCount === 0 && (lowerText.includes('suspect') || lowerText.includes('arrest') || lowerText.includes('apprehend'))) {
+    suspectsCount = 1; // Default fallback if arrest happened without explicit numeric digits
+  }
+
+  // 3. Parse Legal Status
   let legalStatus = 'UNDER INVESTIGATION';
   if (lowerText.includes('remand') || lowerText.includes('remanded')) legalStatus = 'REMANDED';
   else if (lowerText.includes('convict') || lowerText.includes('sentenced')) legalStatus = 'CONVICTED';
   else if (lowerText.includes('acquit')) legalStatus = 'ACQUITTED';
-  else if (lowerText.includes('court') || lowerText.includes('trial') || lowerText.includes('magistrate')) legalStatus = 'UNDERGOING COURT TRIAL';
+  else if (lowerText.includes('court') || lowerText.includes('trial') || lowerText.includes('magistrate') || lowerText.includes('arraign')) legalStatus = 'UNDERGOING COURT TRIAL';
 
+  // 4. Parse Recovered Properties & Quantities (Pipe-Separated Format e.g., 01 | suspect || 02 | phones)
   const recoveriesList = [];
-  const recoveryRegex = /(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|money|cash|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|birds|chicken|produce|maize|beans|items))/gi;
+  const recoveryRegex = /(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))/gi;
   let match;
   while ((match = recoveryRegex.exec(lowerText)) !== null) {
-    recoveriesList.push(`${match[1]} ${match[2].trim()}`);
+    const formattedCount = String(match[1]).padStart(2, '0');
+    recoveriesList.push(`${formattedCount} | ${match[2].trim()}`);
   }
 
-  if (recoveriesList.length === 0 && (lowerText.includes('recovery') || lowerText.includes('recovered') || lowerText.includes('recover'))) {
-    recoveriesList.push('Recovered exhibits / assets');
-  }
-
-  let classification = 'Operational breakthrough & suspect apprehension';
-  if (lowerText.includes('cattle') || lowerText.includes('cow') || lowerText.includes('livestock') || lowerText.includes('farm') || lowerText.includes('agric')) {
-    classification = 'Arrest of suspects in cattle / agricultural theft & recovery';
-  } else if (lowerText.includes('phone') || lowerText.includes('computer') || lowerText.includes('electronics')) {
-    classification = 'Apprehension of suspects & electronic asset recovery';
-  } else if (lowerText.includes('robbery') || lowerText.includes('gang') || lowerText.includes('theft')) {
-    classification = 'Dismantling of criminal gang & property recovery';
+  if (recoveriesList.length === 0 && (lowerText.includes('recovery') || lowerText.includes('recovered') || lowerText.includes('recover') || lowerText.includes('impound'))) {
+    recoveriesList.push('01 | recovered exhibit / asset');
   }
 
   return {
     suspects: suspectsCount,
-    recoveries: recoveriesList.length > 0 ? recoveriesList.join(', ') : 'None recorded',
+    recoveries: recoveriesList.length > 0 ? recoveriesList.join(' || ') : 'None recorded',
     legalStatus: legalStatus,
     classification: classification
   };

@@ -1,7 +1,11 @@
+# routers/agric_summary.py
 import json
+import csv
+import io
 from datetime import datetime
 from typing import Optional, List, Union
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
 
@@ -12,7 +16,6 @@ from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/agric-summary", tags=["Agricultural Summary Ledger"])
 
-# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -21,7 +24,6 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
-# 🟢 CORE OPSEC SCOPING ENGINE
 def apply_opsec_scope(current_user, query, ModelClass):
     if not ModelClass:
         return query
@@ -74,7 +76,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         if hasattr(ModelClass, 'region'):
             conds.append(func.upper(ModelClass.region) == user_reg)
         
-        # 🟢 Station Dual-Equivalence Check for missing regional tags
         if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
             expanded_stns = set()
             for s in REGIONAL_HIERARCHY[user_reg]:
@@ -94,9 +95,18 @@ def apply_opsec_scope(current_user, query, ModelClass):
         
     return query.filter(text("1=0"))
 
+# ====================================================================
+# 1. RETRIEVE AGRIC SUMMARIES (WITH BACKEND FILTERING)
+# ====================================================================
 @router.get("/")
 def get_agric_summaries(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    agric_report: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    limit: int = Query(default=300, le=1000),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
@@ -105,11 +115,33 @@ def get_agric_summaries(
     if not Model: return []
     
     query = db.query(Model)
-    
-    # 🟢 Apply OPSEC Role & Dual-Equivalence Scoping
     query = apply_opsec_scope(current_user, query, Model)
         
-    # 🟢 Apply search filtering if search term provided
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(Model, 'region'):
+            query = query.filter(func.upper(Model.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(Model, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(Model.station) == station.upper(),
+                    func.upper(Model.station) == clean_stn,
+                    func.upper(Model.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    if agric_report and agric_report.upper() not in ["ALL REPORTS", "ALL", ""]:
+        if hasattr(Model, 'agric_crime_report'):
+            query = query.filter(func.upper(Model.agric_crime_report) == agric_report.upper())
+
+    if start_date and hasattr(Model, 'date'):
+        query = query.filter(Model.date >= start_date)
+    
+    if end_date and hasattr(Model, 'date'):
+        query = query.filter(Model.date <= end_date)
+
     if search:
         term = f"%{search.strip().upper()}%"
         search_conds = []
@@ -121,7 +153,7 @@ def get_agric_summaries(
         if search_conds:
             query = query.filter(or_(*search_conds))
 
-    records = query.order_by(Model.id.desc()).all()
+    records = query.order_by(Model.id.desc()).limit(limit).all()
     
     serialized_records = [{
         "id": r.id, 
@@ -136,7 +168,6 @@ def get_agric_summaries(
         "last_updated_by": r.last_updated_by
     } for idx, r in enumerate(records)]
 
-    # 🟢 Precision forensic check: Log search query vs regular view
     if search:
         summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched agricultural crime ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
     else:
@@ -153,6 +184,139 @@ def get_agric_summaries(
 
     return serialized_records
 
+# ====================================================================
+# 1B. GET UNIQUE AGRIC REPORT TYPES
+# ====================================================================
+@router.get("/reports")
+def get_unique_reports(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    Model = getattr(models, 'Agricultural_Crime_Summary', None)
+    if not Model or not hasattr(Model, 'agric_crime_report'):
+        return []
+
+    query = db.query(Model.agric_crime_report).distinct()
+    query = apply_opsec_scope(current_user, query, Model)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(Model, 'region'):
+            query = query.filter(func.upper(Model.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(Model, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(Model.station) == station.upper(),
+                    func.upper(Model.station) == clean_stn,
+                    func.upper(Model.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    reports = [row[0].strip().upper() for row in query.all() if row[0]]
+    return sorted(list(set(reports)))
+
+# ====================================================================
+# 1C. EXPORT AGRIC SUMMARIES TO CSV
+# ====================================================================
+@router.get("/export")
+def export_agric_csv(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    agric_report: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
+):
+    Model = getattr(models, 'Agricultural_Crime_Summary', None)
+    if not Model:
+        raise HTTPException(status_code=500, detail="Model not found")
+
+    query = db.query(Model)
+    query = apply_opsec_scope(current_user, query, Model)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(Model, 'region'):
+            query = query.filter(func.upper(Model.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(Model, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(Model.station) == station.upper(),
+                    func.upper(Model.station) == clean_stn,
+                    func.upper(Model.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    if agric_report and agric_report.upper() not in ["ALL REPORTS", "ALL", ""]:
+        if hasattr(Model, 'agric_crime_report'):
+            query = query.filter(func.upper(Model.agric_crime_report) == agric_report.upper())
+
+    if start_date and hasattr(Model, 'date'):
+        query = query.filter(Model.date >= start_date)
+    
+    if end_date and hasattr(Model, 'date'):
+        query = query.filter(Model.date <= end_date)
+
+    if search:
+        term = f"%{search.strip().upper()}%"
+        search_conds = []
+        if hasattr(Model, 'agric_crime_report'): search_conds.append(Model.agric_crime_report.ilike(term))
+        if hasattr(Model, 'status'): search_conds.append(Model.status.ilike(term))
+        if hasattr(Model, 'station'): search_conds.append(Model.station.ilike(term))
+        if hasattr(Model, 'region'): search_conds.append(Model.region.ilike(term))
+        if hasattr(Model, 'last_updated_by'): search_conds.append(Model.last_updated_by.ilike(term))
+        if search_conds:
+            query = query.filter(or_(*search_conds))
+
+    records = query.order_by(Model.id.desc()).all()
+
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow(["ID", "Date", "Region", "Station", "Agricultural Crime Report", "Count / Numbers", "Recoveries", "Status", "Last Updated By"])
+
+    total_records = len(records)
+    for r in records:
+        writer.writerow([
+            getattr(r, 'id', ''),
+            getattr(r, 'date', ''),
+            getattr(r, 'region', ''),
+            getattr(r, 'station', ''),
+            getattr(r, 'agric_crime_report', ''),
+            getattr(r, 'number_count', 0),
+            getattr(r, 'recoveries', 0),
+            getattr(r, 'status', ''),
+            getattr(r, 'last_updated_by', '')
+        ])
+
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    
+    file_label = agric_report.replace(" ", "_").upper() if agric_report and agric_report not in ["ALL REPORTS", "ALL"] else "ALL_REPORTS"
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    response.headers["Content-Disposition"] = f"attachment; filename=KMP_AGRIC_CRIMES_{file_label}_{timestamp}.csv"
+    
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="AGRIC_SUMMARY_LEDGER",
+        target_id="CSV_EXPORT",
+        changes_summary=f"Officer generated and exported backend CSV containing {total_records} agric crime records (Filter: {file_label})."
+    )
+
+    return response
+
+# ====================================================================
+# 2. CREATE AGRIC SUMMARY
+# ====================================================================
 @router.post("/")
 def create_agric_summary(
     data: dict, 

@@ -1,9 +1,13 @@
+# routers/establishments.py
 import json
+import csv
+import io
 from datetime import datetime
 from typing import Optional, List, Union
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 
 from app import models
 from app.database import get_db, get_logs_db
@@ -49,15 +53,9 @@ def serialize_row(row):
             d[k] = v.isoformat()
     return d
 
-@router.get("/establishments")
-def get_all_establishments(
-    search: Optional[str] = Query(default=None),
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    EstModel = get_est_model()
-    query = db.query(EstModel)
+def apply_opsec_scope(current_user, query, ModelClass):
+    if not ModelClass:
+        return query
     
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     user_pos = str(current_user.position).strip().upper() if current_user.position else ""
@@ -95,7 +93,7 @@ def get_all_establishments(
         pass # Global or Top-Tier Access
     elif user_reg in REGIONAL_HIERARCHY:
         # 🟢 Regional Command with Dual-Equivalence Station Expansion
-        conds = [func.upper(EstModel.region) == user_reg]
+        conds = [func.upper(ModelClass.region) == user_reg]
         
         expanded_stns = set()
         for s in REGIONAL_HIERARCHY[user_reg]:
@@ -104,25 +102,62 @@ def get_all_establishments(
             expanded_stns.add(s + ' HEADQUARTERS')
             expanded_stns.add(s + ' HQ')
             
-        conds.append(func.upper(EstModel.station).in_(list(expanded_stns)))
-        if hasattr(EstModel, 'division'):
-            conds.append(func.upper(EstModel.division).in_(list(expanded_stns)))
+        conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+        if hasattr(ModelClass, 'division'):
+            conds.append(func.upper(ModelClass.division).in_(list(expanded_stns)))
             
         query = query.filter(or_(*conds))
     else:
         # Strict Station Fallback
-        query = query.filter(func.upper(EstModel.station) == user_stn)
-    
-    # 🟢 Apply search filtering if search term provided
+        query = query.filter(func.upper(ModelClass.station) == user_stn)
+
+    return query
+
+def build_filtered_query(query, ModelClass, region, station, search):
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(ModelClass, 'region'):
+            query = query.filter(func.upper(ModelClass.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(ModelClass, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(ModelClass.station) == station.upper(),
+                    func.upper(ModelClass.station) == clean_stn,
+                    func.upper(ModelClass.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
     if search:
         term = f"%{search.strip().upper()}%"
         search_conds = []
-        if hasattr(EstModel, 'station'): search_conds.append(EstModel.station.ilike(term))
-        if hasattr(EstModel, 'region'): search_conds.append(EstModel.region.ilike(term))
-        if hasattr(EstModel, 'division'): search_conds.append(EstModel.division.ilike(term))
-        if hasattr(EstModel, 'last_updated_by'): search_conds.append(EstModel.last_updated_by.ilike(term))
+        if hasattr(ModelClass, 'station'): search_conds.append(ModelClass.station.ilike(term))
+        if hasattr(ModelClass, 'region'): search_conds.append(ModelClass.region.ilike(term))
+        if hasattr(ModelClass, 'division'): search_conds.append(ModelClass.division.ilike(term))
+        if hasattr(ModelClass, 'last_updated_by'): search_conds.append(ModelClass.last_updated_by.ilike(term))
         if search_conds:
             query = query.filter(or_(*search_conds))
+            
+    return query
+
+# ====================================================================
+# 1. RETRIEVE ESTABLISHMENTS
+# ====================================================================
+@router.get("/establishments")
+def get_all_establishments(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    EstModel = get_est_model()
+    query = db.query(EstModel)
+    
+    query = apply_opsec_scope(current_user, query, EstModel)
+    query = build_filtered_query(query, EstModel, region, station, search)
 
     pk_col = getattr(EstModel, 'id', getattr(EstModel, 'sn', None))
     if pk_col is not None:
@@ -132,7 +167,6 @@ def get_all_establishments(
         
     serialized_records = [serialize_row(r) for r in records]
 
-    # 🟢 Precision forensic check: Log search query vs regular view
     if search:
         summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched establishments for query: \"{search}\" (Returned {len(serialized_records)} matches)."
     else:
@@ -149,6 +183,75 @@ def get_all_establishments(
 
     return serialized_records
 
+# ====================================================================
+# 1B. EXPORT ESTABLISHMENTS TO CSV
+# ====================================================================
+@router.get("/establishments/export")
+def export_establishments_csv(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    EstModel = get_est_model()
+    query = db.query(EstModel)
+
+    query = apply_opsec_scope(current_user, query, EstModel)
+    query = build_filtered_query(query, EstModel, region, station, search)
+
+    pk_col = getattr(EstModel, 'id', getattr(EstModel, 'sn', None))
+    if pk_col is not None:
+        records = query.order_by(pk_col.desc()).all()
+    else:
+        records = query.all()
+
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    
+    # Define headers based on standard establishment model fields
+    writer.writerow([
+        "ID", "Region", "Division", "Station", 
+        "Personnel In Station", "Personnel In Sub-Station", "Personnel In Post", 
+        "Booths", "Personnel In Booth", "Last Updated By"
+    ])
+
+    total_records = len(records)
+    for r in records:
+        writer.writerow([
+            getattr(r, 'id', getattr(r, 'sn', '')),
+            getattr(r, 'region', ''),
+            getattr(r, 'division', ''),
+            getattr(r, 'station', ''),
+            getattr(r, 'personnel_in_station', 0),
+            getattr(r, 'personnel_in_sub_station', 0),
+            getattr(r, 'personnel_in_post', 0),
+            getattr(r, 'booths', 0),
+            getattr(r, 'personnel_in_booth', 0),
+            getattr(r, 'last_updated_by', '')
+        ])
+
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    
+    file_label = region.replace(" ", "_").upper() if region and region not in ["ALL REGIONS", "ALL"] else "ALL_REGIONS"
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    response.headers["Content-Disposition"] = f"attachment; filename=KMP_ESTABLISHMENTS_{file_label}_{timestamp}.csv"
+    
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="ESTABLISHMENTS",
+        target_id="CSV_EXPORT",
+        changes_summary=f"Officer generated and exported backend CSV containing {total_records} establishment records (Filter: {file_label})."
+    )
+
+    return response
+
+# ====================================================================
+# 2. CREATE ESTABLISHMENT
+# ====================================================================
 @router.post("/establishments")
 def create_establishment(
     data: dict, 
@@ -207,6 +310,9 @@ def create_establishment(
         print(f"Establishment creation error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to record establishment: {str(e)}")
 
+# ====================================================================
+# 3. UPDATE ESTABLISHMENT
+# ====================================================================
 @router.put("/establishments/{est_id}")
 def update_establishment(
     est_id: int, 
@@ -273,6 +379,9 @@ def update_establishment(
         print(f"Establishment update error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update establishment: {str(e)}")
 
+# ====================================================================
+# 4. DELETE ESTABLISHMENT
+# ====================================================================
 @router.delete("/establishments/{est_id}")
 def delete_establishment(
     est_id: int, 

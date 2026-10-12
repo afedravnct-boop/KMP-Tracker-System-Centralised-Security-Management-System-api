@@ -3,10 +3,13 @@ import os
 import uuid
 import re
 import boto3
+import csv
+import io
 from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
 from botocore.exceptions import ClientError
@@ -218,6 +221,10 @@ def apply_opsec_scope(current_user, query, ModelClass):
 def get_reports(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    offence: Optional[str] = Query(default=None), 
+    start_date: Optional[str] = Query(default=None), 
+    end_date: Optional[str] = Query(default=None), 
+    agri_only: bool = Query(default=False), 
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=200, le=1000), 
     db: Session = Depends(get_db), 
@@ -245,6 +252,19 @@ def get_reports(
                     func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
                 )
             )
+            
+    if offence and offence.upper() not in ["ALL OFFENCES", "ALL", ""]:
+        if hasattr(CrimeModel, 'offence'):
+            query = query.filter(func.upper(CrimeModel.offence) == offence.upper())
+            
+    if agri_only and hasattr(CrimeModel, 'category'):
+        query = query.filter(func.upper(CrimeModel.category) == 'AGRIC_CRIME')
+        
+    if start_date and hasattr(CrimeModel, 'date'):
+        query = query.filter(CrimeModel.date >= start_date)
+    
+    if end_date and hasattr(CrimeModel, 'date'):
+        query = query.filter(CrimeModel.date <= end_date)
 
     if search:
         search_term = f"%{search.strip()}%"
@@ -310,6 +330,217 @@ def get_reports(
     )
 
     return result
+
+# ====================================================================
+# 1B. GET UNIQUE OFFENCES (LIGHTWEIGHT ENDPOINT)
+# ====================================================================
+@router.get("/reports/offences")
+def get_unique_offences(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
+    if not CrimeModel or not hasattr(CrimeModel, 'offence'):
+        return []
+
+    # Get distinct offences optimized at the DB level
+    query = db.query(CrimeModel.offence).distinct()
+    query = apply_opsec_scope(current_user, query, CrimeModel)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(CrimeModel, 'region'):
+            query = query.filter(func.upper(CrimeModel.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(CrimeModel, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(CrimeModel.station) == station.upper(),
+                    func.upper(CrimeModel.station) == clean_stn,
+                    func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    offences = [row[0].strip().upper() for row in query.all() if row[0] and "LOCK-UP TOTAL" not in row[0].upper()]
+    return sorted(list(set(offences)))
+
+# ====================================================================
+# 1C. CRIME ANALYTICS (HEAVY-LIFTING AGGREGATION)
+# ====================================================================
+@router.get("/reports/analytics")
+def get_crime_analytics(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    agri_only: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
+    if not CrimeModel: return []
+
+    # 🟢 OPTIMIZATION: Using func.count(1) is faster and prevents AttributeError
+    query = db.query(
+        func.coalesce(CrimeModel.offence, 'UNSPECIFIED').label('incident'),
+        func.count(1).label('total')
+    )
+    
+    query = apply_opsec_scope(current_user, query, CrimeModel)
+
+    # Exclude lock-up totals from crime analytics
+    query = query.filter(~func.upper(CrimeModel.offence).like('%LOCK-UP TOTAL%'))
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(CrimeModel, 'region'):
+            query = query.filter(func.upper(CrimeModel.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(CrimeModel, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(CrimeModel.station) == station.upper(),
+                    func.upper(CrimeModel.station) == clean_stn,
+                    func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+
+    if agri_only and hasattr(CrimeModel, 'category'):
+        query = query.filter(func.upper(CrimeModel.category) == 'AGRIC_CRIME')
+
+    if start_date and hasattr(CrimeModel, 'date'):
+        query = query.filter(CrimeModel.date >= start_date)
+    
+    if end_date and hasattr(CrimeModel, 'date'):
+        query = query.filter(CrimeModel.date <= end_date)
+
+    # Group by the offence and order by highest count
+    results = query.group_by(func.coalesce(CrimeModel.offence, 'UNSPECIFIED')).order_by(text('total DESC')).all()
+
+    # Format for the frontend
+    summary_data = [{"sn": idx + 1, "incident": r.incident.upper(), "total": r.total} for idx, r in enumerate(results)]
+
+    return summary_data
+
+# ====================================================================
+# 1D. EXPORT CRIME REPORTS TO CSV (BACKEND HEAVY TASK)
+# ====================================================================
+@router.get("/reports/export")
+def export_reports_csv(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    offence: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    agri_only: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
+    if not CrimeModel:
+        raise HTTPException(status_code=500, detail="Model not found")
+
+    query = db.query(CrimeModel)
+    query = apply_opsec_scope(current_user, query, CrimeModel)
+
+    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(CrimeModel, 'region'):
+            query = query.filter(func.upper(CrimeModel.region) == region.upper())
+            
+    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(CrimeModel, 'station'):
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(CrimeModel.station) == station.upper(),
+                    func.upper(CrimeModel.station) == clean_stn,
+                    func.upper(CrimeModel.station) == f"{clean_stn} HEADQUARTERS"
+                )
+            )
+            
+    if offence and offence.upper() not in ["ALL OFFENCES", "ALL", ""]:
+        if hasattr(CrimeModel, 'offence'):
+            query = query.filter(func.upper(CrimeModel.offence) == offence.upper())
+            
+    if agri_only and hasattr(CrimeModel, 'category'):
+        query = query.filter(func.upper(CrimeModel.category) == 'AGRIC_CRIME')
+        
+    if start_date and hasattr(CrimeModel, 'date'):
+        query = query.filter(CrimeModel.date >= start_date)
+    
+    if end_date and hasattr(CrimeModel, 'date'):
+        query = query.filter(CrimeModel.date <= end_date)
+
+    if search:
+        search_term = f"%{search.strip()}%"
+        search_conditions = []
+        if hasattr(CrimeModel, 'sd_ref'): search_conditions.append(CrimeModel.sd_ref.ilike(search_term))
+        if hasattr(CrimeModel, 'sdRef'): search_conditions.append(CrimeModel.sdRef.ilike(search_term))
+        if hasattr(CrimeModel, 'offence'): search_conditions.append(CrimeModel.offence.ilike(search_term))
+        if hasattr(CrimeModel, 'narrative'): search_conditions.append(CrimeModel.narrative.ilike(search_term))
+        if hasattr(CrimeModel, 'station'): search_conditions.append(CrimeModel.station.ilike(search_term))
+        if search_conditions:
+            query = query.filter(or_(*search_conditions))
+
+    # Fetch ALL matching records without the strict frontend limit constraint
+    pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
+    reports = query.order_by(pk_col.desc()).all() if pk_col else query.all()
+
+    # Generate CSV in-memory
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow(["SN", "Reference", "Date Recorded", "Time", "Region", "Station", "Offence / Category", "Suspects", "Status", "Narrative"])
+
+    SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
+    total_records = len(reports)
+
+    for idx, r in enumerate(reports):
+        c_dict = clean_model_dict(r)
+        
+        # Clean HTML from narrative for the CSV export
+        narrative_clean = strip_html_tags(c_dict.get('narrative', ''))
+        
+        # Count Suspects dynamically
+        suspect_count = c_dict.get('suspects', 0)
+        if SuspectModel and hasattr(r, 'id'):
+            suspect_count = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).count()
+
+        writer.writerow([
+            total_records - idx,
+            c_dict.get('sdRef', c_dict.get('sd_ref', '')),
+            c_dict.get('date', ''),
+            c_dict.get('time', ''),
+            c_dict.get('region', ''),
+            c_dict.get('station', ''),
+            c_dict.get('offence', ''),
+            suspect_count,
+            c_dict.get('status', ''),
+            narrative_clean
+        ])
+
+    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    
+    file_label = offence.replace(" ", "_").upper() if offence and offence not in ["ALL OFFENCES", "ALL"] else "ALL_CRIMES"
+    timestamp = datetime.now().strftime("%Y-%m-%d")
+    response.headers["Content-Disposition"] = f"attachment; filename=KMP_REGISTRY_{file_label}_{timestamp}.csv"
+    
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="CRIME_REGISTRY",
+        target_id="CSV_EXPORT",
+        changes_summary=f"Officer generated and exported backend CSV containing {total_records} records (Filter: {file_label})."
+    )
+
+    return response
 
 # ====================================================================
 # 2. FILE UPLOADS

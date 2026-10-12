@@ -72,7 +72,7 @@ def get_command_weight(officer) -> int:
             return 1
         if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
             return 2
-        if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'ADMIN OFFICER' in pos:
+        if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'KMP ADMIN OFFICER' in pos:
             return 3
         if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
             return 1
@@ -347,7 +347,9 @@ def get_archive_model():
     if not model: raise HTTPException(status_code=500, detail="Nominal Roll Archive database model not configured.")
     return model
 
+# 🟢 STRICT REGIONAL AND STATION/POST MAPPING ENGINE
 STATION_GEO_MAP = {
+    "KMP NORTH HEADQUARTERS": {"region": "KMP NORTH", "district": "KAMPALA"},
     "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
     "WANDEGEYA": {"region": "KMP NORTH", "district": "KAMPALA"},
     "OLD KAMPALA": {"region": "KMP NORTH", "district": "KAMPALA"},
@@ -356,6 +358,7 @@ STATION_GEO_MAP = {
     "KASANGATI": {"region": "KMP NORTH", "district": "WAKISO"},
     "KAKIRI": {"region": "KMP NORTH", "district": "WAKISO"},
     "WAKISO": {"region": "KMP NORTH", "district": "WAKISO"},
+    "KMP SOUTH HEADQUARTERS": {"region": "KMP SOUTH", "district": "KAMPALA"},
     "NATEETE": {"region": "KMP SOUTH", "district": "WAKISO"},
     "CPS KAMPALA": {"region": "KMP SOUTH", "district": "KAMPALA"},
     "PARLIAMENT": {"region": "KMP SOUTH", "district": "KAMPALA"},
@@ -365,17 +368,64 @@ STATION_GEO_MAP = {
     "NSANGI": {"region": "KMP SOUTH", "district": "WAKISO"},
     "KASENYI": {"region": "KMP SOUTH", "district": "WAKISO"},
     "KYENGERA": {"region": "KMP SOUTH", "district": "WAKISO"},
+    "KATWE": {"region": "KMP SOUTH", "district": "KAMPALA"},
+    "KMP EAST HEADQUARTERS": {"region": "KMP EAST", "district": "KAMPALA"},
     "JINJA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
     "MUKONO": {"region": "KMP EAST", "district": "MUKONO"},
     "KIRA ROAD": {"region": "KMP EAST", "district": "KAMPALA"},
     "KIRA DIV": {"region": "KMP EAST", "district": "WAKISO"},
+    "KIRA": {"region": "KMP EAST", "district": "WAKISO"},
     "NAGGALAMA": {"region": "KMP EAST", "district": "MUKONO"},
-    "SEETA": {"region": "KMP EAST", "district": "MUKONO"},
+    "SEETA": {"region": "KMP EAST", "district": "MUKONO"}
 }
+
+def parseStationHierarchy(rawStation):
+    cleaned = clean_str(rawStation)
+    if not cleaned: return {"division": "UNASSIGNED", "station": "UNASSIGNED", "post": "", "type": "POST"}
+    
+    if '/' in cleaned or '\\' in cleaned:
+        parts = cleaned.replace('\\', '/').split('/')
+        parent = parts[0].strip()
+        child = parts[1].strip() if len(parts) > 1 else ""
+        
+        type_str = "POST"
+        if "SUB-STATION" in child or "SUBSTATION" in child:
+            return {"division": parent, "station": parent, "post": "", "type": "STATION"} # 🟢 Sub-stations mapped as main stations
+        elif "STATION" in child:
+            type_str = "STATION"
+            
+        return {"division": parent, "station": parent, "post": type_str == "POST" and child or "", "type": type_str}
+
+    if cleaned.endswith(' P/P') or cleaned.endswith(' P.P') or 'POLICE POST' in cleaned:
+        name = cleaned.replace(' P/P', '').replace(' P.P', '').replace('POLICE POST', '').strip()
+        return {"division": "GENERAL", "station": "GENERAL", "post": name, "type": "POST"}
+        
+    if cleaned.endswith(' P/S') or cleaned.endswith(' P.S') or 'POLICE STATION' in cleaned:
+        name = cleaned.replace(' P/S', '').replace(' P.S', '').replace('POLICE STATION', '').strip()
+        return {"division": name, "station": name, "post": "", "type": "STATION"}
+
+    for stations_list in REGION_SORT_PRIORITY.keys():
+        if cleaned == stations_list:
+             return {"division": cleaned, "station": cleaned, "post": "", "type": "DIVISION"}
+
+    return {"division": cleaned, "station": cleaned, "post": "", "type": "STATION"}
+
+def getOfficialRegionForStation(station_name: str, current_region: Optional[str] = None) -> str:
+    if not station_name: return current_region or "KMP HEADQUARTERS"
+    parsed = parseStationHierarchy(station_name)
+    stat_upper = parsed["station"]
+    
+    if stat_upper in STATION_GEO_MAP:
+        return STATION_GEO_MAP[stat_upper]["region"]
+        
+    clean_reg = clean_str(current_region)
+    return clean_reg if clean_reg else "KMP HEADQUARTERS"
 
 def auto_infer_geography(station_name, current_region=None, current_district=None):
     if not station_name: return current_region or "KMP HEADQUARTERS", current_district or "KAMPALA"
-    stat_upper = aggressive_clean_text(station_name)
+    parsed = parseStationHierarchy(station_name)
+    stat_upper = parsed["station"]
+    
     inferred_region = aggressive_clean_text(current_region)
     inferred_district = aggressive_clean_text(current_district)
 
@@ -385,15 +435,8 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
             inferred_region = geo_info["region"]
         if not inferred_district or str(inferred_district).upper() in ["", "NONE", "NAN", "ALL REGIONS"]:
             inferred_district = geo_info["district"]
+            
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
-
-def getOfficialRegionForStation(station_name: str, current_region: Optional[str] = None) -> str:
-    if not station_name:
-        return current_region or "KMP HEADQUARTERS"
-    stat_upper = aggressive_clean_text(station_name)
-    if stat_upper in STATION_GEO_MAP:
-        return STATION_GEO_MAP[stat_upper]["region"]
-    return current_region or "KMP HEADQUARTERS"
 
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
@@ -1204,7 +1247,6 @@ def bulk_archive_personnel(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk archive transaction failed: {str(e)}")
 
-
 # ====================================================================
 # 7. SECURE EXCEL EXPORTS (MISSING INFO AUDIT & STATION LEDGER)
 # ====================================================================
@@ -1229,7 +1271,10 @@ def export_missing_info_audit(
 
         for r in records:
             if is_invalid_roster_entry(r): continue
-            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            
+            # Map police posts back to their parent station for filtering
+            parsed_stn = parseStationHierarchy(str(getattr(r, 'station', '')).strip().upper())
+            r_stn = parsed_stn['station'] 
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
             if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
@@ -1260,6 +1305,7 @@ def export_missing_info_audit(
                     "Name": getattr(r, 'name', ''),
                     "Region": r_reg,
                     "Station": r_stn,
+                    "Post": parsed_stn['post'] if parsed_stn['post'] else "N/A",
                     "Missing Fields": " | ".join(missing_fields)
                 })
 
@@ -1278,7 +1324,7 @@ def export_missing_info_audit(
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         
-        ws.append(["SN", "Force Number", "Rank", "Name", "Region", "Station", "Missing Fields"])
+        ws.append(["SN", "Force Number", "Rank", "Name", "Region", "Station", "Police Post", "Missing Fields"])
         
         for cell in ws[5]:
             cell.fill = header_fill
@@ -1293,6 +1339,7 @@ def export_missing_info_audit(
                 row["Name"],
                 row["Region"],
                 row["Station"],
+                row["Post"],
                 row["Missing Fields"]
             ])
 
@@ -1365,7 +1412,9 @@ def export_station_nominal_roll(
 
         for r in records:
             if is_invalid_roster_entry(r): continue
-            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            
+            parsed_stn = parseStationHierarchy(str(getattr(r, 'station', '')).strip().upper())
+            r_stn = parsed_stn['station']
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
             if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
@@ -1393,6 +1442,7 @@ def export_station_nominal_roll(
                 "Section": getattr(r, 'section', ''),
                 "Directorate": getattr(r, 'dir', ''),
                 "Station": r_stn,
+                "Police Post": parsed_stn['post'] if parsed_stn['post'] else "N/A",
                 "District": getattr(r, 'district', ''),
                 "Region": r_reg,
                 "Status": getattr(r, 'status', 'ACTIVE'),
@@ -1418,7 +1468,7 @@ def export_station_nominal_roll(
             "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
             "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
             "Education Level", "Home District", "Tribe", "Bank Branch", "Account Number", 
-            "Section", "Directorate", "Station", "District", "Region", "Status", "Last Updated By"
+            "Section", "Directorate", "Station", "Police Post", "District", "Region", "Status", "Last Updated By"
         ]
         ws.append(headers)
         
@@ -1451,6 +1501,7 @@ def export_station_nominal_roll(
                 row["Section"],
                 row["Directorate"],
                 row["Station"],
+                row["Police Post"],
                 row["District"],
                 row["Region"],
                 row["Status"],
@@ -1529,7 +1580,9 @@ def export_filtered_nominal_roll(
 
         for r in records:
             if is_invalid_roster_entry(r): continue
-            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            
+            parsed_stn = parseStationHierarchy(str(getattr(r, 'station', '')).strip().upper())
+            r_stn = parsed_stn['station']
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
             if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
@@ -1541,8 +1594,7 @@ def export_filtered_nominal_roll(
                     if 'DRV' in r_rank: r_rank = 'PC'
                     if r_rank != f_val: continue
                 elif f_type == "UNIT":
-                    r_div = clean_str(getattr(r, 'station', ''))
-                    if r_div != f_val and r_stn != f_val: continue
+                    if r_stn != f_val: continue
                 elif f_type == "EDUCATION":
                     r_educ = normalize_education_level(getattr(r, 'educ_level', getattr(r, 'educlevel', '')))
                     if r_educ != f_val: continue
@@ -1578,6 +1630,7 @@ def export_filtered_nominal_roll(
                 "Section": getattr(r, 'section', ''),
                 "Directorate": getattr(r, 'dir', ''),
                 "Station": r_stn,
+                "Police Post": parsed_stn['post'] if parsed_stn['post'] else "N/A",
                 "District": getattr(r, 'district', ''),
                 "Region": r_reg,
                 "Status": getattr(r, 'status', 'ACTIVE'),
@@ -1603,7 +1656,7 @@ def export_filtered_nominal_roll(
             "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
             "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
             "Education Level", "Home District", "Tribe", "Bank Branch", "Account Number", 
-            "Section", "Directorate", "Station", "District", "Region", "Status", "Last Updated By"
+            "Section", "Directorate", "Station", "Police Post", "District", "Region", "Status", "Last Updated By"
         ]
         ws.append(headers)
         
@@ -1636,6 +1689,7 @@ def export_filtered_nominal_roll(
                 row["Section"],
                 row["Directorate"],
                 row["Station"],
+                row["Police Post"],
                 row["District"],
                 row["Region"],
                 row["Status"],
@@ -1709,7 +1763,9 @@ def audit_missing_preview(
 
         for r in records:
             if is_invalid_roster_entry(r): continue
-            r_stn = str(getattr(r, 'station', '')).strip().upper()
+            
+            parsed_stn = parseStationHierarchy(str(getattr(r, 'station', '')).strip().upper())
+            r_stn = parsed_stn['station']
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
             if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
