@@ -230,7 +230,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
-  // NEW: Lightweight backend fetch for unique offences
   const fetchUniqueOffences = useCallback(async () => {
     if (!hasValidSession()) return;
     try {
@@ -255,7 +254,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     fetchUniqueOffences();
   }, [fetchUniqueOffences]);
 
-  // NEW: Send all filter constraints to the backend
   const fetchFilteredDatabaseReports = useCallback(async () => {
     if (!hasValidSession()) return;
     setIsFetchingReports(true);
@@ -329,7 +327,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     });
   };
 
-  // Because the backend now perfectly pre-filters the array, we just sort it safely.
   const finalFilteredReports = useMemo(() => {
     if (!Array.isArray(serverReports)) return [];
     return [...serverReports].sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
@@ -552,7 +549,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const cleanRefType = stripHtmlTags(formData.ref_type);
       const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase().trim();
       const final_reference = `${cleanRefType} ${cleanRefNumber}`.trim();
-        
+          
       if (cleanRefType === 'SD Ref:') {
         const sdRegex = /^\d{1,3}\/\d{2}\/\d{2}\/\d{4}$/;
         if (!sdRegex.test(cleanRefNumber)) {
@@ -592,12 +589,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         suspectDetails: formData.suspectDetails,
         daily_lock_up: 0 
       };
-          
+            
       try {
         const response = await authFetch(`/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload) });
         const resData = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected the entry.");
-            
+              
         fetchFilteredDatabaseReports();
         setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
         resetFormToBlank();
@@ -608,13 +605,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a case first.");
-          
+            
       const plainUpdateText = extractPlainText(formData.updateText || '').trim();
       let updatedNarrative = formData.narrative;
       if (plainUpdateText) {
           updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
       }
-          
+            
       const finalOffenceValue = formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence);
 
       const updatedRecord = { 
@@ -634,7 +631,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       delete updatedRecord.ref_type; 
       delete updatedRecord.ref_number;
       delete updatedRecord.customOffence; 
-          
+            
       try {
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
         const resData = await response.json().catch(() => ({}));
@@ -650,14 +647,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
     }
   };
 
-  // NEW: Triggers robust backend CSV generation
   const handleExportFilteredData = async () => {
     if (!serverReports.length) {
       alert("No records available to export for the selected filters.");
       return;
     }
     
-    setNotification("⏳ Generating official CSV export from database. Please wait...");
+    setNotification("⏳ Generating AES-256 secure encrypted spreadsheet archive. Please wait...");
     
     try {
       const params = new URLSearchParams();
@@ -672,19 +668,18 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       if (end) params.append('end_date', end);
 
       const response = await authFetch(`/api/v1/reports/export?${params.toString()}`);
-      if (!response.ok) throw new Error("Export failed on server.");
+      if (!response.ok) throw new Error("Secure export failed on server.");
       
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       
       const disposition = response.headers.get('Content-Disposition');
-      let filename = 'KMP_REGISTRY_EXPORT.csv';
+      let filename = 'KMP_REGISTRY_SECURE_EXPORT.zip';
       if (disposition && disposition.indexOf('filename=') !== -1) {
           filename = disposition.split('filename=')[1].replace(/["']/g, '');
       } else {
           const timestamp = new Date().toISOString().split('T')[0];
-          const fileLabel = filterOffence === 'ALL OFFENCES' ? 'ALL_CRIMES' : filterOffence.replace(/\s+/g, '_');
-          filename = `KMP_REGISTRY_${fileLabel}_${timestamp}.csv`;
+          filename = `KMP_REGISTRY_SECURE_EXPORT_${timestamp}.zip`;
       }
 
       const link = document.createElement('a');
@@ -694,10 +689,11 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      setNotification(null);
+      setNotification("✅ Secure AES-256 archive downloaded successfully! Use your Force Number to unlock.");
+      setTimeout(() => setNotification(null), 6000);
     } catch (err) {
       console.error("Export error:", err);
-      setNotification("❌ Failed to generate export file.");
+      setNotification("❌ Failed to generate secure export archive.");
     }
   };
    
@@ -868,7 +864,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
               <option value="LAST 180 DAYS">LAST 180 DAYS</option>
             </select>
         </div>
-          
+            
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
           <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800 dark:text-slate-100" />
           <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600 dark:text-amber-400" />
@@ -887,7 +883,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
               <h3 className="text-white font-semibold text-xs flex items-center"><Shield className="w-4 h-4 mr-1.5 text-blue-400" /> ⚙️ File Controls</h3>
             </div>
-              
+                
             <div className="p-4 space-y-4">
               <div className="flex space-x-1.5 bg-gray-100 dark:bg-slate-900 p-0.5 rounded-lg">
                 <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
@@ -1106,9 +1102,9 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
               ))}
             </select>
 
-            <button type="button" onClick={handleExportFilteredData} className="px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800 ring-2 ring-blue-500/20">
+            <button type="button" onClick={handleExportFilteredData} className="px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-emerald-700 text-white border-emerald-800 hover:bg-emerald-800 ring-2 ring-emerald-500/20">
               <HardDrive className="w-3.5 h-3.5 mr-1" />
-              Export CSV
+              Export Secure Excel (.zip)
             </button>
           </div>
 
@@ -1135,10 +1131,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
                     return (
                       <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
- <td className="px-3.5 py-3 whitespace-nowrap text-xs font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">
-   {finalFilteredReports.length - index}
- </td>
- <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-blue-700 dark:text-blue-400 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-xs font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">
+                          {finalFilteredReports.length - index}
+                        </td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-blue-700 dark:text-blue-400 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[9px] text-gray-400 dark:text-slate-500">{stripHtmlTags(report.time)}</span></td>
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-700 dark:text-slate-300 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">{rRegion}</span></td>
                         <td className="px-3.5 py-3 text-[11px] text-gray-700 dark:text-slate-300 align-top whitespace-normal break-words overflow-wrap-anywhere">
@@ -1224,14 +1220,14 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
                     <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
                   </div>
-                    
+                      
                   <div className="flex flex-col gap-4 w-full">
                     {selectedCase.suspectDetails.map((s, idx) => {
                       const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
 
                       return (
                         <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
-                            
+                              
                           <div className="shrink-0">
                             {isValidPhoto ? ( 
                               <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
@@ -1242,12 +1238,12 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                               </div> 
                             )}
                           </div>
-                            
+                              
                           <div className="flex-1 min-w-0 py-1">
                             <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
                             <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
                             <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
-                              
+                                
                             {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( 
                               <div className="inline-flex mt-1 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-black px-2.5 py-1 rounded shadow-sm uppercase tracking-wider w-max">
                                 Status: {stripHtmlTags(s.mental_health_status)}

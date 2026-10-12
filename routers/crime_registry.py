@@ -2,9 +2,10 @@
 import os
 import uuid
 import re
+import html
 import boto3
-import csv
 import io
+import pyzipper
 from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
@@ -13,6 +14,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
 from botocore.exceptions import ClientError
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from app import models
 from app.database import get_db, get_logs_db
@@ -40,7 +43,10 @@ REGIONAL_HIERARCHY = {
 def strip_html_tags(text_str: str) -> str:
     if not text_str:
         return ""
-    return re.sub('<.*?>', '', str(text_str))
+    # Unescape HTML entities first (&nbsp;, &amp;, etc.)
+    unescaped = html.unescape(str(text_str))
+    # Remove HTML tags
+    return re.sub(r'<[^<]+?>', '', unescaped).strip()
 
 def parse_crime_incident_backend(offence_str: str, narrative_str: str):
     combined_text = f"{offence_str or ''} {narrative_str or ''}"
@@ -345,7 +351,6 @@ def get_unique_offences(
     if not CrimeModel or not hasattr(CrimeModel, 'offence'):
         return []
 
-    # Get distinct offences optimized at the DB level
     query = db.query(CrimeModel.offence).distinct()
     query = apply_opsec_scope(current_user, query, CrimeModel)
 
@@ -384,15 +389,12 @@ def get_crime_analytics(
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
     if not CrimeModel: return []
 
-    # 🟢 OPTIMIZATION: Using func.count(1) is faster and prevents AttributeError
     query = db.query(
         func.coalesce(CrimeModel.offence, 'UNSPECIFIED').label('incident'),
         func.count(1).label('total')
     )
     
     query = apply_opsec_scope(current_user, query, CrimeModel)
-
-    # Exclude lock-up totals from crime analytics
     query = query.filter(~func.upper(CrimeModel.offence).like('%LOCK-UP TOTAL%'))
 
     if region and region.upper() not in ["ALL REGIONS", "ALL"]:
@@ -419,19 +421,16 @@ def get_crime_analytics(
     if end_date and hasattr(CrimeModel, 'date'):
         query = query.filter(CrimeModel.date <= end_date)
 
-    # Group by the offence and order by highest count
     results = query.group_by(func.coalesce(CrimeModel.offence, 'UNSPECIFIED')).order_by(text('total DESC')).all()
-
-    # Format for the frontend
     summary_data = [{"sn": idx + 1, "incident": r.incident.upper(), "total": r.total} for idx, r in enumerate(results)]
 
     return summary_data
 
 # ====================================================================
-# 1D. EXPORT CRIME REPORTS TO CSV (BACKEND HEAVY TASK)
+# 1D. EXPORT CRIME REPORTS TO SECURE AES-256 ZIP (.XLSX)
 # ====================================================================
 @router.get("/reports/export")
-def export_reports_csv(
+def export_reports_excel(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     offence: Optional[str] = Query(default=None),
@@ -489,30 +488,71 @@ def export_reports_csv(
         if search_conditions:
             query = query.filter(or_(*search_conditions))
 
-    # Fetch ALL matching records without the strict frontend limit constraint
     pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
     reports = query.order_by(pk_col.desc()).all() if pk_col else query.all()
 
-    # Generate CSV in-memory
-    stream = io.StringIO()
-    writer = csv.writer(stream)
-    writer.writerow(["SN", "Reference", "Date Recorded", "Time", "Region", "Station", "Offence / Category", "Suspects", "Status", "Narrative"])
+    # 1. Build Excel Workbook via openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Crime Registry Ledger"
+    ws.views.sheetView[0].showGridLines = True
+
+    # 2. Forensic Stamping in Document Properties
+    officer_name = (current_user.name or "UNKNOWN").strip().upper()
+    officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+    officer_rank = (current_user.rank or "").strip().upper()
+    officer_station = (current_user.station or "HQ").strip().upper()
+    timestamp_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+    wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+    wb.properties.title = "Official Law Enforcement Restricted Export"
+    wb.properties.subject = f"Crime Registry Data Extract — Downloaded by {officer_fnum} ({officer_station}) at {timestamp_str}"
+    wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
+
+    # Styling definitions
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    
+    cell_font = Font(name="Calibri", size=10)
+    thin_border = Border(
+        left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
+    )
+
+    # 3. Insert Forensic Audit Banner Row at the Top
+    ws.merge_cells("A1:J1")
+    banner_cell = ws.cell(row=1, column=1)
+    banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+    banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B") # Deep Red Warning
+    banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 22
+
+    # 4. Table Headers (Row 3)
+    headers = ["SN", "Reference", "Date Recorded", "Time", "Region", "Station", "Offence / Category", "Suspects", "Status", "Incident Narrative"]
+    ws.row_dimensions[3].height = 26
+    for col_idx, header_text in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col_idx, value=header_text)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
 
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     total_records = len(reports)
 
+    # 5. Populate Data Rows starting at Row 4
     for idx, r in enumerate(reports):
         c_dict = clean_model_dict(r)
-        
-        # Clean HTML from narrative for the CSV export
         narrative_clean = strip_html_tags(c_dict.get('narrative', ''))
         
-        # Count Suspects dynamically
         suspect_count = c_dict.get('suspects', 0)
         if SuspectModel and hasattr(r, 'id'):
             suspect_count = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).count()
 
-        writer.writerow([
+        row_data = [
             total_records - idx,
             c_dict.get('sdRef', c_dict.get('sd_ref', '')),
             c_dict.get('date', ''),
@@ -523,24 +563,57 @@ def export_reports_csv(
             suspect_count,
             c_dict.get('status', ''),
             narrative_clean
-        ])
+        ]
+        ws.append(row_data)
+        current_row = idx + 4
+        ws.row_dimensions[current_row].height = 55
 
-    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-    
-    file_label = offence.replace(" ", "_").upper() if offence and offence not in ["ALL OFFENCES", "ALL"] else "ALL_CRIMES"
-    timestamp = datetime.now().strftime("%Y-%m-%d")
-    response.headers["Content-Disposition"] = f"attachment; filename=KMP_REGISTRY_{file_label}_{timestamp}.csv"
-    
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.font = cell_font
+            cell.border = thin_border
+            
+            if col_idx == 10:
+                cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+            elif col_idx in [1, 3, 4, 8, 9]:
+                cell.alignment = Alignment(horizontal="center", vertical="top")
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="top")
+
+    column_widths = {'A': 8, 'B': 18, 'C': 15, 'D': 10, 'E': 16, 'F': 18, 'G': 22, 'H': 12, 'I': 18, 'J': 60}
+    for col_letter, width in column_widths.items():
+        ws.column_dimensions[col_letter].width = width
+
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+
+    # 6. Compress and Encrypt into AES-256 ZIP Archive using Officer's Force Number
+    zip_buffer = io.BytesIO()
+    with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(officer_fnum.encode('utf-8'))
+        file_label = offence.replace(" ", "_").upper() if offence and offence not in ["ALL OFFENCES", "ALL"] else "ALL_CRIMES"
+        timestamp = datetime.now().strftime("%Y-%m-%d")
+        excel_filename = f"KMP_REGISTRY_{file_label}_{timestamp}.xlsx"
+        zf.writestr(excel_filename, excel_buffer.getvalue())
+
+    zip_buffer.seek(0)
+    zip_filename = f"KMP_REGISTRY_SECURE_EXPORT_{timestamp}.zip"
+
     record_neon_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
         action_type="EXPORT",
         module="CRIME_REGISTRY",
-        target_id="CSV_EXPORT",
-        changes_summary=f"Officer generated and exported backend CSV containing {total_records} records (Filter: {file_label})."
+        target_id="AES_ZIP_EXPORT",
+        changes_summary=f"Officer generated AES-256 encrypted archive containing {total_records} records (Keyed to FNum: {officer_fnum})."
     )
 
-    return response
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+    )
 
 # ====================================================================
 # 2. FILE UPLOADS
@@ -641,7 +714,6 @@ def create_report(
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
                 
-                # 🟢 Strictly parse age digits into an integer to prevent datatype mismatch errors
                 raw_age = s.get('age')
                 parsed_age = None
                 if raw_age is not None and str(raw_age).strip() != "":
@@ -740,7 +812,6 @@ def update_report(
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
                 
-                # 🟢 Strictly parse age digits into an integer to prevent datatype mismatch errors
                 raw_age = s.get('age')
                 parsed_age = None
                 if raw_age is not None and str(raw_age).strip() != "":
