@@ -370,3 +370,24 @@ body, html {
   white-space: pre-wrap !important;
   max-width: 100% !important;
 }
+
+/* =========================================================
+   9. UNIFIED ABSOLUTE EPOCH-TIME GLOBE SYNCHRONIZATION ENGINE
+   ========================================================= */
+
+/* Synchronized Login Screen Globe (Channel 1) */
+.synced-login-globe {
+  background-image: url('/UPF Flag Emblem.png');
+  background-size: cover;
+  background-repeat: repeat-x;
+  /* Driven by React inline style anchored to Date.now() for universal user sync */
+  will-change: background-position, transform;
+}
+
+/* Synchronized Logged-In Screen Globe (Channel 2) */
+.synced-main-globe {
+  background-size: auto 100%;
+  background-repeat: repeat-x;
+  /* Driven by React inline style anchored to Date.now() for universal user sync */
+  will-change: background-position, transform;
+}

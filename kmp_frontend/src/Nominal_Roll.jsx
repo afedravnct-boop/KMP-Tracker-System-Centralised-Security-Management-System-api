@@ -1236,7 +1236,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                     )}
 
                     {operation === 'update' && (formData.sn || formData.fnum) && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Editing: {formData.fnum}</div>}
-                       
+                         
                     <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 space-y-2">
                       <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">1. Identifiers</h4>
                       <div className="grid grid-cols-2 gap-2">
@@ -1299,7 +1299,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                             </p>
                           </div>
                         </div>
-                          
+                         
                         <div className="space-y-2.5 bg-white p-2.5 rounded-md border border-amber-100">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-700 mb-0.5">Re-integration Authority / Reason *</label>
@@ -1312,7 +1312,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               className="w-full text-xs py-1.5 px-2 border border-slate-300 rounded shadow-xs focus:ring-1 focus:ring-amber-500 outline-none bg-white text-slate-800"
                             />
                           </div>
-                              
+                             
                           <div>
                             <label className="block text-[10px] font-bold text-slate-700 mb-0.5 flex items-center">
                               Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
@@ -1367,7 +1367,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       </span>
                   )}
               </div>
-                  
+                 
               {bulkSelectMode && selectedOfficers.length > 0 && (
                   <div className="flex flex-col sm:flex-row items-center gap-2 animate-in fade-in slide-in-from-left-4 bg-white p-2.5 rounded-lg shadow-xs border border-red-200">
                       <select
@@ -1458,70 +1458,112 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
           {/* ANALYTICS BREAKDOWN OR TABLE LEDGER VIEW */}
           {showAnalytics ? (
-            <ExpandableTableCard title={viewMode === 'archive' ? 'Archived Roll Analytics' : 'Active Roll Analytics'}>
-              {(expanded) => (
-                <div className={`bg-white p-5 flex flex-col space-y-4 ${expanded ? 'h-full flex-1' : ''}`}>
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 pb-3 gap-3 shrink-0">
-                      <h3 className="font-extrabold text-base text-indigo-900 flex items-center"><PieChart className="mr-2 w-4 h-4"/> ({analyticsFilteredDataset.length} Officers Shown)</h3>
-                      <div className="flex flex-wrap items-center gap-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
-                          <label className="text-[10px] font-bold text-indigo-800 uppercase">Categorize By:</label>
-                          <select value={metricCategory} onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer">
-                              <option value="RANK">Rank Breakdown</option>
-                              <option value="UNIT">Unit / Station Breakdown</option>
-                              <option value="SEX">Sex Distribution</option>
-                              <option value="DISTRICT">Home District Breakdown</option>
-                              <option value="BANK">Bank Branch Breakdown</option>
-                              <option value="TRIBE">Tribe Breakdown</option>
-                              <option value="EDUCATION">Education Level Breakdown</option>
-                              <option value="AGE">Age Demographics Breakdown</option>
-                          </select>
+  <ExpandableTableCard title={viewMode === 'archive' ? 'Archived Roll Analytics' : 'Active Roll Analytics'}>
+    {(expanded) => (
+      <div className={`bg-white p-5 flex flex-col space-y-4 ${expanded ? 'h-full flex-1' : ''}`}>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 pb-3 gap-3 shrink-0">
+            <h3 className="font-extrabold text-base text-indigo-900 flex items-center"><PieChart className="mr-2 w-4 h-4"/> ({analyticsFilteredDataset.length} Officers Shown)</h3>
+            <div className="flex flex-wrap items-center gap-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
+                <label className="text-[10px] font-bold text-indigo-800 uppercase">Categorize By:</label>
+                <select value={metricCategory} onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer">
+                    <option value="RANK">Rank Breakdown</option>
+                    <option value="UNIT">Unit / Station Breakdown</option>
+                    <option value="SEX">Sex Distribution</option>
+                    <option value="DISTRICT">Home District Breakdown</option>
+                    <option value="BANK">Bank Branch Breakdown</option>
+                    <option value="TRIBE">Tribe Breakdown</option>
+                    <option value="EDUCATION">Education Level Breakdown</option>
+                    <option value="AGE">Age Demographics Breakdown</option>
+                </select>
 
-                          <label className="text-[10px] font-bold text-indigo-800 uppercase ml-2">Filter Value:</label>
-                          <select value={analyticsMetricFilterValue} onChange={e => setAnalyticsMetricFilterValue(e.target.value)} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer max-w-[160px]">
-                              <option value="ALL">ALL ({metricCategory})</option>
-                              {availableAnalyticsFilterOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                          </select>
+                <label className="text-[10px] font-bold text-indigo-800 uppercase ml-2">Filter Value:</label>
+                <select value={analyticsMetricFilterValue} onChange={e => setAnalyticsMetricFilterValue(e.target.value)} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer max-w-[160px]">
+                    <option value="ALL">ALL ({metricCategory})</option>
+                    {availableAnalyticsFilterOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
 
-                          <button
-                              type="button"
-                              onClick={handleExecuteAnalyticsExport}
-                              className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer ml-2"
-                          >
-                              <Download className="w-3.5 h-3.5 mr-1" /> Download This List
-                          </button>
-                      </div>
-                  </div>
+                <button
+                    type="button"
+                    onClick={handleExecuteAnalyticsExport}
+                    className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer ml-2"
+                >
+                    <Download className="w-3.5 h-3.5 mr-1" /> Download This List
+                </button>
+            </div>
+        </div>
 
-                  <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar border border-gray-200 rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-200 text-xs">
-                        <thead className="bg-indigo-50 sticky top-0 z-10 shadow-xs">
-                            <tr>
-                                <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">S/No</th>
-                                <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">F/NO</th>
-                                <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Rank & Name</th>
-                                <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Position</th>
-                                <th className="px-3 py-2 text-left font-bold text-indigo-800 uppercase">Station / Post</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-100">
-                            {analyticsFilteredDataset.map((n, idx) => (
-                                <tr key={n.sn || n.fnum} onClick={() => { setAnalyticsSelectedOfficer(n); setShowAnalyticsDossier(true); }} className="hover:bg-indigo-50/50 transition-colors cursor-pointer">
-                                    <td className="px-3 py-2 font-bold">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-bold text-blue-700">{cleanStr(n.fnum || n.f_num)}</td>
-                                    <td className="px-3 py-2 uppercase font-medium">{cleanStr(n.rank)} {cleanStr(n.name)}</td>
-                                    <td className="px-3 py-2">{cleanStr(n.position)}</td>
-                                    <td className="px-3 py-2 font-bold text-slate-700">{cleanStr(n.station)}</td>
-                                </tr>
-                            ))}
-                            {analyticsFilteredDataset.length === 0 && <tr><td colSpan="5" className="text-center p-6 text-xs text-gray-500 font-medium">No personnel records match this specific filter.</td></tr>}
-                        </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </ExpandableTableCard>
-          ) : (
-            <ExpandableTableCard title={viewMode === 'active' ? "Active Nominal Roll Ledger" : "Archived Personnel Ledger"}>
+        <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar border border-gray-200 rounded-lg">
+          <table className="min-w-full divide-y divide-gray-200 text-xs">
+              <thead className="bg-indigo-50 sticky top-0 z-10 shadow-xs">
+                  <tr>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">S/No</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">F/NO</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Rank</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Name</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Sex</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Position</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">DOB</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">DOE</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">D.O. Post</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">D.O. Pro</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Contact</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Educ Level</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">IPPS</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">TIN</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">NIN</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Home Dist</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Tribe</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Acc No</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Bank Branch</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Station</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">District</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Region</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Section</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Dir</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Status</th>
+                      <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap">Last Updated By</th>
+                  </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-100">
+                  {analyticsFilteredDataset.map((n, idx) => (
+                      <tr key={n.sn || n.fnum} onClick={() => { setAnalyticsSelectedOfficer(n); setShowAnalyticsDossier(true); }} className="hover:bg-indigo-50/50 transition-colors cursor-pointer">
+                          <td className="px-3 py-2 whitespace-nowrap font-bold">{idx + 1}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700">{cleanStr(n.fnum || n.f_num)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-bold text-slate-800">{cleanStr(n.rank)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap uppercase font-medium text-slate-800">{cleanStr(n.name)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.sex)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-700">{cleanStr(n.position)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.dob || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.doe || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.do_post || n.dopost || n.dop || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.do_pro || n.dopro || ''}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.contact)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.educ_level || n.educlevel)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-mono text-slate-700">{cleanStr(n.ipps)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.tin)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.nin)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.home_dist || n.homedist)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.tribe)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.acc_no || n.accno)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.bank_branch || n.bankbranch)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700">{cleanStr(n.station)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.district)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.region)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-700">{cleanStr(n.section)}</td>
+                          <td className="px-3 py-2 text-slate-700 max-w-[130px] truncate" title={cleanStr(n.dir)}>{cleanStr(n.dir)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap font-bold text-green-700">{cleanStr(n.status) || 'ACTIVE'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-gray-500">{n.last_updated_by || ''}</td>
+                      </tr>
+                  ))}
+                  {analyticsFilteredDataset.length === 0 && <tr><td colSpan="26" className="text-center p-6 text-xs text-gray-500 font-medium">No personnel records match this specific filter.</td></tr>}
+              </tbody>
+          </table>
+        </div>
+      </div>
+    )}
+  </ExpandableTableCard>
+) : (
+            <ExpandableTableCard title={viewMode === 'archive' ? "Active Nominal Roll Ledger" : "Archived Personnel Ledger"}>
               {(expanded) => (
                 <div className={`overflow-x-auto overflow-y-auto w-full ${expanded ? 'h-full flex-1' : 'max-h-[500px]'} custom-scrollbar`}>
                   <table className="min-w-full divide-y divide-gray-200">
