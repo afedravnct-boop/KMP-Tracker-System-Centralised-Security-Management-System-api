@@ -3199,7 +3199,7 @@ const App = () => {
         ); 
 
       case 'lockup-matrix': 
-        return checkClearance(currentUser, 'acc_lockup', false) ? (
+        return checkClearance(currentUser, 'acc_lockup', true) ? (
           <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
             <LockupMatrixLedger 
               lockupEntries={reports}

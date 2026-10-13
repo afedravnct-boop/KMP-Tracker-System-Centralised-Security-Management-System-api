@@ -55,6 +55,49 @@ def clean_str(val) -> str:
     if not val: return ''
     return str(val).strip().upper()
 
+def normalize_region_name(region_str) -> str:
+    if not region_str: return "KMP HEADQUARTERS"
+    r = clean_str(region_str)
+    if r in ["KMPN", "KMP/N", "KMP NORTH"]: return "KMP NORTH"
+    if r in ["KMPS", "KMP/S", "KMP SOUTH"]: return "KMP SOUTH"
+    if r in ["KMPE", "KMP/E", "KMP EAST"]: return "KMP EAST"
+    if r in ["KMP HQ", "KMP HEADQUARTERS"]: return "KMP HEADQUARTERS"
+    if r in ["POLICE HQ", "POLICE HEADQUARTERS", "NAGURU"]: return "POLICE HEADQUARTERS"
+    return r
+
+def normalize_station_name(station_str) -> str:
+    if not station_str: return "UNKNOWN"
+    val = clean_str(station_str)
+    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION"]:
+        return "OLD KAMPALA"
+    val = val.replace(" POLICE STATION", "").replace(" POL STN", "").replace(" P/STN", "").replace(" DIVISION", "")
+    if val.endswith(" P") and len(val) > 2:  
+        val = val[:-2].strip()
+    return val
+
+def normalize_personnel_status(status_str) -> str:
+    if not status_str: return "ACTIVE (DEPLOYABLE)"
+    val = clean_str(status_str)
+    if any(k in val for k in ["SICK", "MATERNITY", "M/LEAVE", "M.LEAVE", "LEAVE", "MEDICAL", "LIGHT DUTY", "UNFIT", "EXCUSED", "NON-DEPLOYABLE"]):
+        return "NON-DEPLOYABLE (HEALTH/LEAVE)"
+    return val
+
+def normalize_section_unit(pos_str) -> str:
+    if not pos_str: return "GENERAL DUTY (GD)"
+    val = clean_str(pos_str)
+    if any(k in val for k in ["CID", "HOMICIDE", "C.I.D"]): return "CID"
+    if any(k in val for k in ["CRIME INTEL", "CRIME INTELLIG", "INTELLIGENCE", " C.I.", " CI "]) or val.startswith("CI "): return "CRIME INTELLIGENCE"
+    if any(k in val for k in ["COUNTER", "TERRORISM", " C.T.", "CT "]) or val == "CT": return "COUNTER-TERRORISM"
+    if any(k in val for k in ["TRAFFIC", "TRAFF", "TRAF", "T&RSA", "TRAS", "TRSA", "TRAFFIC&RS", "TRAFFIC & RS"]): return "TRAFFIC & RS"
+    if any(k in val for k in ["CFPU", "CPC", "FAMILY", "CLO", "GBV", "GENDER"]): return "CFPU / GENDER"
+    if any(k in val for k in ["LOGISTIC", "LOGS", "L&E", "DRV", "DRIVING", "FLEET", "CONSTRUCTION", "LOG & ENG"]): return "LOGISTICS & ENGINEERING"
+    if any(k in val for k in ["SOCO", "FORENSIC"]): return "FORENSIC / SOCO"
+    if any(k in val for k in ["PRO", "MEDIA", "PUBLIC RELATIONS"]): return "PRO / MEDIA"
+    if any(k in val for k in ["ICT", "CCTV", "COMM", "SIGNALLER", "COMMUNICATOR"]): return "ICT & COMMUNICATIONS"
+    if any(k in val for k in ["FIRE", "F&RS", "RESCUE"]): return "FIRE & RESCUE"
+    if any(k in val for k in ["GD", "G.D", "G/D", "OPERATIONS", "OPS"]): return "OPERATIONS / GD"
+    return val
+
 def get_station_priority_weight(station, region) -> int:
     stn = clean_str(station)
     reg = clean_str(region)
@@ -67,7 +110,6 @@ def get_station_priority_weight(station, region) -> int:
 def get_command_weight(officer) -> int:
     try:
         pos = clean_str(getattr(officer, 'position', ''))
-        
         if 'KMP COMMANDER' in pos or (any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER', 'CDR']) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
             return 1
         if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
@@ -98,24 +140,20 @@ def get_command_weight(officer) -> int:
             return 11
     except Exception:
         pass
-    
     return 50
 
 def get_rank_weight(rank_str: str) -> int:
     if not rank_str: return 99
     r = clean_str(rank_str)
-
     if 'DRV' in r or 'DRIVER' in r:
         if 'SGT' in r or 'SERGEANT' in r: r = 'SGT'
         elif 'CPL' in r or 'CORPORAL' in r: r = 'CPL'
         else: r = 'PC'
-
     if r == 'DC' or r.startswith('D/C'):
         r = 'PC'
     elif r.startswith('D/') or r.startswith('D-') or r.startswith('D '):
         r = r.replace('D/', '').replace('D-', '').replace('D ', '').strip()
         if r == 'C': r = 'PC'
-
     if not r: r = 'PC'
     return RANK_SENIORITY.get(r, 40)
 
@@ -123,21 +161,14 @@ def hierarchical_sort_key(officer):
     try:
         stn = getattr(officer, 'station', '')
         reg = getattr(officer, 'region', '')
-        
         r_name = getOfficialRegionForStation(stn, reg)
         reg_pri = REGION_SORT_PRIORITY.get(r_name, 50)
-        
         rank_w = get_rank_weight(getattr(officer, 'rank', ''))
         cmd = get_command_weight(officer)
         fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
-        
         return (reg_pri, rank_w, cmd, fnum)
     except Exception:
         return (50, 99, 50, '')
-
-# ====================================================================
-# GLOBAL HELPER FUNCTIONS & OPSEC SCOPING
-# ====================================================================
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
@@ -145,7 +176,6 @@ def require_export_privilege(current_user: models.Users = Depends(get_current_us
     if isinstance(perms, str):
         try: perms = json.loads(perms)
         except Exception: perms = {}
-        
     if (
         user_role not in ["ADMIN", "SUPER_ADMIN", "RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN"] and 
         not perms.get("export_data", False) and 
@@ -159,11 +189,9 @@ def aggressive_clean_text(val):
     if pd.isna(val) or val is None: return None
     s = str(val)
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
-    
     s = re.sub(r"[,!?'\"]", "", s)
     s = re.sub(r'\s+', ' ', s)
     s = s.strip('. -/\\')
-    
     if not s: return None
     return s.upper()
 
@@ -171,10 +199,7 @@ def clean_nin(val):
     if pd.isna(val) or val is None: return None
     s = str(val).strip().upper()
     if s.lower() in ['nan', 'nat', 'none', 'null', '', '0', 'N/A', 'NIL']: return None
-    
-    if s.endswith('.0'):
-        s = s[:-2]
-        
+    if s.endswith('.0'): s = s[:-2]
     s = re.sub(r'[^A-Z0-9]', '', s)
     return s if len(s) > 0 else None
 
@@ -190,22 +215,17 @@ def format_phone_number(val):
     if pd.isna(val) or val is None: return None
     s = str(val).strip()
     if s.lower() in ['nan', 'nat', 'none', 'null', '']: return None
-    
     parts = re.split(r'[,/&|;]|\band\b', s, flags=re.IGNORECASE)
     valid_numbers = []
-    
     for part in parts:
         cleaned = re.sub(r'[^\d]', '', part)
         if not cleaned: continue
-        
         if cleaned.startswith('256'):
             cleaned = '0' + cleaned[3:]
         elif cleaned.startswith('7') and len(cleaned) == 9:
             cleaned = '0' + cleaned
-            
         if len(cleaned) >= 10:
             valid_numbers.append(cleaned)
-            
     if not valid_numbers: return None
     return ' / '.join(valid_numbers)
 
@@ -238,20 +258,16 @@ def is_invalid_roster_entry(r) -> bool:
     name = str(getattr(r, 'name', '') or '').strip().upper()
     rank = str(getattr(r, 'rank', '') or '').strip().upper()
     fnum = str(getattr(r, 'fnum', getattr(r, 'f_num', '')) or '').strip().upper()
-    
     combined = f"{fnum} {rank} {name}"
     if "---" in combined or "___" in combined or "===" in combined: return True
-    
     forbidden_terms = [
         "POLICE STATION", "CANINE UNIT", "ATTACHED", "DEPARTMENT", 
         "DIVISION HEADQUARTERS", "REGIONAL HQ", "POST", "BARRACKS", 
         "SECTION", "OC STATION", "OC CID", "CRIME INVESTIGATION"
     ]
     if any(term in combined for term in forbidden_terms): return True
-    
     if any(char.isdigit() for char in name) and not any(r_term in rank for r_term in ['PC', 'SGT', 'CPL', 'ASP', 'IP']):
         return True
-
     if name in ["UNKNOWN", "", "NONE", "NAN"] and not is_uniformed_rank(rank): return True
     return False
 
@@ -264,16 +280,12 @@ def parse_safe_date(val) -> Optional[date]:
     if type(val).__name__ == 'Timestamp':
         try: return val.date() if 1900 <= val.year <= 2100 else None
         except Exception: return None
-
     val_str = str(val).strip()
     if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']: return None
-
     if ' ' in val_str: val_str = val_str.split(' ')[0]
     if 'T' in val_str: val_str = val_str.split('T')[0]
-
     val_str = val_str.strip()
     if not val_str: return None
-
     try:
         if val_str.replace('.', '', 1).isdigit():
             float_val = float(val_str)
@@ -283,10 +295,8 @@ def parse_safe_date(val) -> Optional[date]:
                     if pd.notna(dt) and 1900 <= dt.year <= 2100: return dt.date()
                 except Exception: pass
     except Exception: pass
-
     clean_str_val = re.sub(r'[\./\\]', '-', val_str)
     parts = clean_str_val.split('-')
-
     if len(parts) == 3:
         p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
         if p0.isdigit() and p1.isdigit() and p2.isdigit():
@@ -308,20 +318,17 @@ def parse_safe_date(val) -> Optional[date]:
                         res_date = date(y, month_val, day_val)
                         if 1900 <= res_date.year <= 2100: return res_date
                     except Exception: continue
-
     for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y'):
         try:
             d = datetime.strptime(val_str, fmt).date()
             if 1900 <= d.year <= 2100: return d
         except Exception: continue
-
     try:
         parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
         if pd.notna(parsed):
             py_dt = parsed.to_pydatetime()
             if 1900 <= py_dt.year <= 2100: return py_dt.date()
     except Exception: pass
-
     return None
 
 def get_officer_signature(user):
@@ -341,7 +348,6 @@ def get_archive_model():
     if not model: raise HTTPException(status_code=500, detail="Nominal Roll Archive database model not configured.")
     return model
 
-# 🟢 STRICT REGIONAL AND STATION/POST MAPPING ENGINE
 STATION_GEO_MAP = {
     "KMP NORTH HEADQUARTERS": {"region": "KMP NORTH", "district": "KAMPALA"},
     "KAWEMPE": {"region": "KMP NORTH", "district": "KAMPALA"},
@@ -374,71 +380,47 @@ STATION_GEO_MAP = {
 }
 
 def parseStationHierarchy(rawStation):
-    cleaned = clean_str(rawStation)
+    cleaned = normalize_station_name(rawStation)
     if not cleaned: return {"division": "UNASSIGNED", "station": "UNASSIGNED", "post": "", "type": "POST"}
-    
     if '/' in cleaned or '\\' in cleaned:
         parts = cleaned.replace('\\', '/').split('/')
         parent = parts[0].strip()
         child = parts[1].strip() if len(parts) > 1 else ""
-        
         type_str = "POST"
         if "SUB-STATION" in child or "SUBSTATION" in child:
             return {"division": parent, "station": parent, "post": "", "type": "STATION"} 
         elif "STATION" in child:
             type_str = "STATION"
-            
         return {"division": parent, "station": parent, "post": type_str == "POST" and child or "", "type": type_str}
-
-    if cleaned.endswith(' P/P') or cleaned.endswith(' P.P') or 'POLICE POST' in cleaned:
-        name = cleaned.replace(' P/P', '').replace(' P.P', '').replace('POLICE POST', '').strip()
-        return {"division": "GENERAL", "station": "GENERAL", "post": name, "type": "POST"}
-        
-    if cleaned.endswith(' P/S') or cleaned.endswith(' P.S') or 'POLICE STATION' in cleaned:
-        name = cleaned.replace(' P/S', '').replace(' P.S', '').replace('POLICE STATION', '').strip()
-        return {"division": name, "station": name, "post": "", "type": "STATION"}
-
-    for stations_list in REGION_SORT_PRIORITY.keys():
-        if cleaned == stations_list:
-             return {"division": cleaned, "station": cleaned, "post": "", "type": "DIVISION"}
-
     return {"division": cleaned, "station": cleaned, "post": "", "type": "STATION"}
 
 def getOfficialRegionForStation(station_name: str, current_region: Optional[str] = None) -> str:
-    if not station_name: return current_region or "KMP HEADQUARTERS"
-    parsed = parseStationHierarchy(station_name)
-    stat_upper = parsed["station"]
-    
-    if stat_upper in STATION_GEO_MAP:
-        return STATION_GEO_MAP[stat_upper]["region"]
-        
-    clean_reg = clean_str(current_region)
-    return clean_reg if clean_reg else "KMP HEADQUARTERS"
+    norm_reg = normalize_region_name(current_region)
+    if norm_reg != "KMP HEADQUARTERS":
+        return norm_reg
+    station_norm = normalize_station_name(station_name)
+    if station_norm in STATION_GEO_MAP:
+        return STATION_GEO_MAP[station_norm]["region"]
+    return norm_reg
 
 def auto_infer_geography(station_name, current_region=None, current_district=None):
-    if not station_name: return current_region or "KMP HEADQUARTERS", current_district or "KAMPALA"
-    parsed = parseStationHierarchy(station_name)
-    stat_upper = parsed["station"]
-    
-    inferred_region = aggressive_clean_text(current_region)
+    station_norm = normalize_station_name(station_name)
+    inferred_region = normalize_region_name(current_region)
     inferred_district = aggressive_clean_text(current_district)
-
-    if stat_upper in STATION_GEO_MAP:
-        geo_info = STATION_GEO_MAP[stat_upper]
-        if not inferred_region or str(inferred_region).upper() in ["", "NONE", "NAN", "ALL REGIONS"]:
+    if station_norm in STATION_GEO_MAP:
+        geo_info = STATION_GEO_MAP[station_norm]
+        if not inferred_region or inferred_region in ["", "NONE", "NAN", "ALL REGIONS"]:
             inferred_region = geo_info["region"]
         if not inferred_district or str(inferred_district).upper() in ["", "NONE", "NAN", "ALL REGIONS"]:
             inferred_district = geo_info["district"]
-            
     return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
-    
     user_role = (current_user.role or "").upper()
     user_pos_str = (current_user.position or "").upper()
-    user_region = (current_user.region or "").strip().upper()
-    user_station = (current_user.station or "").strip().upper()
+    user_region = normalize_region_name(current_user.region)
+    user_station = normalize_station_name(current_user.station)
     
     perms = current_user.permissions or {}
     if isinstance(perms, str):
@@ -474,13 +456,11 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
 
     if is_absolute_global or is_kmp_system_manager:
         return query
-        
     elif is_kmp_specialist:
         specs = []
         if "CID" in user_pos_str: specs.append("CID")
         if "CI" in user_pos_str or "CRIME INT" in user_pos_str: specs.append("CI")
         if "TRAFFIC" in user_pos_str: specs.append("TRAFFIC")
-        
         if specs:
             conds = []
             for spec in specs:
@@ -491,18 +471,17 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
                 ])
             return query.filter(or_(*conds))
         return query.filter(Model.id == -1)
-            
     elif is_regional_command:
         return query.filter(func.upper(Model.region) == user_region)
-        
     elif user_station and (perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True):
         return query.filter(func.upper(Model.station) == user_station)
-    
     return query.filter(Model.id == -1)
 
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(
     search: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None),
+    category_filter: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -541,13 +520,16 @@ def get_Nominal_Rolls(
         fnum_val = r_dict.get('f_num') or r_dict.get('fnum') or ''
         r_dict['fnum'] = fnum_val
         r_dict['f_num'] = fnum_val
-        r_dict['do_post'] = r_dict.get('do_post') or r_dict.get('dopost') or ''
-        r_dict['do_pro'] = r_dict.get('do_pro') or r_dict.get('dopro') or ''
-        r_dict['educ_level'] = normalize_education_level(r_dict.get('educ_level') or r_dict.get('educlevel'))
-        r_dict['home_dist'] = r_dict.get('home_dist') or r_dict.get('homedist') or ''
-        r_dict['acc_no'] = r_dict.get('acc_no') or r_dict.get('accno') or ''
-        r_dict['bank_branch'] = r_dict.get('bank_branch') or r_dict.get('bankbranch') or ''
-        
+        r_dict['station'] = normalize_station_name(r_dict.get('station'))
+        r_dict['region'] = normalize_region_name(r_dict.get('region'))
+        r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
+        r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
+
+        if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
+            continue
+        if category_filter and category_filter.upper() != "ALL" and r_dict['normalized_section'].upper() != category_filter.upper():
+            continue
+
         r_dict['sn'] = sequence_counter
         r_dict['dbAuditId'] = getattr(r, 'id', sequence_counter)
         r_dict['is_archived'] = False
@@ -564,13 +546,16 @@ def get_Nominal_Rolls(
         fnum_val = r_dict.get('fnum') or r_dict.get('f_num') or ''
         r_dict['fnum'] = fnum_val
         r_dict['f_num'] = fnum_val
-        r_dict['do_post'] = r_dict.get('dopost') or r_dict.get('do_post') or ''
-        r_dict['do_pro'] = r_dict.get('dopro') or r_dict.get('do_pro') or ''
-        r_dict['educ_level'] = normalize_education_level(r_dict.get('educlevel') or r_dict.get('educ_level'))
-        r_dict['home_dist'] = r_dict.get('homedist') or r_dict.get('home_dist') or ''
-        r_dict['acc_no'] = r_dict.get('accno') or r_dict.get('acc_no') or ''
-        r_dict['bank_branch'] = r_dict.get('bankbranch') or r_dict.get('bank_branch') or ''
-        
+        r_dict['station'] = normalize_station_name(r_dict.get('station'))
+        r_dict['region'] = normalize_region_name(r_dict.get('region'))
+        r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
+        r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
+
+        if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
+            continue
+        if category_filter and category_filter.upper() != "ALL" and r_dict['normalized_section'].upper() != category_filter.upper():
+            continue
+
         r_dict['sn'] = sequence_counter
         r_dict['dbAuditId'] = f"ARC-{getattr(r, 'id', sequence_counter)}"
         r_dict['is_archived'] = True
@@ -578,20 +563,6 @@ def get_Nominal_Rolls(
         
         clean_results.append(r_dict)
         sequence_counter += 1
-        
-    if search:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched nominal roll for query: \"{search}\" (Returned {len(clean_results)} matches)."
-    else:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Master Nominal Roll ledger (Fetched {len(clean_results)} records)."
-
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="VIEW",
-        module="NOMINAL_ROLL",
-        target_id=search if search else "ALL_PERSONNEL",
-        changes_summary=summary_text
-    )
 
     return clean_results
 
@@ -682,7 +653,7 @@ async def bulk_upload_nominal_roll(
                     continue 
 
             clean_fnum = fnum_val
-            stn_val = aggressive_clean_text(row.get("station") or current_user.station or "HQ")
+            stn_val = normalize_station_name(row.get("station") or current_user.station or "HQ")
             reg_val, dist_val = auto_infer_geography(stn_val, aggressive_clean_text(row.get("region")), aggressive_clean_text(row.get("district")))
 
             dob_val = row.get("dob") if isinstance(row.get("dob"), date) else parse_safe_date(row.get("dob") or row.get("dateofbirth"))
@@ -826,8 +797,8 @@ def create_Nominal_Roll(
         )
 
         if not is_global_user:
-            clean_data["region"] = current_user.region
-            clean_data["station"] = current_user.station
+            clean_data["region"] = normalize_region_name(current_user.region)
+            clean_data["station"] = normalize_station_name(current_user.station)
 
         if 'contact' in clean_data and clean_data['contact']:
             clean_data['contact'] = format_phone_number(clean_data['contact'])
@@ -840,6 +811,12 @@ def create_Nominal_Roll(
             
         if 'educ_level' in clean_data:
             clean_data['educ_level'] = normalize_education_level(clean_data['educ_level'])
+
+        if 'station' in clean_data and clean_data['station']:
+            clean_data['station'] = normalize_station_name(clean_data['station'])
+
+        if 'region' in clean_data and clean_data['region']:
+            clean_data['region'] = normalize_region_name(clean_data['region'])
 
         for text_field in ['position', 'home_dist', 'tribe', 'bank_branch', 'section', 'dir']:
             if text_field in clean_data and clean_data[text_field]:
@@ -1071,6 +1048,12 @@ def update_Nominal_Roll(
     if 'name' in data and data['name']:
         data['name'] = aggressive_clean_text(data['name'])
 
+    if 'station' in data and data['station']:
+        data['station'] = normalize_station_name(data['station'])
+
+    if 'region' in data and data['region']:
+        data['region'] = normalize_region_name(data['region'])
+
     for text_field in ['position', 'home_dist', 'tribe', 'bank_branch', 'section', 'dir']:
         if text_field in data and data[text_field]:
             data[text_field] = aggressive_clean_text(data[text_field])
@@ -1241,10 +1224,6 @@ def bulk_archive_personnel(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Bulk archive transaction failed: {str(e)}")
 
-# ====================================================================
-# 7. SECURE EXCEL EXPORTS (MISSING INFO AUDIT, STATION LEDGER & ANALYTICS)
-# ====================================================================
-
 @router.get("/nominal-roll/export-analytics")
 def export_nominal_roll_analytics(
     region: str = "ALL REGIONS",
@@ -1253,20 +1232,16 @@ def export_nominal_roll_analytics(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_export_privilege)
 ):
-    """
-    Compiles Nominal Roll statistical summaries and analytics into an AES-256 encrypted .zip Excel workbook.
-    """
     try:
         ActiveModel = get_active_model()
         query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = region.strip().upper()
-        station_clean = station.strip().upper()
+        region_clean = normalize_region_name(region)
+        station_clean = normalize_station_name(station)
 
         records = query.all()
         valid_records = [r for r in records if not is_invalid_roster_entry(r)]
 
-        # Filter records by hierarchy
         filtered_records = []
         for r in valid_records:
             parsed_stn = parseStationHierarchy(str(getattr(r, 'station', '')).strip().upper())
@@ -1277,9 +1252,7 @@ def export_nominal_roll_analytics(
             if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
             filtered_records.append(r)
 
-        # Compute Analytics Summaries
         total_personnel = len(filtered_records)
-        
         rank_counts = {}
         sex_counts = {}
         status_counts = {}
@@ -1288,8 +1261,8 @@ def export_nominal_roll_analytics(
         for r in filtered_records:
             rk = clean_str(getattr(r, 'rank', 'UNKNOWN'))
             sx = clean_str(getattr(r, 'sex', 'UNSPECIFIED'))
-            st = clean_str(getattr(r, 'status', 'ACTIVE'))
-            stn = clean_str(getattr(r, 'station', 'HQ'))
+            st = normalize_personnel_status(getattr(r, 'status', 'ACTIVE'))
+            stn = normalize_station_name(getattr(r, 'station', 'HQ'))
 
             rank_counts[rk] = rank_counts.get(rk, 0) + 1
             sex_counts[sx] = sex_counts.get(sx, 0) + 1
@@ -1307,7 +1280,7 @@ def export_nominal_roll_analytics(
         officer_name = (current_user.name or "UNKNOWN").strip().upper()
         officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
         officer_rank = (current_user.rank or "").strip().upper()
-        officer_station = (current_user.station or "HQ").strip().upper()
+        officer_station = normalize_station_name(current_user.station or "HQ")
         timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
         wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
@@ -1325,7 +1298,6 @@ def export_nominal_roll_analytics(
             top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
         )
 
-        # 1. Forensic Warning Banner Row
         ws.merge_cells("A1:C1")
         banner_cell = ws.cell(row=1, column=1)
         banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
@@ -1419,7 +1391,6 @@ def export_nominal_roll_analytics(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analytics Export Failed: {str(e)}")
 
-
 @router.get("/nominal-roll/export-missing-audit")
 def export_missing_info_audit(
     region: str = "ALL REGIONS",
@@ -1432,8 +1403,8 @@ def export_missing_info_audit(
         ActiveModel = get_active_model()
         query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = region.strip().upper()
-        station_clean = station.strip().upper()
+        region_clean = normalize_region_name(region)
+        station_clean = normalize_station_name(station)
 
         records = sorted(query.all(), key=hierarchical_sort_key)
         missing_rows = []
@@ -1488,7 +1459,7 @@ def export_missing_info_audit(
         officer_name = (current_user.name or "UNKNOWN").strip().upper()
         officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
         officer_rank = (current_user.rank or "").strip().upper()
-        officer_station = (current_user.station or "HQ").strip().upper()
+        officer_station = normalize_station_name(current_user.station or "HQ")
         timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
         wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
@@ -1500,7 +1471,6 @@ def export_missing_info_audit(
         header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
         header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        
         cell_font = Font(name="Calibri", size=10)
         thin_border = Border(
             left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
@@ -1593,7 +1563,6 @@ def export_missing_info_audit(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Audit Export Failed: {str(e)}")
 
-
 @router.get("/nominal-roll/export-station-ledger")
 def export_station_nominal_roll(
     region: str = "ALL REGIONS",
@@ -1606,8 +1575,8 @@ def export_station_nominal_roll(
         ActiveModel = get_active_model()
         query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = region.strip().upper()
-        station_clean = station.strip().upper()
+        region_clean = normalize_region_name(region)
+        station_clean = normalize_station_name(station)
 
         records = sorted(query.all(), key=hierarchical_sort_key)
         station_rows = []
@@ -1662,7 +1631,7 @@ def export_station_nominal_roll(
         officer_name = (current_user.name or "UNKNOWN").strip().upper()
         officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
         officer_rank = (current_user.rank or "").strip().upper()
-        officer_station = (current_user.station or "HQ").strip().upper()
+        officer_station = normalize_station_name(current_user.station or "HQ")
         timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
         wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
@@ -1674,7 +1643,6 @@ def export_station_nominal_roll(
         header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
         header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        
         cell_font = Font(name="Calibri", size=10)
         thin_border = Border(
             left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
@@ -1792,7 +1760,6 @@ def export_station_nominal_roll(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Full Station Ledger Export Failed: {str(e)}")
 
-
 @router.get("/nominal-roll/export-filtered-ledger")
 def export_filtered_nominal_roll(
     region: str = "ALL REGIONS",
@@ -1807,8 +1774,8 @@ def export_filtered_nominal_roll(
         ActiveModel = get_active_model()
         query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = region.strip().upper()
-        station_clean = station.strip().upper()
+        region_clean = normalize_region_name(region)
+        station_clean = normalize_station_name(station)
         f_type = filter_type.strip().upper()
         f_val = filter_value.strip().upper()
 
@@ -1885,7 +1852,7 @@ def export_filtered_nominal_roll(
         officer_name = (current_user.name or "UNKNOWN").strip().upper()
         officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
         officer_rank = (current_user.rank or "").strip().upper()
-        officer_station = (current_user.station or "HQ").strip().upper()
+        officer_station = normalize_station_name(current_user.station or "HQ")
         timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
         wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
@@ -1897,7 +1864,6 @@ def export_filtered_nominal_roll(
         header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
         header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        
         cell_font = Font(name="Calibri", size=10)
         thin_border = Border(
             left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
@@ -2026,8 +1992,8 @@ def audit_missing_preview(
         ActiveModel = get_active_model()
         query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = region.strip().upper()
-        station_clean = station.strip().upper()
+        region_clean = normalize_region_name(region)
+        station_clean = normalize_station_name(station)
 
         records = sorted(query.all(), key=hierarchical_sort_key)
         missing_rows = []
@@ -2050,7 +2016,7 @@ def audit_missing_preview(
             contact = getattr(r, 'contact', None)
             nin = getattr(r, 'nin', None)
             ipps = getattr(r, 'ipps', None)
-            dopro = getattr(r, 'do_pro', None)
+            dopro = getattr(r, 'do_post', getattr(r, 'dopro', None))
 
             missing_fields = []
             if not dob: missing_fields.append("DOB")
@@ -2059,6 +2025,8 @@ def audit_missing_preview(
             if not nin: missing_fields.append("NIN")
             if not ipps: missing_fields.append("IPPS")
             if not is_constable_tier and not dopro: missing_fields.append("DO_PRO")
+
+            if missing_rows and len(missing_rows) >= 500: break
 
             if missing_fields:
                 missing_rows.append({

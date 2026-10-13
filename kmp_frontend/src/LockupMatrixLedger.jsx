@@ -531,14 +531,58 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                     <div className="col-span-4"><label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Reason for Detention *</label><input type="text" value={suspectFormInput.reason_for_detention} onChange={e => setSuspectFormInput({...suspectFormInput, reason_for_detention: e.target.value})} required className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded outline-none uppercase bg-white dark:bg-slate-900 dark:text-white" /></div>
                     
                     <div><label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Date In *</label><input type="date" value={suspectFormInput.date_in} onChange={e => setSuspectFormInput({...suspectFormInput, date_in: e.target.value})} required className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded outline-none bg-white dark:bg-slate-900 dark:text-white" /></div>
-                    <div><label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label><select value={suspectFormInput.status} onChange={e => setSuspectFormInput({...suspectFormInput, status: e.target.value})} className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded outline-none font-bold bg-white dark:bg-slate-900 dark:text-white"><option>IN CUSTODY</option><option>RELEASED ON BOND</option><option>TO COURT</option><option>TRANSFERRED</option></select></div>
-                  </div>
-                  <div className="flex justify-end mt-3">
-                    <button type="submit" className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded shadow transition flex items-center cursor-pointer">
-                      <Save className="w-3 h-3 mr-1.5"/> {registerOperation === 'update' ? 'Save Record Updates' : 'Add to Register'}
-                    </button>
-                  </div>
-                </form>
+                    <div>
+  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Status</label>
+  {['IN CUSTODY', 'RELEASED ON BOND', 'TO COURT', 'TRANSFERRED', 'ESCAPED', 'DIED IN CUSTODY'].includes(suspectFormInput.status) ? (
+    <div className="flex gap-2">
+      <select 
+        value={suspectFormInput.status} 
+        onChange={e => setSuspectFormInput({...suspectFormInput, status: e.target.value})} 
+        className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded outline-none font-bold bg-white dark:bg-slate-900 dark:text-white"
+      >
+        <option>IN CUSTODY</option>
+        <option>RELEASED ON BOND</option>
+        <option>TO COURT</option>
+        <option>TRANSFERRED</option>
+        <option>ESCAPED</option>
+        <option>DIED IN CUSTODY</option>
+      </select>
+      <button 
+        type="button" 
+        onClick={() => setSuspectFormInput({...suspectFormInput, status: ''})} 
+        className="px-2.5 py-1 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[10px] font-bold shrink-0 cursor-pointer"
+        title="Type custom status"
+      >
+        Custom
+      </button>
+    </div>
+  ) : (
+    <div className="flex gap-2">
+      <input 
+        type="text" 
+        value={suspectFormInput.status} 
+        onChange={e => setSuspectFormInput({...suspectFormInput, status: e.target.value.toUpperCase()})} 
+        placeholder="Type custom status..." 
+        required
+        className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded outline-none font-bold uppercase bg-white dark:bg-slate-900 dark:text-white" 
+      />
+      <button 
+        type="button" 
+        onClick={() => setSuspectFormInput({...suspectFormInput, status: 'IN CUSTODY'})} 
+        className="px-2.5 py-1 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[10px] font-bold shrink-0 cursor-pointer"
+      >
+        List
+      </button>
+    </div>
+  )}
+</div>
+</div>
+<div className="flex justify-end mt-3">
+  <button type="submit" className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded shadow transition flex items-center cursor-pointer">
+    <Save className="w-3 h-3 mr-1.5"/> {registerOperation === 'update' ? 'Save Record Updates' : 'Add to Register'}
+  </button>
+</div>
+</form>
 
                 {/* Filters for Register */}
                 <div className="flex flex-wrap items-center gap-2">
