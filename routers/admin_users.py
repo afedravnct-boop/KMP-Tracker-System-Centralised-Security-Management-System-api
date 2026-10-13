@@ -15,6 +15,33 @@ from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Users"])
 
+# 🟢 STRICT HIGH COMMAND CLEARANCE CHECK FOR MASTER BYPASS / GLOBAL OPEN
+def check_master_clearance(current_user: models.Users) -> bool:
+    if not current_user:
+        return False
+    role = (current_user.role or "").strip().upper()
+    pos = (current_user.position or "").strip().upper()
+
+    # Allowed roles and exact command positions
+    allowed_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]
+    allowed_position_keywords = [
+        "PRINCIPAL SUPER ADMIN",
+        "SUPER ADMIN",
+        "ASSISTANT SUPER ADMIN",
+        "KMP COMMANDER",
+        "DEPUTY KMP COMMANDER",
+        "KMP ADMIN OFFICER"
+    ]
+
+    if role in allowed_roles:
+        return True
+
+    for keyword in allowed_position_keywords:
+        if keyword in pos:
+            return True
+
+    return False
+
 # 🟢 MUTATION GUARD FOR READ-ONLY GLOBAL OBSERVERS
 def enforce_mutation_clearance(current_user: models.Users):
     if not current_user:
@@ -285,13 +312,12 @@ def update_user_access(
             try: new_perms = json.loads(new_perms)
             except: new_perms = {}
             
-        # 🟢 RING-FENCE GLOBAL OPEN / FULL ACCESS TO SUPER ADMINS ONLY
-        if new_perms.get("global_open") is True:
-            current_role = (current_user.role or "").strip().upper()
-            if current_role != "SUPER_ADMIN":
+        # 🟢 RING-FENCE GLOBAL OPEN / BYPASS CLEARANCE TO AUTHORIZED HIGH COMMAND ONLY
+        if new_perms.get("global_open") is True or new_perms.get("bypass_jurisdiction") is True:
+            if not check_master_clearance(current_user):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Security Violation: Only Super Admins can grant Global Full Access (Open/Editable)."
+                    detail="Security Violation: Only Principal Super Admins, Super Admins, Assistant Super Admins, KMP Commanders, Deputy KMP Commanders, and KMP Admin Officers can grant Global Full Access / Bypass Clearance."
                 )
         target_user.permissions = new_perms
 

@@ -89,7 +89,6 @@ def get_aggregated_hr_ledger(
             not is_kmp_specialist
         )
 
-        # 🟢 Corrected column name from fnum to f_num matching database schema
         nr_query = "SELECT f_num, name, rank, sex, region, station, position, educ_level, status, dob, nin FROM nominal_roll WHERE UPPER(COALESCE(status, 'ACTIVE')) != 'ARCHIVED'"
         nr_where = ""
         params = {}
@@ -184,10 +183,11 @@ def get_aggregated_hr_ledger(
             return stats
 
         regions_config = [
-            {"key": "GENERAL / HQ", "match": ["HEADQUARTERS", "HQ", "GENERAL", "NAGURU"]},
-            {"key": "KMP EAST", "match": ["KMP EAST", "EAST"]},
-            {"key": "KMP NORTH", "match": ["KMP NORTH", "NORTH"]},
-            {"key": "KMP SOUTH", "match": ["KMP SOUTH", "SOUTH"]}
+            {"key": "KMP NORTH", "match": ["KMP NORTH"]},
+            {"key": "KMP EAST", "match": ["KMP EAST"]},
+            {"key": "KMP SOUTH", "match": ["KMP SOUTH"]},
+            {"key": "KMP HEADQUARTERS", "match": ["KMP HEADQUARTERS"]},
+            {"key": "POLICE HEADQUARTERS", "match": ["POLICE HEADQUARTERS", "NAGURU"]}
         ]
 
         nominal_aggregates = []
@@ -212,16 +212,36 @@ def get_aggregated_hr_ledger(
             if reg not in region_map:
                 region_map[reg] = {"regionName": reg, "hqPersonnel": 0, "stations": {}, "total": 0}
 
-            if 'HEADQUARTERS' in stn and 'DIVISION' not in stn:
+            # Check if station corresponds to a Regional HQ or KMP HQ/Police HQ
+            is_reg_hq = stn in ["KMP NORTH HEADQUARTERS", "KMP EAST HEADQUARTERS", "KMP SOUTH HEADQUARTERS", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+            
+            if is_reg_hq:
                 region_map[reg]["hqPersonnel"] += 1
                 region_map[reg]["total"] += 1
                 continue
 
-            if stn not in region_map[reg]["stations"]:
-                region_map[reg]["stations"][stn] = {"stationName": stn, "stationPersonnel": 0, "posts": {}, "total": 0}
+            # Check if it's a Police Post
+            is_post = "POLICE POST" in stn or " P/P" in stn or stn.endswith(" PP") or "P.P" in stn
+            
+            # Map to Station or Post bucket under the region
+            # For simplicity in ledger hierarchy, group primary stations and check for posts
+            parent_station = stn
+            post_name = None
+            if is_post:
+                # Assign a sensible fallback parent station if needed or map directly
+                parent_station = "LOCAL POLICE POSTS"
+                post_name = stn
 
-            region_map[reg]["stations"][stn]["stationPersonnel"] += 1
-            region_map[reg]["stations"][stn]["total"] += 1
+            if parent_station not in region_map[reg]["stations"]:
+                region_map[reg]["stations"][parent_station] = {"stationName": parent_station, "stationPersonnel": 0, "posts": {}, "total": 0}
+
+            if is_post and post_name:
+                if post_name not in region_map[reg]["stations"][parent_station]["posts"]:
+                    region_map[reg]["stations"][parent_station]["posts"][post_name] = 0
+                region_map[reg]["stations"][parent_station]["posts"][post_name] += 1
+
+            region_map[reg]["stations"][parent_station]["stationPersonnel"] += 1
+            region_map[reg]["stations"][parent_station]["total"] += 1
             region_map[reg]["total"] += 1
 
         return {
@@ -277,7 +297,7 @@ def export_hr_establishments_zip(
             not is_kmp_specialist
         )
 
-        nr_query = "SELECT fnum, name, rank, sex, region, station, position, educ_level, status FROM nominal_roll"
+        nr_query = "SELECT f_num, name, rank, sex, region, station, position, educ_level, status FROM nominal_roll"
         est_query = "SELECT id, region, division, station, personnel_in_station, sub_station, personnel_in_sub_station, post, personnel_in_post, booths, personnel_in_booth, installed_by, location, status, comment, last_updated_by, created_at FROM establishments"
 
         nr_where = ""

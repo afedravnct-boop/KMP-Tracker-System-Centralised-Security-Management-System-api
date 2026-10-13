@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight, Wrench, Search, Loader2 } from 'lucide-react';
+import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, Shield, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight, Wrench, Search, Loader2 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -855,7 +855,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                     )}
 
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><ShieldAlert size={14} className="mr-1"/> Message Channel</label>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Shield size={14} className="mr-1"/> Message Channel</label>
                       <select name="messageType" value={formData.messageType} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
                         {canBroadcast && (
                           <>

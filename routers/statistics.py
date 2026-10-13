@@ -194,6 +194,15 @@ def export_stats_csv(
             getattr(r, 'remanded', 0), getattr(r, 'convicted', 0)
         ])
 
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="DISRUPTIVE_OPS_STATS",
+        target_id="CSV_EXPORT",
+        changes_summary=f"{current_user.fnum} exported Disruptive Ops Statistics CSV report."
+    )
+
     response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
     timestamp = datetime.now().strftime("%Y-%m-%d")
     response.headers["Content-Disposition"] = f"attachment; filename=KMP_DISRUPTIVE_OPS_STATS_{timestamp}.csv"
@@ -209,6 +218,16 @@ def create_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = De
         safe_data = {k: v for k, v in data.items() if k in valid_cols}
         new_record = StatsModel(**safe_data)
         db.add(new_record); db.commit(); db.refresh(new_record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="DISRUPTIVE_OPS_STATS",
+            target_id=str(new_record.id),
+            changes_summary=f"{current_user.fnum} created Disruptive Ops Statistics record ID {new_record.id}."
+        )
+
         return clean_model_dict(new_record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -224,6 +243,16 @@ def update_stat(record_id: int, data: dict, db: Session = Depends(get_db), logs_
         for key, value in data.items():
             if hasattr(record, key): setattr(record, key, value)
         db.commit(); db.refresh(record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="DISRUPTIVE_OPS_STATS",
+            target_id=str(record_id),
+            changes_summary=f"{current_user.fnum} updated Disruptive Ops Statistics record ID {record_id}."
+        )
+
         return clean_model_dict(record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -274,6 +303,15 @@ def export_agric_stats_csv(
             getattr(r, 'remanded', 0), getattr(r, 'convicted', 0)
         ])
 
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="AGRIC_STATS",
+        target_id="CSV_EXPORT",
+        changes_summary=f"{current_user.fnum} exported Agricultural Statistics CSV report."
+    )
+
     response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
     timestamp = datetime.now().strftime("%Y-%m-%d")
     response.headers["Content-Disposition"] = f"attachment; filename=KMP_AGRIC_STATS_{timestamp}.csv"
@@ -289,6 +327,16 @@ def create_agric_stat(data: dict, db: Session = Depends(get_db), logs_db: Sessio
         safe_data = {k: v for k, v in data.items() if k in valid_cols}
         new_record = AgricStatsModel(**safe_data)
         db.add(new_record); db.commit(); db.refresh(new_record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="AGRIC_STATS",
+            target_id=str(new_record.id),
+            changes_summary=f"{current_user.fnum} created Agricultural Statistics record ID {new_record.id}."
+        )
+
         return clean_model_dict(new_record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -304,6 +352,16 @@ def update_agric_stat(record_id: int, data: dict, db: Session = Depends(get_db),
         for key, value in data.items():
             if hasattr(record, key): setattr(record, key, value)
         db.commit(); db.refresh(record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="AGRIC_STATS",
+            target_id=str(record_id),
+            changes_summary=f"{current_user.fnum} updated Agricultural Statistics record ID {record_id}."
+        )
+
         return clean_model_dict(record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -352,6 +410,15 @@ def export_agric_summary_csv(
             getattr(r, 'status', ''), getattr(r, 'last_updated_by', '')
         ])
 
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="AGRIC_SUMMARY",
+        target_id="CSV_EXPORT",
+        changes_summary=f"{current_user.fnum} exported Agricultural Crime Summary CSV report."
+    )
+
     response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
     timestamp = datetime.now().strftime("%Y-%m-%d")
     response.headers["Content-Disposition"] = f"attachment; filename=KMP_AGRIC_CRIME_SUMMARY_{timestamp}.csv"
@@ -367,6 +434,16 @@ def create_agric_summary(data: dict, db: Session = Depends(get_db), logs_db: Ses
         safe_data = {k: v for k, v in data.items() if k in valid_cols}
         new_record = SummaryModel(**safe_data)
         db.add(new_record); db.commit(); db.refresh(new_record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="AGRIC_SUMMARY",
+            target_id=str(new_record.id),
+            changes_summary=f"{current_user.fnum} created Agricultural Crime Summary record ID {new_record.id}."
+        )
+
         return clean_model_dict(new_record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))

@@ -1415,11 +1415,11 @@ useEffect(() => {
                   <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4">Request Access Authorization</h3>
 
                   {authMessage && (
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2 text-red-700 mb-4">
-                      <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                      <p className="text-xs font-semibold leading-tight">{authMessage}</p>
-                    </div>
-                  )}
+  <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2 text-red-700 mb-4">
+    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+    <p className="text-xs font-semibold leading-tight">{authMessage}</p>
+  </div>
+)}
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>

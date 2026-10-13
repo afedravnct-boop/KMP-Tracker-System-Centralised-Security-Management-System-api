@@ -68,12 +68,12 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
           </div>
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-full relative z-10">
-          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 flex justify-between items-center shrink-0">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-full relative z-10 mt-3">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3.5 flex justify-between items-center shrink-0 relative z-30">
             <h3 className="font-extrabold text-white text-sm uppercase tracking-wider">{title}</h3>
             <button 
               onClick={openFullScreen} 
-              className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors"
+              className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-700 shadow-inner"
             >
               Expand ↗
             </button>
@@ -168,7 +168,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     }
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
-  // Unified Backend Fetcher for 8-Field Table (Disruptive or Agric Stats)
   const fetchDomainStats = useCallback(async () => {
     if (!hasValidSession()) return;
     try {
@@ -190,7 +189,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     }
   }, [statsDomain, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
 
-  // Unified Backend Fetcher for Agric Summaries (Accordion Table)
   const fetchAgricSummaries = useCallback(async () => {
     if (!hasValidSession() || statsDomain !== 'AGRICULTURAL') return;
     try {
@@ -587,7 +585,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
         <>
           <div className="lg:col-span-4 space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden">
-              <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
+              <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center relative z-30">
                 <h3 className="text-white font-semibold flex items-center">
                   <BarChart3 className="w-5 h-5 mr-2 text-blue-400" /> 
                   ⚙️ Log {statsDomain === 'AGRICULTURAL' ? 'Agri-Crimes' : 'Disruptive'} Stats
@@ -675,9 +673,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           
           <div className="lg:col-span-8 space-y-4">
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative">
+              {/* 🟢 Proper placement of Export Button matching Crime Registry layout standards */}
               <div className="absolute top-4 right-4 z-10 flex gap-2">
-                <button type="button" onClick={handleExportDomainStats} className="px-3 py-1.5 text-[11px] font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800">
-                  <HardDrive className="w-3 h-3 mr-1.5" /> Export Data
+                <button type="button" onClick={handleExportDomainStats} className="px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800">
+                  <HardDrive className="w-3.5 h-3.5 mr-1.5" /> Export Data
                 </button>
                 <select 
                   value={dateFilter} 

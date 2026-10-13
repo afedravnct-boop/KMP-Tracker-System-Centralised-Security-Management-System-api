@@ -8,8 +8,8 @@ const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU"]
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 };
 
 const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false }) => {
@@ -38,8 +38,7 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
     "KMP SOUTH": true,
     "KMP EAST": true,
     "KMP HEADQUARTERS": true,
-    "POLICE HEADQUARTERS": true,
-    "GENERAL / HQ": true
+    "POLICE HEADQUARTERS": true
   });
 
   const toggleRegion = (regionName) => {
@@ -81,7 +80,6 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
     fetchAggregates();
   }, []);
 
-  // Filter backend nominal aggregates based on active UI selections
   const filteredNominalAggregates = useMemo(() => {
     if (!data.nominalAggregates) return [];
     if (!selectedRegion || selectedRegion === 'ALL REGIONS') return data.nominalAggregates;
@@ -89,11 +87,7 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
     const cleanSelected = selectedRegion.trim().toUpperCase();
     return data.nominalAggregates.filter(row => {
       const rName = (row.region || '').toUpperCase();
-      if (cleanSelected.includes('NORTH') && rName.includes('NORTH')) return true;
-      if (cleanSelected.includes('EAST') && rName.includes('EAST')) return true;
-      if (cleanSelected.includes('SOUTH') && rName.includes('SOUTH')) return true;
-      if (cleanSelected.includes('HEADQUARTERS') && (rName.includes('GENERAL') || rName.includes('HQ') || rName.includes('HEADQUARTERS'))) return true;
-      return rName === cleanSelected;
+      return rName.includes(cleanSelected) || cleanSelected.includes(rName);
     });
   }, [data.nominalAggregates, selectedRegion]);
 
@@ -442,10 +436,10 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
                                                 └─ {postName}
                                             </td>
                                             <td className="p-2 text-center font-bold text-amber-700 border-r border-slate-200">
-                                               {postCount > 0 ? postCount : '-'}
+                                                {postCount > 0 ? postCount : '-'}
                                             </td>
                                             <td className="p-2 text-center font-bold text-amber-800 bg-amber-50/30">
-                                               {postCount > 0 ? postCount : '-'}
+                                                {postCount > 0 ? postCount : '-'}
                                             </td>
                                          </tr>
                                      ))}

@@ -6,7 +6,7 @@ import {
   Database,  
   FileText,  
   Terminal,  
-  ShieldAlert,  
+  Shield,  
   Sparkles,  
   Loader2,  
   RefreshCw,
@@ -353,7 +353,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border-2 ${
               msg.sender === 'user' ? 'bg-[#0f172a] border-amber-500 text-amber-400' : msg.isError ? 'bg-[#0f172a] border-red-500 text-red-400' : 'bg-[#0f172a] border-sky-500 text-sky-400'
             }`}>
-              {msg.sender === 'user' ? <User className="w-4 h-4" /> : msg.isError ? <ShieldAlert className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+              {msg.sender === 'user' ? <User className="w-4 h-4" /> : msg.isError ? <Shield className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
             </div>
 
             <div className={`flex flex-col max-w-4xl ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
