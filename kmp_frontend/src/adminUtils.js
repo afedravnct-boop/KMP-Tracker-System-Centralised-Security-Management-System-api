@@ -44,8 +44,8 @@ export const canModifyUser = (currentUser, targetUser) => {
 export const grantExpressAccess = (role, currentPerms) => {
   let newPerms = { ...(currentPerms || {}) };
    
-  const baseModules = ['acc_home', 'acc_profile', 'acc_comms', 'acc_crime', 'acc_ops', 'acc_stories', 'acc_documents'];
-  const adminModules = ['acc_est', 'acc_analytics', 'acc_hr', 'acc_ledgers'];
+  const baseModules = ['acc_home', 'acc_profile', 'acc_comms', 'acc_crime', 'acc_ops', 'acc_stories', 'acc_documents', 'acc_lockup', 'log_lockup'];
+  const adminModules = ['log_lockup', 'acc_est', 'acc_analytics', 'acc_hr', 'acc_ledgers'];
   const topModules = ['acc_approvals', 'acc_consolidated', 'acc_roster'];
 
   if (role !== 'REVOKED') {
@@ -90,6 +90,8 @@ export const CLEARANCE_MATRIX_COLS = [
   { key: 'acc_profile', label: 'Profile', color: 'slate', bg: 'bg-slate-100/50' },
   { key: 'acc_comms', label: 'Command Comms', color: 'blue', bg: 'bg-blue-50/50' },
   { key: 'acc_crime', label: 'Crime Registry', color: 'blue', bg: 'bg-blue-50/50' },
+  { key: 'acc_lockup', label: 'Access Lock-up Matrix', color: 'amber', bg: 'bg-amber-50/50' }, // 🟢 Added Lock-up Access
+  { key: 'log_lockup', label: 'Feed Lock-up Census', color: 'amber', bg: 'bg-amber-50/50' },     // 🟢 Added Lock-up Data Entry
   { key: 'acc_ops', label: 'Disruptive Ops', color: 'blue', bg: 'bg-blue-50/50' },
   { key: 'acc_stories', label: 'Success Stories', color: 'blue', bg: 'bg-blue-50/50' },
   { key: 'acc_est', label: 'Establishments', color: 'indigo', bg: 'bg-indigo-50/50' },

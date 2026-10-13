@@ -38,6 +38,17 @@ def get_model_safe(*names):
             return getattr(models, name)
     return None
 
+def is_station_equivalent(stat_a: str, stat_b: str) -> bool:
+    a = (stat_a or "").strip().upper()
+    b = (stat_b or "").strip().upper()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    clean_a = a.replace(" HEADQUARTERS", "").replace(" HQ", "")
+    clean_b = b.replace(" HEADQUARTERS", "").replace(" HQ", "")
+    return clean_a == clean_b and len(clean_a) > 0
+
 # 🟢 Local serializer to prevent circular imports with api_backend
 fn = lambda v: v.isoformat() if hasattr(v, 'isoformat') else v
 def serialize_model_row(row):
@@ -246,12 +257,14 @@ def update_lockup_entry(
     is_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
         perms.get("global_observer", False) is True or 
+        perms.get("global_open", False) is True or
         str(current_user.region).strip().upper() in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     )
     
     if not is_global:
         entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
-        if entry_station != user_station and entry_station != "HEADQUARTERS GENERAL TOTAL":
+        # 🟢 Use dual-equivalence engine check so station names match cleanly without 403 blocks
+        if not is_stationEquivalent(entry_station, user_station) and entry_station != "HEADQUARTERS GENERAL TOTAL":
             raise HTTPException(status_code=403, detail="Clearance Denied: You can only update lockup records for your own station.")
 
     try:

@@ -2280,12 +2280,14 @@ const DashboardLayout = ({
       )
     } : null,
     checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
-    // 🟢 Set default to false so unchecking the matrix permission hides the tab
-    checkClearance(currentUser, 'acc_lockup', false) ? { 
-      name: 'Daily Suspects Lock-up', 
+    
+    // 🟢 Ensure the comma is present here right after the closing brace
+    checkClearance(currentUser, 'acc_lockup', true) ? { 
+      name: 'Daily Lock-up Matrix', 
       id: 'lockup-matrix', 
       icon: <Lock size={20} className="text-amber-400" /> 
-    } : null,
+    } : null, 
+
     checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
     checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
     checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
@@ -2293,7 +2295,6 @@ const DashboardLayout = ({
     checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
     checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
     checkClearance(currentUser, 'acc_documents', true) ? { name: 'Documents & Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null,
-    // 🟢 Set default to false here as well
     checkClearance(currentUser, 'acc_ai', false) ? { 
       name: 'AI Command Console', 
       id: 'ai_console', 
@@ -3230,7 +3231,8 @@ const App = () => {
           <AdminApprovals 
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal}
-            canViewGlobalActive={canViewGlobal} // 🟢 Pass it explicitly here
+            canViewGlobalActive={canViewGlobal}
+            setCurrentPage={handlePageChange} // 🟢 Passes the dashboard navigation handler correctly
           />
         ) : (
           <HomeDashboard 

@@ -199,7 +199,7 @@ const BriefingPreviewModal = ({ isOpen, onClose, onDispatch, isDispatching }) =>
   );
 };
 
-const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
+const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
    
@@ -809,7 +809,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false }) => {
 
         <div className="flex flex-wrap items-center gap-3">
           <button 
-            onClick={() => window.location.href = '/'}
+            onClick={() => {
+              if (typeof setCurrentPage === 'function') {
+                setCurrentPage('home');
+              } else {
+                window.location.href = '/';
+              }
+            }}
             className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold px-4 py-2 rounded-xl text-xs flex items-center shadow-md transition cursor-pointer border border-slate-700"
           >
             <ArrowRight size={14} className="mr-2 rotate-180" /> Return to Dashboard
