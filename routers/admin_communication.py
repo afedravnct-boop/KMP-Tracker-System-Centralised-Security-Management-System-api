@@ -225,41 +225,44 @@ def get_admin_communications(
     user_region = (current_user.region or "").strip().upper()
     user_role = (current_user.role or "").strip().upper()
 
-    # 🟢 STRICT 1-ON-1 DIRECT MESSAGE ISOLATION LOGIC:
-    if check_global_view(current_user):
-        # Global commanders/admins can see all messages unless specifically restricted, 
-        # but for normal operational visibility they view everything.
-        pass
-    else:
-        target_fnums_list = [f.strip().upper() for f in clean_user_fnum.split(',')]
-        
-        # Build precise individual matching for SPECIFIC_USER 
-        individual_match_conditions = [
-            CommModel.target_fnum == clean_user_fnum
-        ]
-        for fnum_item in target_fnums_list:
-            if fnum_item:
-                individual_match_conditions.append(CommModel.target_fnum.ilike(f"%{fnum_item}%"))
+    target_fnums_list = [f.strip().upper() for f in clean_user_fnum.split(',')]
+    individual_match_conditions = [CommModel.target_fnum == clean_user_fnum]
+    for fnum_item in target_fnums_list:
+        if fnum_item:
+            individual_match_conditions.append(CommModel.target_fnum.ilike(f"%{fnum_item}%"))
 
-        visibility_conditions = [
-            # 1. General broadcasts available to all officers
+    # 🟢 Base visibility rules that apply to everyone, including HQ/Naguru
+    visibility_conditions = [
+        # 1. Outbox: Messages sent by the user themselves
+        CommModel.sender_fnum == current_user.fnum,
+        
+        # 2. Strict 1-on-1 Direct Messages: MUST match target_fnum exactly
+        and_(
+            CommModel.target_audience == "SPECIFIC_USER",
+            or_(*individual_match_conditions)
+        )
+    ]
+
+    # 🟢 Global/HQ commanders see broadcasts and general memos, but NOT other people's private DMs
+    if check_global_view(current_user):
+        visibility_conditions.extend([
+            or_(
+                CommModel.target_audience == "ALL",
+                CommModel.target_audience == "ALL_USERS",
+                CommModel.target_audience == "ALL_REGIONS",
+                CommModel.target_audience == "ADMINS_ONLY",
+                CommModel.target_audience == "RPC_ONLY",
+                CommModel.target_audience == "REGIONAL_BROADCAST"
+            )
+        ])
+    else:
+        # Standard user visibility rules
+        visibility_conditions.extend([
             or_(
                 CommModel.target_audience == "ALL",
                 CommModel.target_audience == "ALL_USERS",
                 CommModel.target_audience == "ALL_REGIONS"
             ),
-            # 2. Messages sent by the user themselves (Outbox)
-            CommModel.sender_fnum == current_user.fnum,
-            
-            # 3. STRICT ONE-ON-ONE DIRECT MESSAGES: 
-            # Must be target_audience == "SPECIFIC_USER" AND match the recipient's exact F-number.
-            # (We explicitly ensure general broadcasts don't bleed into this block)
-            and_(
-                CommModel.target_audience == "SPECIFIC_USER",
-                or_(*individual_match_conditions)
-            ),
-            
-            # 4. Regional broadcasts matching user's region
             and_(
                 CommModel.target_audience == "SPECIFIC_REGION", 
                 func.upper(CommModel.target_region) == user_region
@@ -268,16 +271,15 @@ def get_admin_communications(
                 CommModel.target_audience == "REGIONAL_BROADCAST",
                 func.upper(CommModel.target_region) == user_region
             )
-        ]
-         
-        if user_role in ["ADMIN", "SYSTEM_ADMIN"]: 
+        ])
+        if user_role in ["ADMIN", "SYSTEM_ADMIN"]:
             visibility_conditions.append(CommModel.target_audience == "ADMINS_ONLY")
-        if user_role in ["RPC", "DEPUTY COMMANDER"]: 
+        if user_role in ["RPC", "DEPUTY COMMANDER"]:
             visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
-             
-        query = query.filter(or_(*visibility_conditions))
 
-    # Apply search filtering if search term provided
+    query = query.filter(or_(*visibility_conditions))
+
+    # Apply search and date filters as before...
     if search:
         term = f"%{search.strip().upper()}%"
         search_conds = []

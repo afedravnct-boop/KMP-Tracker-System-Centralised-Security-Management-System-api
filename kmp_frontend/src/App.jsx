@@ -1066,17 +1066,16 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [loginGlobeDeg, setLoginGlobeDeg] = useState(0);
 
   useEffect(() => {
-    let frameId;
-    const updateSync = () => {
-      // 28 seconds per full revolution, anchored to global Date.now() for universal cross-user sync
-      const nowMs = Date.now() / 1000;
-      const deg = (nowMs % 28) / 28 * 360;
-      setLoginGlobeDeg(deg);
-      frameId = requestAnimationFrame(updateSync);
-    };
+  let frameId;
+  const updateSync = () => {
+    const nowMs = Date.now() / 1000;
+    const deg = (nowMs % 28) / 28 * 360;
+    setLoginGlobeDeg(deg);
     frameId = requestAnimationFrame(updateSync);
-    return () => cancelAnimationFrame(frameId);
-  }, []);
+  };
+  frameId = requestAnimationFrame(updateSync);
+  return () => cancelAnimationFrame(frameId);
+}, []);
   
   const [signupData, setSignupData] = useState({
     fnum: '', 
