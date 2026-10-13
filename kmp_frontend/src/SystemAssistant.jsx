@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Bot, User, Loader2, Minimize2, Maximize2, ChevronDown, Database, FileText, Check, Copy } from 'lucide-react';
+import { Sparkles, Send, Bot, User, Loader2, Minimize2, Maximize2, ChevronDown, Database, FileText, Check, Copy, Wrench, X, CheckCircle2 } from 'lucide-react';
 import { authFetch } from './api';
 
 const FormattedMessage = ({ content }) => {
@@ -50,6 +50,21 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
   const officerRank = currentUser?.rank || '';
   const officerName = currentUser?.name || '';
   
+  // 🟢 High-Command Clearance Check for Technical Glitch Diagnostics
+  const hasDiagnosticClearance = 
+    ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes((currentUser?.role || '').toUpperCase()) ||
+    (currentUser?.position || '').toUpperCase().includes('KMP COMMANDER') ||
+    (currentUser?.position || '').toUpperCase().includes('DEPUTY KMP COMMANDER');
+
+  // Technical Glitch Verification States
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verifyCategory, setVerifyCategory] = useState('System showing zeros where data should exist');
+  const [verifyPage, setVerifyPage] = useState('Command Comms');
+  const [verifyElement, setVerifyElement] = useState('Dispatch Button');
+  const [verifyLogs, setVerifyLogs] = useState('TypeError: Cannot read properties of undefined (reading \'fnum\')');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState(null);
+  
   const [messages, setMessages] = useState([
     { 
       sender: 'ai', 
@@ -58,18 +73,18 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
 Welcome to the KMP Tracker System AI assistant. The AI Assistant Responds to your queries across all system modules. Get guidance on how to proceed.
 Here is an architectural overview of the system's operational interface:
 
-• **Home Dashboard:** Central command hub providing high-level operational summaries, quick-access metrics, and system status indicators.
-• **Command Communications:** Secure internal messaging network used to dispatch and track official directives, circulars, and announcements across regions, divisions, and specific stations.
-• **Crime / Incident Registry:** Core investigative ledger managing Station Diary (SD) references, offense categories, narratives, suspect demographics, and integrated lock-up population matrices.
-• **Disruptive OPS Statistics:** Statistical tracking interface for operational metrics including arrests, police bonds given, cautioned cases, court committals, remands, convictions, and specialized agricultural crime summaries.
-• **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
-• **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
-• **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
+- **Home Dashboard:** Central command hub providing high-level operational summaries, quick-access metrics, and system status indicators.
+- **Command Communications:** Secure internal messaging network used to dispatch and track official directives, circulars, and announcements across regions, divisions, and specific stations.
+- **Crime / Incident Registry:** Core investigative ledger managing Station Diary (SD) references, offense categories, narratives, suspect demographics, and integrated lock-up population matrices.
+- **Disruptive OPS Statistics:** Statistical tracking interface for operational metrics including arrests, police bonds given, cautioned cases, court committals, remands, convictions, and specialized agricultural crime summaries.
+- **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
+- **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
+- **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
   - *Data Ingestion Protocol:* Full-spectrum Excel uploads successfully process and store all **29 columns** of the NeonDB nominal roll schema (including biographical, financial, and identification metrics). No upload fields are restricted or truncated.
   - *AI Search Security:* When answering searches, high-command clearance allows authorized officers to view operational details while sensitive personal identifiers (such as bank accounts, TINs, and NINs) remain protected under data security protocols.
-• **Tripartite Reports & Documents:** Secure repository for uploading, storing, and reviewing general documents, secure operational files, and standardized command templates.
-• **Access & Approvals (Super Control Panel):** High-command administrative gateway featuring unapproved user authorizations, a granular 20+ module clearance matrix, secure audit logs, password reset requests, and emergency system/regional/station lockdown toggles.
-• **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
+- **Tripartite Reports & Documents:** Secure repository for uploading, storing, and reviewing general documents, secure operational files, and standardized command templates.
+- **Access & Approvals (Super Control Panel):** High-command administrative gateway featuring unapproved user authorizations, a granular 20+ module clearance matrix, secure audit logs, password reset requests, and emergency system/regional/station lockdown toggles.
+- **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
 
 *Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
 Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
@@ -136,6 +151,39 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     }
   };
 
+  const handleVerifyGlitchDiagnosis = async (e) => {
+    e.preventDefault();
+    setIsVerifying(true);
+    setVerificationResult(null);
+
+    try {
+      const response = await authFetch('/api/v1/ai/verify-diagnosis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          glitch_category: verifyCategory,
+          page_name: verifyPage,
+          element_point: verifyElement,
+          description: "Audited telemetry analysis requested via assistant console.",
+          console_logs: [verifyLogs],
+          network_errors: ["500 Internal Server Error at /api/v1/communications"]
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Diagnosis verification failed.");
+      }
+
+      const data = await response.json();
+      setVerificationResult(data.verification_report);
+    } catch (err) {
+      setVerificationResult(`⚠️ **Verification Error**: ${err.message}`);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const handleSendMessage = (e) => {
     e.preventDefault();
     executeQuery(inputPrompt);
@@ -148,8 +196,96 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   };
 
   return (
-    
     <div className="fixed bottom-2 right-4 sm:right-18 z-[99990] flex flex-col items-end font-sans select-none">
+      
+      {/* 🟢 Technical Glitch Verification Modal (Restricted to High Command) */}
+      {showVerificationModal && hasDiagnosticClearance && (
+        <div className="fixed inset-0 z-[200000] bg-slate-900/80 backdrop-blur-sm flex justify-center items-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border-2 border-amber-500/50">
+            <div className="bg-slate-950 text-white px-5 py-3.5 flex justify-between items-center border-b border-slate-800">
+               <h3 className="font-extrabold flex items-center text-xs text-amber-400">
+                 <Wrench size={15} className="mr-2"/> AI Technical Glitch Diagnosis Auditor
+               </h3>
+               <button onClick={() => setShowVerificationModal(false)} className="hover:bg-slate-800 p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"><X size={16}/></button>
+            </div>
+            
+            <form onSubmit={handleVerifyGlitchDiagnosis} className="p-5 space-y-3.5 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Glitch Category</label>
+                  <input 
+                    type="text" 
+                    value={verifyCategory} 
+                    onChange={(e) => setVerifyCategory(e.target.value)} 
+                    className="w-full p-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-slate-900 dark:text-white outline-none focus:border-amber-500" 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Target Page</label>
+                  <input 
+                    type="text" 
+                    value={verifyPage} 
+                    onChange={(e) => setVerifyPage(e.target.value)} 
+                    className="w-full p-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-slate-900 dark:text-white outline-none focus:border-amber-500" 
+                    required 
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Element / Component Coordinate</label>
+                <input 
+                  type="text" 
+                  value={verifyElement} 
+                  onChange={(e) => setVerifyElement(e.target.value)} 
+                  className="w-full p-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-slate-900 dark:text-white outline-none focus:border-amber-500" 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Simulated Console Error Log</label>
+                <textarea 
+                  value={verifyLogs} 
+                  onChange={(e) => setVerifyLogs(e.target.value)} 
+                  rows={2}
+                  className="w-full p-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg font-mono text-[11px] text-amber-600 dark:text-amber-300 outline-none focus:border-amber-500" 
+                  required 
+                />
+              </div>
+
+              {verificationResult && (
+                <div className="bg-slate-100 dark:bg-slate-950 border border-amber-500/40 p-3 rounded-xl text-[11px] text-slate-800 dark:text-slate-200 whitespace-pre-wrap max-h-40 overflow-y-auto custom-scrollbar font-mono">
+                  <div className="text-amber-600 dark:text-amber-400 font-bold mb-1 flex items-center gap-1">
+                    <CheckCircle2 size={13}/> Audit Verification Output:
+                  </div>
+                  {verificationResult}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button 
+                  type="button" 
+                  onClick={() => setShowVerificationModal(false)}
+                  className="px-3.5 py-1.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-bold transition cursor-pointer"
+                >
+                  Close
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isVerifying}
+                  className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg font-extrabold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50 shadow-md"
+                >
+                  {isVerifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  Run AI Audit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {isOpen && (
         <div className={`mb-2 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col transition-all duration-300 ease-in-out animate-in slide-in-from-bottom-3 ${
           isExpanded ? 'w-[560px] h-[640px] max-w-[95vw] max-h-[85vh]' : 'w-96 h-[470px] max-w-[90vw] max-h-[80vh]'
@@ -171,6 +307,19 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             </div>
             
             <div className="flex items-center space-x-1">
+              {/* 🟢 High-Command Glitch Audit Button */}
+              {hasDiagnosticClearance && (
+                <button 
+                  type="button" 
+                  onClick={() => setShowVerificationModal(true)} 
+                  className="bg-amber-950 hover:bg-amber-900 border border-amber-600 text-amber-200 px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+                  title="Audit Technical Glitch Diagnosis"
+                >
+                  <Wrench size={11} />
+                  <span>Verify Glitch</span>
+                </button>
+              )}
+
               <button type="button" onClick={() => setIsExpanded(!isExpanded)} className="text-slate-400 hover:text-white p-1 rounded transition cursor-pointer" title={isExpanded ? "Collapse view" : "Expand view"}>
                 {isExpanded ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
               </button>

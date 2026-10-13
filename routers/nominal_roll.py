@@ -14,7 +14,7 @@ import pandas as pd
 import pytz
 import pyzipper
 import openpyxl
-from openpyxl.styles import Alignment, PatternFill, Font
+from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request, Query
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -124,17 +124,11 @@ def hierarchical_sort_key(officer):
         stn = getattr(officer, 'station', '')
         reg = getattr(officer, 'region', '')
         
-        # 🟢 1. Official Region Priority First so regions never intermingle
         r_name = getOfficialRegionForStation(stn, reg)
         reg_pri = REGION_SORT_PRIORITY.get(r_name, 50)
         
-        # 2. Rank Seniority Weight Second
         rank_w = get_rank_weight(getattr(officer, 'rank', ''))
-        
-        # 3. Position Precedence Third
         cmd = get_command_weight(officer)
-        
-        # 4. Force Number Last
         fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
         
         return (reg_pri, rank_w, cmd, fnum)
@@ -390,7 +384,7 @@ def parseStationHierarchy(rawStation):
         
         type_str = "POST"
         if "SUB-STATION" in child or "SUBSTATION" in child:
-            return {"division": parent, "station": parent, "post": "", "type": "STATION"} # 🟢 Sub-stations mapped as main stations
+            return {"division": parent, "station": parent, "post": "", "type": "STATION"} 
         elif "STATION" in child:
             type_str = "STATION"
             
@@ -1248,8 +1242,183 @@ def bulk_archive_personnel(
         raise HTTPException(status_code=500, detail=f"Bulk archive transaction failed: {str(e)}")
 
 # ====================================================================
-# 7. SECURE EXCEL EXPORTS (MISSING INFO AUDIT & STATION LEDGER)
+# 7. SECURE EXCEL EXPORTS (MISSING INFO AUDIT, STATION LEDGER & ANALYTICS)
 # ====================================================================
+
+@router.get("/nominal-roll/export-analytics")
+def export_nominal_roll_analytics(
+    region: str = "ALL REGIONS",
+    station: str = "ALL STATIONS",
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    """
+    Compiles Nominal Roll statistical summaries and analytics into an AES-256 encrypted .zip Excel workbook.
+    """
+    try:
+        ActiveModel = get_active_model()
+        query = get_scoped_nominal_query(db, current_user, ActiveModel)
+        
+        region_clean = region.strip().upper()
+        station_clean = station.strip().upper()
+
+        records = query.all()
+        valid_records = [r for r in records if not is_invalid_roster_entry(r)]
+
+        # Filter records by hierarchy
+        filtered_records = []
+        for r in valid_records:
+            parsed_stn = parseStationHierarchy(str(getattr(r, 'station', '')).strip().upper())
+            r_stn = parsed_stn['station']
+            r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
+
+            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
+            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+            filtered_records.append(r)
+
+        # Compute Analytics Summaries
+        total_personnel = len(filtered_records)
+        
+        rank_counts = {}
+        sex_counts = {}
+        status_counts = {}
+        station_counts = {}
+
+        for r in filtered_records:
+            rk = clean_str(getattr(r, 'rank', 'UNKNOWN'))
+            sx = clean_str(getattr(r, 'sex', 'UNSPECIFIED'))
+            st = clean_str(getattr(r, 'status', 'ACTIVE'))
+            stn = clean_str(getattr(r, 'station', 'HQ'))
+
+            rank_counts[rk] = rank_counts.get(rk, 0) + 1
+            sex_counts[sx] = sex_counts.get(sx, 0) + 1
+            status_counts[st] = status_counts.get(st, 0) + 1
+            station_counts[stn] = station_counts.get(stn, 0) + 1
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Nominal Analytics"
+        ws.views.sheetView[0].showGridLines = True
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+        
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
+        officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "").strip().upper()
+        officer_station = (current_user.station or "HQ").strip().upper()
+        timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+
+        wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+        wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+        wb.properties.title = "Official Law Enforcement Restricted Nominal Roll Analytics Export"
+        wb.properties.subject = f"Nominal Roll Analytics Extract — Downloaded by {officer_fnum} ({officer_station}) at {timestamp_str}"
+        wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell_font = Font(name="Calibri", size=10)
+        thin_border = Border(
+            left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
+            top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
+        )
+
+        # 1. Forensic Warning Banner Row
+        ws.merge_cells("A1:C1")
+        banner_cell = ws.cell(row=1, column=1)
+        banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+        banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+        banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+        banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 22
+
+        ws.cell(row=2, column=1, value=f"UGANDA POLICE FORCE - NOMINAL ROLL ANALYTICS SUMMARY").font = Font(bold=True, size=11)
+        ws.cell(row=3, column=1, value=f"Scope: Station [{station_clean}] | Region [{region_clean}] | Total Personnel: {total_personnel}").font = Font(size=10)
+        ws.row_dimensions[2].height = 18
+        ws.row_dimensions[3].height = 18
+
+        current_row = 5
+
+        def write_summary_table(title, data_dict):
+            nonlocal current_row
+            ws.cell(row=current_row, column=1, value=title).font = Font(bold=True, size=11, color="002060")
+            current_row += 1
+
+            headers = ["Category / Attribute", "Total Personnel", "Percentage (%)"]
+            ws.row_dimensions[current_row].height = 24
+            for col_idx, h in enumerate(headers, 1):
+                cell = ws.cell(row=current_row, column=col_idx, value=h)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = header_align
+                cell.border = thin_border
+            current_row += 1
+
+            sorted_data = sorted(data_dict.items(), key=lambda x: x[1], reverse=True)
+            for k, v in sorted_data:
+                pct = round((v / total_personnel) * 100, 2) if total_personnel > 0 else 0
+                ws.row_dimensions[current_row].height = 20
+                r_cells = [
+                    ws.cell(row=current_row, column=1, value=k),
+                    ws.cell(row=current_row, column=2, value=v),
+                    ws.cell(row=current_row, column=3, value=f"{pct}%")
+                ]
+                r_cells[0].alignment = Alignment(horizontal="left", vertical="center")
+                r_cells[1].alignment = Alignment(horizontal="center", vertical="center")
+                r_cells[2].alignment = Alignment(horizontal="center", vertical="center")
+                for c in r_cells:
+                    c.font = cell_font
+                    c.border = thin_border
+                current_row += 1
+            current_row += 2
+
+        write_summary_table("RANK STRENGTH DISTRIBUTION", rank_counts)
+        write_summary_table("GENDER DEMOGRAPHICS", sex_counts)
+        write_summary_table("PERSONNEL STATUS BREAKDOWN", status_counts)
+        write_summary_table("STATION DEPLOYMENT CONCENTRATION", station_counts)
+
+        ws.column_dimensions['A'].width = 35
+        ws.column_dimensions['B'].width = 18
+        ws.column_dimensions['C'].width = 18
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        zip_stream = io.BytesIO()
+        zip_password = str(current_user.fnum).strip().encode('utf-8')
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        excel_filename = f"{fnum_clean}_Nominal_Roll_Analytics_{eat_time.strftime('%Y%m%d')}.xlsx"
+        zip_filename = f"SECURE_NOMINAL_ANALYTICS_{eat_time.strftime('%Y%m%d')}.zip"
+
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+            zf.writestr(excel_filename, excel_stream.getvalue())
+
+        zip_stream.seek(0)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="EXPORT",
+            module="NOMINAL_ROLL_EXPORT",
+            target_id="ANALYTICS_EXPORT",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely generated AES-256 encrypted archive for Nominal Roll Analytics ({total_personnel} personnel audited)."
+        )
+
+        return StreamingResponse(
+            zip_stream,
+            media_type="application/zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analytics Export Failed: {str(e)}")
+
 
 @router.get("/nominal-roll/export-missing-audit")
 def export_missing_info_audit(
@@ -1272,7 +1441,6 @@ def export_missing_info_audit(
         for r in records:
             if is_invalid_roster_entry(r): continue
             
-            # Map police posts back to their parent station for filtering
             parsed_stn = parseStationHierarchy(str(getattr(r, 'station', '')).strip().upper())
             r_stn = parsed_stn['station'] 
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
@@ -1312,28 +1480,58 @@ def export_missing_info_audit(
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Missing Info Audit"
+        ws.views.sheetView[0].showGridLines = True
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         
-        ws.append([f"UGANDA POLICE FORCE - MANPOWER AUDIT: MISSING INFORMATION REPORT"])
-        ws.append([f"Station / Unit: {station_clean} (Region: {region_clean})"])
-        ws.append([f"Audit Timestamp: {eat_time.strftime('%Y-%m-%d %H:%M:%S EAT')} | Authorized By: {current_user.fnum}"])
-        ws.append([]) 
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
+        officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "").strip().upper()
+        officer_station = (current_user.station or "HQ").strip().upper()
+        timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
+        wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+        wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+        wb.properties.title = "Official Law Enforcement Restricted Missing Info Audit Export"
+        wb.properties.subject = f"Missing Info Audit Extract — Downloaded by {officer_fnum} ({officer_station}) at {timestamp_str}"
+        wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
         
-        ws.append(["SN", "Force Number", "Rank", "Name", "Region", "Station", "Police Post", "Missing Fields"])
-        
-        for cell in ws[5]:
-            cell.fill = header_fill
+        cell_font = Font(name="Calibri", size=10)
+        thin_border = Border(
+            left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
+            top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
+        )
+
+        ws.merge_cells("A1:H1")
+        banner_cell = ws.cell(row=1, column=1)
+        banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+        banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+        banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+        banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 22
+
+        ws.cell(row=2, column=1, value=f"UGANDA POLICE FORCE - MANPOWER AUDIT: MISSING INFORMATION REPORT").font = Font(bold=True, size=11)
+        ws.cell(row=3, column=1, value=f"Station / Unit: {station_clean} (Region: {region_clean})").font = Font(size=10)
+        ws.row_dimensions[2].height = 18
+        ws.row_dimensions[3].height = 18
+
+        headers = ["SN", "Force Number", "Rank", "Name", "Region", "Station", "Police Post", "Missing Fields"]
+        ws.row_dimensions[5].height = 26
+        for col_idx, header_text in enumerate(headers, 1):
+            cell = ws.cell(row=5, column=col_idx, value=header_text)
             cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
 
-        for idx, row in enumerate(missing_rows, 1):
-            ws.append([
-                idx,
+        for idx, row in enumerate(missing_rows):
+            row_data = [
+                idx + 1,
                 row["Force Number"],
                 row["Rank"],
                 row["Name"],
@@ -1341,19 +1539,23 @@ def export_missing_info_audit(
                 row["Station"],
                 row["Post"],
                 row["Missing Fields"]
-            ])
+            ]
+            ws.append(row_data)
+            current_row = idx + 6
+            ws.row_dimensions[current_row].height = 22
 
-        for col in ws.columns:
-            col_letter = col[0].column_letter
-            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 45)
+            for col_idx in range(1, len(row_data) + 1):
+                cell = ws.cell(row=current_row, column=col_idx)
+                cell.font = cell_font
+                cell.border = thin_border
+                if col_idx in [1, 2, 3, 5, 6, 7]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
-        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
-        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
-        
-        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
-        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+        column_widths = {'A': 8, 'B': 18, 'C': 12, 'D': 25, 'E': 18, 'F': 20, 'G': 18, 'H': 35}
+        for col_letter, width in column_widths.items():
+            ws.column_dimensions[col_letter].width = width
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
@@ -1374,10 +1576,10 @@ def export_missing_info_audit(
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action_type="UPDATE",
+            action_type="EXPORT",
             module="NOMINAL_ROLL_EXPORT",
             target_id="MISSING_INFO_AUDIT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded password-encrypted Missing Info Audit spreadsheet ({len(missing_rows)} flagged records)."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely generated AES-256 encrypted archive for Missing Info Audit ({len(missing_rows)} flagged records)."
         )
 
         return StreamingResponse(
@@ -1452,34 +1654,63 @@ def export_station_nominal_roll(
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = f"Nominal Roll - {station_clean}"
+        ws.views.sheetView[0].showGridLines = True
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         
-        ws.append([f"UGANDA POLICE FORCE - MASTER NOMINAL ROLL LEDGER (FULL DETAILS)"])
-        ws.append([f"Station / Unit: {station_clean} (Region: {region_clean})"])
-        ws.append([f"Export Timestamp: {eat_time.strftime('%Y-%m-%d %H:%M:%S EAT')} | Authorized By: {current_user.fnum}"])
-        ws.append([]) 
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
+        officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "").strip().upper()
+        officer_station = (current_user.station or "HQ").strip().upper()
+        timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
+        wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+        wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+        wb.properties.title = "Official Law Enforcement Restricted Full Nominal Roll Export"
+        wb.properties.subject = f"Full Station Nominal Roll Extract — Downloaded by {officer_fnum} ({officer_station}) at {timestamp_str}"
+        wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
         
+        cell_font = Font(name="Calibri", size=10)
+        thin_border = Border(
+            left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
+            top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
+        )
+
+        ws.merge_cells("A1:AA1")
+        banner_cell = ws.cell(row=1, column=1)
+        banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+        banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+        banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+        banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 22
+
+        ws.cell(row=2, column=1, value=f"UGANDA POLICE FORCE - MASTER NOMINAL ROLL LEDGER (FULL DETAILS)").font = Font(bold=True, size=11)
+        ws.cell(row=3, column=1, value=f"Station / Unit: {station_clean} (Region: {region_clean})").font = Font(size=10)
+        ws.row_dimensions[2].height = 18
+        ws.row_dimensions[3].height = 18
+
         headers = [
             "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
             "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
             "Education Level", "Home District", "Tribe", "Bank Branch", "Account Number", 
             "Section", "Directorate", "Station", "Police Post", "District", "Region", "Status", "Last Updated By"
         ]
-        ws.append(headers)
-        
-        for cell in ws[5]:
-            cell.fill = header_fill
+        ws.row_dimensions[5].height = 26
+        for col_idx, header_text in enumerate(headers, 1):
+            cell = ws.cell(row=5, column=col_idx, value=header_text)
             cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
 
-        for idx, row in enumerate(station_rows, 1):
-            ws.append([
-                idx,
+        for idx, row in enumerate(station_rows):
+            row_data = [
+                idx + 1,
                 row["Force Number"],
                 row["Rank"],
                 row["Name"],
@@ -1506,19 +1737,24 @@ def export_station_nominal_roll(
                 row["Region"],
                 row["Status"],
                 row["Last Updated By"]
-            ])
+            ]
+            ws.append(row_data)
+            current_row = idx + 6
+            ws.row_dimensions[current_row].height = 22
+
+            for col_idx in range(1, len(row_data) + 1):
+                cell = ws.cell(row=current_row, column=col_idx)
+                cell.font = cell_font
+                cell.border = thin_border
+                if col_idx in [1, 2, 3, 5, 8, 9, 10, 11, 12, 13, 14, 22, 23, 24, 25, 26]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
 
         for col in ws.columns:
             col_letter = col[0].column_letter
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
             ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
-
-        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
-        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
-        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
-        
-        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
-        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
@@ -1539,10 +1775,10 @@ def export_station_nominal_roll(
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action_type="UPDATE",
+            action_type="EXPORT",
             module="NOMINAL_ROLL_EXPORT",
             target_id="STATION_LEDGER",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded password-encrypted Full Station Nominal Roll ledger ({len(station_rows)} personnel records for {station_clean})."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely generated AES-256 encrypted archive for Full Station Nominal Roll ({len(station_rows)} personnel records for {station_clean})."
         )
 
         return StreamingResponse(
@@ -1555,6 +1791,7 @@ def export_station_nominal_roll(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Full Station Ledger Export Failed: {str(e)}")
+
 
 @router.get("/nominal-roll/export-filtered-ledger")
 def export_filtered_nominal_roll(
@@ -1640,34 +1877,63 @@ def export_filtered_nominal_roll(
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = f"Filtered List - {f_val}"
+        ws.views.sheetView[0].showGridLines = True
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         
-        ws.append([f"UGANDA POLICE FORCE - FILTERED NOMINAL LIST EXPORT ({f_type}: {f_val})"])
-        ws.append([f"Station / Unit: {station_clean} | Region: {region_clean}"])
-        ws.append([f"Export Timestamp: {eat_time.strftime('%Y-%m-%d %H:%M:%S EAT')} | Authorized By: {current_user.fnum}"])
-        ws.append([]) 
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
+        officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "").strip().upper()
+        officer_station = (current_user.station or "HQ").strip().upper()
+        timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
+        wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+        wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+        wb.properties.title = "Official Law Enforcement Restricted Filtered Nominal List Export"
+        wb.properties.subject = f"Filtered Nominal List Extract — Downloaded by {officer_fnum} ({officer_station}) at {timestamp_str}"
+        wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
         
+        cell_font = Font(name="Calibri", size=10)
+        thin_border = Border(
+            left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
+            top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
+        )
+
+        ws.merge_cells("A1:AA1")
+        banner_cell = ws.cell(row=1, column=1)
+        banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+        banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+        banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+        banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 22
+
+        ws.cell(row=2, column=1, value=f"UGANDA POLICE FORCE - FILTERED NOMINAL LIST EXPORT ({f_type}: {f_val})").font = Font(bold=True, size=11)
+        ws.cell(row=3, column=1, value=f"Station / Unit: {station_clean} | Region: {region_clean}").font = Font(size=10)
+        ws.row_dimensions[2].height = 18
+        ws.row_dimensions[3].height = 18
+
         headers = [
             "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
             "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
             "Education Level", "Home District", "Tribe", "Bank Branch", "Account Number", 
             "Section", "Directorate", "Station", "Police Post", "District", "Region", "Status", "Last Updated By"
         ]
-        ws.append(headers)
-        
-        for cell in ws[5]:
-            cell.fill = header_fill
+        ws.row_dimensions[5].height = 26
+        for col_idx, header_text in enumerate(headers, 1):
+            cell = ws.cell(row=5, column=col_idx, value=header_text)
             cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
 
-        for idx, row in enumerate(filtered_rows, 1):
-            ws.append([
-                idx,
+        for idx, row in enumerate(filtered_rows):
+            row_data = [
+                idx + 1,
                 row["Force Number"],
                 row["Rank"],
                 row["Name"],
@@ -1694,19 +1960,24 @@ def export_filtered_nominal_roll(
                 row["Region"],
                 row["Status"],
                 row["Last Updated By"]
-            ])
+            ]
+            ws.append(row_data)
+            current_row = idx + 6
+            ws.row_dimensions[current_row].height = 22
+
+            for col_idx in range(1, len(row_data) + 1):
+                cell = ws.cell(row=current_row, column=col_idx)
+                cell.font = cell_font
+                cell.border = thin_border
+                if col_idx in [1, 2, 3, 5, 8, 9, 10, 11, 12, 13, 14, 22, 23, 24, 25, 26]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
 
         for col in ws.columns:
             col_letter = col[0].column_letter
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
             ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
-
-        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
-        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
-        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
-        
-        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
-        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
 
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
@@ -1727,10 +1998,10 @@ def export_filtered_nominal_roll(
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action_type="UPDATE",
+            action_type="EXPORT",
             module="NOMINAL_ROLL_EXPORT",
             target_id="FILTERED_LEDGER_EXPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} downloaded password-encrypted filtered nominal list ({f_type} = {f_val}, {len(filtered_rows)} records)."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely generated AES-256 encrypted archive for filtered nominal list ({f_type} = {f_val}, {len(filtered_rows)} records)."
         )
 
         return StreamingResponse(

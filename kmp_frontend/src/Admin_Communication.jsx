@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight, Wrench, Search } from 'lucide-react';
+import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, ShieldAlert, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight, Wrench, Search, Loader2 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -13,7 +13,36 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
+// 🟢 Global Client Telemetry Interceptor for Console and Network Errors
+let clientConsoleLogs = [];
+let clientNetworkErrors = [];
+
+if (typeof window !== 'undefined' && !window._telemetryHooked) {
+  const originalError = console.error;
+  console.error = (...args) => {
+    clientConsoleLogs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    if (clientConsoleLogs.length > 25) clientConsoleLogs.shift();
+    originalError.apply(console, args);
+  };
+  
+  const originalFetch = window.fetch;
+  window.fetch = async (...args) => {
+    try {
+      const response = await originalFetch(...args);
+      if (!response.ok) {
+        clientNetworkErrors.push(`HTTP ${response.status} at ${args[0]}`);
+        if (clientNetworkErrors.length > 25) clientNetworkErrors.shift();
+      }
+      return response;
+    } catch (err) {
+      clientNetworkErrors.push(`Network Exception at ${args[0]}: ${err.message}`);
+      if (clientNetworkErrors.length > 25) clientNetworkErrors.shift();
+      throw err;
+    }
+  };
+  window._telemetryHooked = true;
+}
+
 const isStationEquivalent = (statA, statB) => {
   const a = (statA || '').trim().toUpperCase();
   const b = (statB || '').trim().toUpperCase();
@@ -26,7 +55,6 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-// 🟢 AUTO-CAPITALIZATION ENGINE
 const autoCapitalize = (text) => {
   if (!text) return text;
   return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
@@ -34,7 +62,6 @@ const autoCapitalize = (text) => {
   });
 };
 
-// 🟢 TIME OFFSET FIX ENGINE
 const adjustTimeOffset = (dateStr) => {
   if (!dateStr || dateStr === "Unknown Time") return dateStr;
   try {
@@ -56,7 +83,6 @@ const adjustTimeOffset = (dateStr) => {
   }
 };
 
-// 🟢 THREADING ENGINE
 const parseDateString = (dateStr) => {
   if (!dateStr || dateStr === "Unknown Time") return 0;
   return new Date(dateStr.replace(' ', 'T')).getTime() || 0;
@@ -94,7 +120,8 @@ const buildThreads = (flatMsgs) => {
 };
 
 const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledgeComm, initialTab, onMarkAllRead }) => {
-  const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
+  const canBroadcast = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) ||
+    (currentUser?.position || '').toUpperCase().includes('COMMANDER');
   
   const isHighCommand = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC', 'DEPUTY_RPC', 'DEPUTY COMMANDER'].includes((currentUser?.role || '').toUpperCase()) ||
     (currentUser?.position || '').toUpperCase().includes('RPC') ||
@@ -105,6 +132,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   ); 
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isInspectingGlitch, setIsInspectingGlitch] = useState(false); // 🟢 Freezes send button during AI inspection
   const [isReplyingTo, setIsReplyingTo] = useState(false);
 
   const [filteredRecipientsList, setFilteredRecipientsList] = useState([]);
@@ -113,6 +141,11 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   
   const [recipientSearchTerm, setRecipientSearchTerm] = useState('');
   const [isTechnicalGlitch, setIsTechnicalGlitch] = useState(false);
+
+  // Structured Diagnostic State for Glitch Alerts
+  const [glitchCategory, setGlitchCategory] = useState('System showing zeros where data should exist');
+  const [glitchPage, setGlitchPage] = useState('');
+  const [glitchElement, setGlitchElement] = useState('');
 
   const [formData, setFormData] = useState({
     targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
@@ -173,6 +206,58 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
+  // 🟢 AI Telemetry Trigger for Technical Glitch Toggle
+  const handleToggleTechnicalGlitch = async (isChecked) => {
+    setIsTechnicalGlitch(isChecked);
+    if (!isChecked) {
+      setFormData(prev => ({ ...prev, messageType: canBroadcast ? 'GENERAL_INFO' : 'DIRECT_MESSAGE' }));
+      return;
+    }
+
+    setIsInspectingGlitch(true);
+    setNotification({ type: 'info', text: '🤖 AI Inspector auditing browser console and network tabs...' });
+
+    try {
+      const token = sessionStorage.getItem('kmp_authToken');
+      const res = await fetch(`${API_URL}/api/v1/communications/diagnose-glitch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          console_logs: clientConsoleLogs,
+          network_errors: clientNetworkErrors,
+          current_page: window.location.pathname
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const diag = data.diagnostic || {};
+        
+        setGlitchCategory(diag.glitch_category || 'System showing zeros where data should exist');
+        setGlitchPage(diag.page_name || 'Dashboard / Active Module');
+        setGlitchElement(diag.element_point || 'UI Element');
+        setFormData(prev => ({
+          ...prev,
+          targetAudience: 'SPECIFIC_USER',
+          messageType: 'TECHNICAL_GLITCH_ALERT',
+          message: `<p><strong>AI Diagnostic Audit:</strong> ${diag.description || 'Automated inspection completed.'}</p>`
+        }));
+
+        setNotification({ type: 'success', text: '✅ AI Inspector isolated the fault. Send button unlocked.' });
+      } else {
+        throw new Error("Telemetry analysis service failed.");
+      }
+    } catch (err) {
+      setNotification({ type: 'error', text: '⚠️ Automated inspection completed with fallback defaults. Review and submit.' });
+    } finally {
+      setIsInspectingGlitch(false);
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
+
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     if (name === 'targetAudience') {
@@ -217,18 +302,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     const region = (user.region || "").toUpperCase();
     const station = (user.station || "").toUpperCase();
     
-    if (isTechnicalGlitch) {
-      return ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes((user.role || '').toUpperCase()) || 
-             (user.position || '').toUpperCase().includes('COMMANDER');
-    }
-
     if (selectedCategoryFilter === 'POLICE_HQ' && !region.includes("POLICE HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'KMP_HQ' && !region.includes("KMP HEADQUARTERS")) return false;
     if (selectedCategoryFilter === 'FIELD_COMMAND' && region.includes("HEADQUARTERS")) return false;
     
     if (selectedRegionFilter !== 'ALL') {
       const belongsToTargetRegion = region === selectedRegionFilter || 
-                                    (REGIONAL_HIERARCHY[selectedRegionFilter] && REGIONAL_HIERARCHY[selectedRegionFilter].some(s => isStationEquivalent(s, station)));
+                                   (REGIONAL_HIERARCHY[selectedRegionFilter] && REGIONAL_HIERARCHY[selectedRegionFilter].some(s => isStationEquivalent(s, station)));
       if (!belongsToTargetRegion) return false;
     }
 
@@ -248,20 +328,21 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
   const handleDispatch = async (e) => {
     e.preventDefault();
-    if (!formData.subject || !formData.message) return setNotification({ type: 'error', text: 'Subject and Message body are required.' });
-    if (formData.targetAudience === 'SPECIFIC_USER' && (!formData.targetFnum || formData.targetFnum.length === 0)) {
-      return setNotification({ type: 'error', text: 'Please select at least one recipient from the list.' });
-    }
 
-    const containsCrossRegion = formData.targetFnum.some(fnum => {
-      const recipientObj = finalSelectableRecipients.find(u => u.fnum === fnum);
-      return recipientObj && recipientObj.region !== currentUser.region;
-    });
+    let finalSubject = formData.subject;
+    let finalMessage = formData.message;
 
-    const hasCrossRegionPerm = currentUser?.permissions?.cross_region_communication === true || isHighCommand;
-
-    if (containsCrossRegion && !hasCrossRegionPerm && !isTechnicalGlitch) {
-      return setNotification({ type: 'error', text: '⚠️ Cross-region communication requires routing through your regional RPC or DPC for approval, or toggling a Technical Glitch Alert.' });
+    if (isTechnicalGlitch) {
+      if (!glitchPage.trim() || !glitchElement.trim()) {
+        return setNotification({ type: 'error', text: 'Please specify the exact page and element/point where the glitch occurs.' });
+      }
+      finalSubject = `[TECHNICAL GLITCH ALERT]: ${glitchCategory}`;
+      finalMessage = `<p><strong>Glitch Category:</strong> ${glitchCategory}</p><p><strong>Malfunctioning Page:</strong> ${autoCapitalize(glitchPage)}</p><p><strong>Specific Element / Coordinate Point:</strong> ${autoCapitalize(glitchElement)}</p><hr/><p>${autoCapitalize(formData.message || 'No additional notes provided.')}</p>`;
+    } else {
+      if (!formData.subject || !formData.message) return setNotification({ type: 'error', text: 'Subject and Message body are required.' });
+      if (formData.targetAudience === 'SPECIFIC_USER' && (!formData.targetFnum || formData.targetFnum.length === 0)) {
+        return setNotification({ type: 'error', text: 'Please select at least one recipient from the list.' });
+      }
     }
 
     setIsSubmitting(true);
@@ -278,14 +359,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         body: JSON.stringify({
           sender_fnum: currentUser.fnum, 
           sender_name: currentUser.name, 
-          target_audience: formData.targetAudience,
+          target_audience: isTechnicalGlitch ? 'SPECIFIC_USER' : formData.targetAudience,
           target_region: formData.targetRegion, 
-          target_fnum: formData.targetFnum, 
+          target_fnum: isTechnicalGlitch ? [] : formData.targetFnum, 
           message_type: isTechnicalGlitch ? 'TECHNICAL_GLITCH_ALERT' : formData.messageType, 
-          subject: isTechnicalGlitch ? `[TECHNICAL GLITCH ALERT]: ${formData.subject}` : formData.subject, 
-          message: autoCapitalize(formData.message), 
-          send_email: formData.sendEmail,
-          requires_command_approval: containsCrossRegion && !isTechnicalGlitch
+          subject: finalSubject, 
+          message: autoCapitalize(finalMessage), 
+          send_email: isTechnicalGlitch ? true : formData.sendEmail
         })
       });
 
@@ -295,10 +375,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           throw new Error(errorMsg);
       }
 
-      setNotification({ type: 'success', text: '✅ Message successfully dispatched securely.' });
+      setNotification({ type: 'success', text: isTechnicalGlitch ? '✅ Technical Glitch Report dispatched directly to Super Admins, Asst. Super Admins, & KMP Commanders.' : '✅ Message successfully dispatched securely.' });
       setIsReplyingTo(false);
       setReplyingToDoc(null);
       setIsTechnicalGlitch(false);
+      setGlitchPage('');
+      setGlitchElement('');
       setFormData({ 
         ...formData, subject: '', message: '', sendEmail: false, 
         targetAudience: canBroadcast ? 'ALL_USERS' : 'SPECIFIC_USER', 
@@ -334,13 +416,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       if (dateFilter === 'today') { start = todayStr; end = todayStr; } 
       else if (dateFilter === 'recent' || dateFilter === 'last_7') { start = getPastDate(7); end = todayStr; } 
       else if (dateFilter === 'last_14') { start = getPastDate(14); end = todayStr; }
-      else if (dateFilter === 'last_21') { start = getPastDate(21); end = todayStr; }
       else if (dateFilter === 'last_30') { start = getPastDate(30); end = todayStr; }
-      else if (dateFilter === 'last_60') { start = getPastDate(60); end = todayStr; }
-      else if (dateFilter === 'last_90') { start = getPastDate(90); end = todayStr; }
-      else if (dateFilter === 'last_120') { start = getPastDate(120); end = todayStr; }
-      else if (dateFilter === 'last_180') { start = getPastDate(180); end = todayStr; }
-      else if (dateFilter === 'old') { end = getPastDate(7); } 
       else if (dateFilter === 'custom') { start = customStartDate; end = customEndDate; }
 
       let url = `${API_URL}/api/v1/communications`;
@@ -398,7 +474,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         if (audience === 'ALL_USERS' || audience === 'ALL') targetPool = allSystemUsers;
         else if (audience === 'ADMINS_ONLY') targetPool = allSystemUsers.filter(u => ['ADMIN', 'SUPER_ADMIN'].includes(u.role));
         else if (audience === 'RPC_ONLY') targetPool = allSystemUsers.filter(u => ['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(u.role) || (u.position || '').toUpperCase().includes('RPC'));
-        else if (audience === 'DEPUTY RPC_ONLY') targetPool = allSystemUsers.filter(u => (u.position || '').toUpperCase().includes('DEPUTY'));
         else if (audience === 'SPECIFIC_REGION') {
           targetPool = allSystemUsers.filter(u => {
             const uReg = (u.region || '').toUpperCase();
@@ -721,7 +796,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                 </div>
               )}
 
-              {/* 🟢 TECHNICAL GLITCH ALERT TOGGLE BOX */}
+              {/* 🟢 TECHNICAL GLITCH ALERT TOGGLE BOX WITH AI INSPECTION */}
               <div className={`p-4 rounded-xl border mb-6 flex items-center justify-between transition-all ${isTechnicalGlitch ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400/30' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center space-x-3">
                   <div className={`p-2.5 rounded-lg ${isTechnicalGlitch ? 'bg-amber-600 text-white animate-pulse' : 'bg-slate-200 text-slate-600'}`}>
@@ -729,10 +804,10 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </div>
                   <div>
                     <h4 className={`text-xs font-black uppercase tracking-wider ${isTechnicalGlitch ? 'text-amber-900' : 'text-slate-800'}`}>
-                      Technical Glitch Alert Bypass
+                      Technical Glitch Alert Bypass {isInspectingGlitch && '(AI Inspecting Console & Network...)'}
                     </h4>
                     <p className="text-[11px] text-slate-600 mt-0.5">
-                      Toggle this switch if system errors prevent normal workflow, bypassing standard RPC/DPC regional routing to communicate directly with Super Admin.
+                      Toggle this switch to let AI automatically inspect your console/network tabs and route reports directly to Super Admins, Asst. Super Admins, & KMP Commanders.
                     </p>
                   </div>
                 </div>
@@ -740,12 +815,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   <input 
                     type="checkbox" 
                     checked={isTechnicalGlitch} 
-                    onChange={(e) => {
-                      setIsTechnicalGlitch(e.target.checked);
-                      if (e.target.checked) {
-                        setFormData(prev => ({ ...prev, targetAudience: 'SPECIFIC_USER' }));
-                      }
-                    }} 
+                    disabled={isInspectingGlitch}
+                    onChange={(e) => handleToggleTechnicalGlitch(e.target.checked)} 
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
@@ -753,56 +824,103 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
               </div>
 
               <form onSubmit={handleDispatch} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Users size={14} className="mr-1"/> Target Audience</label>
-                    <select name="targetAudience" value={formData.targetAudience} onChange={handleInputChange} disabled={isTechnicalGlitch} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-400">
-                      {canBroadcast && !isTechnicalGlitch && (
-                        <>
-                          <option value="ALL_USERS">All System Users</option>
-                          <option value="ADMINS_ONLY">System Admins Only</option>
-                          <option value="RPC_ONLY">Regional Commanders (RPCs)</option>
-                          <option value="DEPUTY RPC_ONLY">Deputy Regional Commanders (RPCs)</option>
-                          <option value="SPECIFIC_REGION">Specific Region</option>
-                        </>
-                      )}
-                      <option value="SPECIFIC_USER">Specific Officers / Admins (Direct)</option>
-                    </select>
-                  </div>
-
-                  {formData.targetAudience === 'SPECIFIC_REGION' && !isTechnicalGlitch && (
+                {!isTechnicalGlitch && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Select Region</label>
-                      <select name="targetRegion" value={formData.targetRegion} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none">
-                        <option value="KMP NORTH">KMP NORTH</option>
-                        <option value="KMP EAST">KMP EAST</option>
-                        <option value="KMP SOUTH">KMP SOUTH</option>
-                        <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
-                        <option value="POLICE HEADQUARTERS">POLICE HEADQUARTERS</option>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><Users size={14} className="mr-1"/> Target Audience</label>
+                      <select name="targetAudience" value={formData.targetAudience} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
+                        {canBroadcast && (
+                          <>
+                            <option value="ALL_USERS">All System Users</option>
+                            <option value="ADMINS_ONLY">System Admins Only</option>
+                            <option value="RPC_ONLY">Regional Commanders (RPCs)</option>
+                            <option value="SPECIFIC_REGION">Specific Region</option>
+                          </>
+                        )}
+                        <option value="SPECIFIC_USER">Specific Officers / Admins (Direct)</option>
                       </select>
                     </div>
-                  )}
 
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><ShieldAlert size={14} className="mr-1"/> Priority Level</label>
-                    <select name="messageType" value={formData.messageType} onChange={handleInputChange} disabled={isTechnicalGlitch} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500 disabled:bg-slate-100">
-                      {canBroadcast && !isTechnicalGlitch && (
-                        <>
-                          <option value="GENERAL_INFO">General Notification (Blue)</option>
-                          <option value="ASSIGNMENT">Operational Assignment (Yellow)</option>
-                          <option value="CRITICAL_ALERT">Critical Security Alert (Red)</option>
-                        </>
-                      )}
-                      <option value="DIRECT_MESSAGE">Direct Message / Inquiry (Purple)</option>
-                      <option value="COMPLAINT_GRIEVANCE">Complaint / Grievance (Orange)</option>
-                      {isTechnicalGlitch && <option value="TECHNICAL_GLITCH_ALERT">Technical Glitch Alert (Amber)</option>}
-                    </select>
+                    {formData.targetAudience === 'SPECIFIC_REGION' && (
+                      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Select Region</label>
+                        <select name="targetRegion" value={formData.targetRegion} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none">
+                          <option value="KMP NORTH">KMP NORTH</option>
+                          <option value="KMP EAST">KMP EAST</option>
+                          <option value="KMP SOUTH">KMP SOUTH</option>
+                          <option value="KMP HEADQUARTERS">KMP HEADQUARTERS</option>
+                          <option value="POLICE HEADQUARTERS">POLICE HEADQUARTERS</option>
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center"><ShieldAlert size={14} className="mr-1"/> Message Channel</label>
+                      <select name="messageType" value={formData.messageType} onChange={handleInputChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-md font-bold text-slate-700 outline-none focus:border-blue-500">
+                        {canBroadcast && (
+                          <>
+                            <option value="GENERAL_INFO">Messages / Notices (Blue)</option>
+                            <option value="ASSIGNMENT">Appointments / Assignments (Yellow)</option>
+                            <option value="CRITICAL_ALERT">Critical Security Alert (Red)</option>
+                          </>
+                        )}
+                        <option value="DIRECT_MESSAGE">Direct Inquiry (Purple)</option>
+                        <option value="COMPLAINT_GRIEVANCE">Complaint / Grievance (Orange)</option>
+                      </select>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {(formData.targetAudience === 'SPECIFIC_USER' || isTechnicalGlitch) && (
-                  <div className={`p-4 rounded-lg border space-y-4 ${isTechnicalGlitch ? 'bg-amber-50 border-amber-300' : 'bg-blue-50 border-blue-200'}`}>
+                {/* 🟢 TECHNICAL GLITCH DIAGNOSTIC MODE */}
+                {isTechnicalGlitch && (
+                  <div className="bg-amber-50 p-5 rounded-xl border border-amber-300 space-y-4">
+                    <h3 className="text-xs font-extrabold text-amber-900 uppercase tracking-wider flex items-center">
+                      <Wrench size={16} className="mr-2"/> Technical Glitch Diagnostic Builder {isInspectingGlitch && <Loader2 size={14} className="ml-2 animate-spin text-amber-700"/>}
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-amber-900 uppercase mb-1">Glitch Category *</label>
+                        <select 
+                          value={glitchCategory} 
+                          onChange={(e) => setGlitchCategory(e.target.value)}
+                          className="w-full p-2.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
+                        >
+                          <option value="System showing zeros where data should exist">System showing zeros where data should exist</option>
+                          <option value="Data synchronization failure">Data synchronization failure</option>
+                          <option value="Database timeout / latency error">Database timeout / latency error</option>
+                          <option value="UI layout rendering defect">UI layout rendering defect</option>
+                          <option value="Authentication / permission mismatch">Authentication / permission mismatch</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-amber-900 uppercase mb-1">Affected Page Name *</label>
+                        <input 
+                          type="text"
+                          value={glitchPage}
+                          onChange={(e) => setGlitchPage(e.target.value)}
+                          placeholder="e.g., Command Comms, Roster Ledger..."
+                          className="w-full p-2.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-amber-900 uppercase mb-1">Specific Element or Coordinate Point *</label>
+                      <input 
+                        type="text"
+                        value={glitchElement}
+                        onChange={(e) => setGlitchElement(e.target.value)}
+                        placeholder="e.g., Submit button in dispatch form, table pagination header..."
+                        className="w-full p-2.5 bg-white border border-amber-300 rounded-lg text-xs font-bold text-slate-800 outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {formData.targetAudience === 'SPECIFIC_USER' && !isTechnicalGlitch && (
+                  <div className="p-4 rounded-lg border bg-blue-50 border-blue-200 space-y-4">
                     {isReplyingTo && replyingToDoc ? (
                       <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-blue-300 text-xs font-bold text-blue-900">
                         <span>🔒 Direct Reply Recipient: {replyingToDoc.sender_name} ({replyingToDoc.sender_fnum})</span>
@@ -839,7 +957,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                             </select>
                           </div>
 
-                          {/* 🟢 NEW RECIPIENT SEARCH INPUT BOX */}
                           <div>
                             <label className="block text-xs font-bold text-blue-900 uppercase mb-1">Search Recipient</label>
                             <div className="relative flex items-center">
@@ -886,13 +1003,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                                             currentList.push(u.fnum);
                                           } else {
                                             const index = currentList.indexOf(u.fnum);
-                                            if (index > -1) currentList.splice(index, 1);
+                                          if (index > -1) currentList.splice(index, 1);
                                           }
                                           setFormData({ ...formData, targetFnum: currentList });
                                         }}
                                         className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer"
                                       />
-                                      <span>{u.rank} {u.name} ({u.position || 'Officer'})</span>
+                                      <span>{u.fnum}, {u.rank}, {u.name} ({u.position || 'Officer'})</span>
                                     </label>
                                     
                                     <div className="flex items-center space-x-2 shrink-0">
@@ -927,25 +1044,27 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Subject / Title *</label>
-                  <input 
-                    type="text" 
-                    name="subject" 
-                    required 
-                    value={formData.subject} 
-                    onChange={handleInputChange} 
-                    disabled={isReplyingTo}
-                    className={`w-full p-3 border rounded-lg text-sm font-bold outline-none ${isReplyingTo ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' : 'bg-white border-slate-300 text-slate-800 focus:ring-2 focus:ring-blue-500'}`} 
-                    placeholder="e.g., Request for leave / Investigation Update / Equipment missing..." 
-                  />
-                  {isReplyingTo && <p className="text-[10px] text-amber-600 mt-1 font-bold">Subject is locked to maintain accurate communication threads.</p>}
-                </div>
+                {!isTechnicalGlitch && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Subject / Title *</label>
+                    <input 
+                      type="text" 
+                      name="subject" 
+                      required 
+                      value={formData.subject} 
+                      onChange={handleInputChange} 
+                      disabled={isReplyingTo}
+                      className={`w-full p-3 border rounded-lg text-sm font-bold outline-none ${isReplyingTo ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed' : 'bg-white border-slate-300 text-slate-800 focus:ring-2 focus:ring-blue-500'}`} 
+                      placeholder="e.g., Request for leave / Investigation Update / Equipment missing..." 
+                    />
+                    {isReplyingTo && <p className="text-[10px] text-amber-600 mt-1 font-bold">Subject is locked to maintain accurate communication threads.</p>}
+                  </div>
+                )}
 
                 {isReplyingTo && replyingToDoc && (
                   <div className="bg-slate-100 border-l-4 border-indigo-600 p-4 rounded-r-lg space-y-2 mb-4 shadow-sm">
                     <div className="flex justify-between items-center text-xs text-slate-500 font-bold uppercase">
-                      <span>Replying to Message From: {replyingToDoc.sender_name} ({replyingToDoc.sender_fnum})</span>
+                      <span>Replying to Message From: {replyingToDoc.sender_name}</span>
                       <span className="font-mono">{replyingToDoc.created_at}</span>
                     </div>
                     <div className="text-xs font-bold text-slate-800">{replyingToDoc.subject}</div>
@@ -955,7 +1074,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
                 <div className="pb-12"> 
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    {isReplyingTo ? 'Your Response Body *' : 'Communication Body *'}
+                    {isReplyingTo ? 'Your Response Body *' : (isTechnicalGlitch ? 'Detailed Glitch Description & Notes *' : 'Communication Body *')}
                   </label>
                   <div className="quill-editor-container bg-white rounded-md shadow-sm">
                     <ReactQuill 
@@ -970,15 +1089,21 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-3 bg-blue-50 p-4 rounded-lg border border-blue-100 mt-8">
-                  <input type="checkbox" id="sendEmail" name="sendEmail" checked={formData.sendEmail} onChange={handleInputChange} className="w-5 h-5 text-blue-600 rounded border-gray-300 cursor-pointer" />
-                  <label htmlFor="sendEmail" className="text-sm font-bold text-blue-900 cursor-pointer flex items-center">
-                    <Mail size={16} className="mr-2"/> Push notification copy to recipient's Email via SMTP
-                  </label>
-                </div>
+                {!isTechnicalGlitch && (
+                  <div className="flex items-center space-x-3 bg-blue-50 p-4 rounded-lg border border-blue-100 mt-8">
+                    <input type="checkbox" id="sendEmail" name="sendEmail" checked={formData.sendEmail} onChange={handleInputChange} className="w-5 h-5 text-blue-600 rounded border-gray-300 cursor-pointer" />
+                    <label htmlFor="sendEmail" className="text-sm font-bold text-blue-900 cursor-pointer flex items-center">
+                      <Mail size={16} className="mr-2"/> Push notification copy to recipient's Email via SMTP
+                    </label>
+                  </div>
+                )}
 
-                <button type="submit" className="w-full bg-slate-900 hover:bg-black text-white font-extrabold py-4 px-6 rounded-xl shadow-md transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg cursor-pointer">
-                  {isSubmitting ? 'Transmitting...' : <><Send size={20} className="mr-2"/> Send Secure Message</>}
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting || isInspectingGlitch}
+                  className={`w-full font-extrabold py-4 px-6 rounded-xl shadow-md transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed text-lg cursor-pointer ${isTechnicalGlitch ? 'bg-amber-600 hover:bg-amber-700 text-white' : 'bg-slate-900 hover:bg-black text-white'}`}
+                >
+                  {isInspectingGlitch ? <><Loader2 size={20} className="mr-2 animate-spin"/> AI Inspecting Console & Network...</> : isSubmitting ? 'Transmitting...' : <><Send size={20} className="mr-2"/> {isTechnicalGlitch ? 'Submit Technical Glitch Report' : 'Send Secure Message'}</>}
                 </button>
               </form>
             </>
@@ -1005,20 +1130,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                     <select 
                       value={dateFilter} 
                       onChange={(e) => setDateFilter(e.target.value)} 
-                      className="w-full p-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-md font-bold outline-none focus:border-blue-500 cursor-pointer"
+                      className="w-full p-2.5 bg-white text-slate-700 border border-slate-300 rounded-md font-bold outline-none focus:border-blue-500 cursor-pointer"
                     >
                       <option value="all">All Available Messages</option>
                       <option value="today">Current (Today)</option>
                       <option value="last_7">Recent (Last 7 Days)</option>
-                      <option value="last_14">Last 14 Days</option>
-                      <option value="last_21">Last 21 Days</option>
                       <option value="last_30">Last 30 Days</option>
-                      <option value="last_60">Last 60 Days</option>
-                      <option value="last_90">Last 90 Days</option>
-                      <option value="last_120">Last 120 Days</option>
-                      <option value="last_180">Last 180 Days</option>
-                      <option value="old">Old (Older than 7 Days)</option>
-                      <option value="custom">Custom Date Range (Backdate Search)</option>
+                      <option value="custom">Custom Date Range</option>
                     </select>
                   </div>
 
@@ -1050,71 +1168,12 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200">
                   <span className="text-xs font-bold text-slate-500 uppercase mr-2">Category Filter:</span>
                   
-                  <button
-                    onClick={() => setActiveFilter('all')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeFilter === 'all' 
-                        ? 'bg-slate-900 text-white shadow' 
-                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    All Types
-                  </button>
-
-                  <button
-                    onClick={() => setActiveFilter('GENERAL_INFO')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeFilter === 'GENERAL_INFO' 
-                        ? 'bg-blue-600 text-white shadow' 
-                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    💬 Messages / Notices
-                  </button>
-
-                  <button
-                    onClick={() => setActiveFilter('TECHNICAL_GLITCH_ALERT')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeFilter === 'TECHNICAL_GLITCH_ALERT' 
-                        ? 'bg-amber-600 text-white shadow' 
-                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    ⚠️ Glitch Alerts
-                  </button>
-
-                  <button
-                    onClick={() => setActiveFilter('COMPLAINT_GRIEVANCE')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeFilter === 'COMPLAINT_GRIEVANCE' 
-                        ? 'bg-orange-600 text-white shadow' 
-                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    ⚠️ Complaints
-                  </button>
-
-                  <button
-                    onClick={() => setActiveFilter('DIRECT_MESSAGE')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeFilter === 'DIRECT_MESSAGE' 
-                        ? 'bg-purple-600 text-white shadow' 
-                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    🔍 Inquiries
-                  </button>
-
-                  <button
-                    onClick={() => setActiveFilter('ASSIGNMENT')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      activeFilter === 'ASSIGNMENT' 
-                        ? 'bg-emerald-600 text-white shadow' 
-                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                    }`}
-                  >
-                    📅 Appointments / Assignments
-                  </button>
+                  <button onClick={() => setActiveFilter('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'all' ? 'bg-slate-900 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>All Types</button>
+                  <button onClick={() => setActiveFilter('GENERAL_INFO')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'GENERAL_INFO' ? 'bg-blue-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>💬 Messages / Notices</button>
+                  <button onClick={() => setActiveFilter('TECHNICAL_GLITCH_ALERT')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'TECHNICAL_GLITCH_ALERT' ? 'bg-amber-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>⚠️ Glitch Alerts</button>
+                  <button onClick={() => setActiveFilter('COMPLAINT_GRIEVANCE')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'COMPLAINT_GRIEVANCE' ? 'bg-orange-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>⚠️ Complaints</button>
+                  <button onClick={() => setActiveFilter('DIRECT_MESSAGE')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'DIRECT_MESSAGE' ? 'bg-purple-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>🔍 Inquiries</button>
+                  <button onClick={() => setActiveFilter('ASSIGNMENT')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'ASSIGNMENT' ? 'bg-emerald-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>📅 Appointments / Assignments</button>
                 </div>
               </div>
 
@@ -1218,7 +1277,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                               <div className="flex flex-col">
                                 <div className="mb-1">
                                   <span className="font-bold mr-2">Dispatched By:</span> 
-                                  {msg.sender_name} <span className="ml-1 text-slate-400">({msg.sender_fnum})</span>
+                                  {msg.sender_name}
                                 </div>
                                 {msg.msg_ref && msg.msg_ref !== 'UPF/UNKNOWN/000' && (
                                   <div className="font-mono text-[10px] text-slate-500 font-bold uppercase tracking-wider flex items-center">

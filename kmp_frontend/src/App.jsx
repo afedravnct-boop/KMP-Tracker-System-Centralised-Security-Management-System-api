@@ -38,7 +38,7 @@ import LockupMatrixLedger from './LockupMatrixLedger';
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
 // ====================================================================
-const API_URL = import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+const API_URL = import.meta.env.VITE_API_URL || "https://kmp-ops-data.onrender.com";
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -1062,6 +1062,24 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   // 🟢 NEW: State for the Help / Support Guide
   const [showHelpModal, setShowHelpModal] = useState(false);
   
+// Place this inside your Login or Workspace Standby component
+useEffect(() => {
+  let animationFrameId;
+  const syncGlobesToEpoch = () => {
+    // 20-second complete rotation cycle mapped to Epoch milliseconds
+    const currentTime = Date.now() / 20; 
+    const rotationPosition = currentTime % 500; // Loops every 500px of background texture
+    
+    // Push the synchronized coordinate directly to the HTML root
+    document.documentElement.style.setProperty('--universal-globe-pos', `${rotationPosition}px`);
+    
+    animationFrameId = requestAnimationFrame(syncGlobesToEpoch);
+  };
+  
+  animationFrameId = requestAnimationFrame(syncGlobesToEpoch);
+  return () => cancelAnimationFrame(animationFrameId);
+}, []);
+  
   const [signupData, setSignupData] = useState({
     fnum: '', 
     ipps: '', 
@@ -1339,15 +1357,17 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             </h2>
           </div>
 
-          <div className="mt-6 inline-flex items-center space-x-2 bg-slate-900/90 px-5 py-2.5 rounded-full border border-cyan-500/30 shadow-xl backdrop-blur-md">
-            <Lock size={16} className="text-yellow-400 animate-bounce" />
-            <span className="text-xs sm:text-sm font-bold text-blue-200 tracking-wider">
-              KMP TRACKER SYSTEM - KMPCSDMS160626 • IDLE STANDBY MODE
+          <div className="mt-4 relative z-20 inline-flex items-center space-x-2 bg-[#6b1d2f]/95 px-5 py-2.5 rounded-full border border-emerald-300 shadow-xl backdrop-blur-md">
+            <Lock size={16} className="text-amber-300 animate-bounce" />
+            <span className="text-xs sm:text-sm font-bold text-blue-400 tracking-wider">
+            KMP TRACKER SYSTEM - KMPCSDMS160626 • LOGIN SCREEN STANDBY MODE
             </span>
-            <Globe size={18} className="text-cyan-400 animate-spin-globe" />
+            <span className="inline-flex items-center justify-center shrink-0 animate-spin" style={{ animationDuration: '12s' }}>
+              <Globe size={18} className="text-amber-300" />
+            </span>
           </div>
 
-          <p className="text-xs text-slate-400 mt-4 font-medium tracking-wide">
+          <p className="text-xs text-slate-300 mt-4 font-medium tracking-wide relative z-20">
             Move your mouse, click, or press any key to return to the login interface.
           </p>
         </div>
@@ -1364,7 +1384,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           {/* 🟢 HELP BUTTON */}
           <button
             onClick={() => setShowHelpModal(true)}
-            className="absolute top-5 right-5 text-slate-400 hover:text-blue-400 transition-colors cursor-pointer bg-slate-800/50 hover:bg-slate-800 p-2 rounded-full border border-slate-700 shadow-sm"
+            className="absolute top-5 right-5 text-slate-400 hover:text-gray-400 transition-colors cursor-pointer bg-slate-800/50 hover:bg-slate-800 p-2 rounded-full border border-slate-700 shadow-sm"
             title="System Access Help Guide"
           >
             <HelpCircle size={20} />
@@ -1694,10 +1714,10 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
                   <div className="text-center mt-6 space-y-1 relative z-10">
                     <p className="text-xs text-gray-400 flex items-center justify-center">
-                      <Lock className="w-3 h-3 mr-1"/> Protected by Central Command Security Protocols
+                      <Lock className="w-3 h-3 mr-1"/> Protected by System Security Protocols
                     </p>
                     <p className="text-[10px] text-slate-500 font-mono tracking-wider uppercase">
-                      © 2026 Uganda Police Force — Kampala Metropolitan Police (KMP-CSDMS)
+                      © 2026 Kampala Metropolitan Police (CSDMS) - Uganda Police Force
                     </p>
                   </div>
                 </form>

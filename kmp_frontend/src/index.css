@@ -66,32 +66,47 @@
    3. LOGIN SCREEN CURTAIN & GLOBE SYSTEM
    ========================================================= */
 
-/* Faux 3D CSS Sphere Globe Badge */
 .upf-css-globe {
   width: 80px;
   height: 80px;
   border-radius: 50%;
   background-image: url('/UPF Flag Emblem.png');
-  background-size: cover;
+  background-size: auto 100%;
   background-repeat: repeat-x;
-  animation: spinFauxGlobe 10s linear infinite;
+  /* 🟢 Driven by Epoch time instead of independent CSS timers */
+  background-position: var(--universal-globe-pos, 0px) 0;
   box-shadow: inset -10px -10px 20px rgba(0, 0, 0, 0.9), 
               inset 4px 4px 10px rgba(255, 255, 255, 0.5), 
               0 0 25px rgba(234, 179, 8, 0.4);
+  will-change: background-position;
 }
 
+/* 🟢 Fixed Login Globe Keyframe (Matches Workspace Mechanics) */
 @keyframes spinFauxGlobe {
-  0% { background-position: 0 0; }
-  100% { background-position: 500px 0; }
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 800px 0;
+  }
 }
 
-@keyframes spinGlobe {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+/* 🟢 Fixed Seamless Globe Keyframe */
+@keyframes spinGlobeSeamless {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 800px 0;
+  }
 }
 
 .animate-spin-globe {
-  animation: spinGlobe 12s linear infinite;
+  background-image: url('/UPF Flag Emblem.png');
+  background-size: cover;
+  background-repeat: repeat-x;
+  /* Now correctly points to the existing seamless keyframe */
+  animation: spinGlobeSeamless 16s linear infinite;
 }
 
 @keyframes pulseSpin {
@@ -217,21 +232,20 @@
 .spinning-map-globe {
   position: absolute;
   inset: 0;               
-  margin: auto;         
-  width: 55%;           
+  margin: auto;          
+  width: 55%;            
   height: 55%;
   border-radius: 50%;
-  
-  /* 🟢 Elevate the globe slightly to stop Z-fighting (overlapping) with the text */
-  transform: translateZ(10px); 
+  transform: translateZ(10px);  
   backface-visibility: hidden;
-  
   background-size: auto 100%;
   background-repeat: repeat-x;
-  animation: spinMapSphere 20s linear infinite;
+  /* 🟢 Driven by the exact same Epoch variable */
+  background-position: var(--universal-globe-pos, 0px) 0;
   box-shadow: inset -20px -20px 40px rgba(0, 0, 0, 0.9), 
               inset 10px 10px 20px rgba(255, 255, 255, 0.4), 
               0 0 30px rgba(56, 189, 248, 0.3);
+  will-change: background-position;
 }
 
 @keyframes spin-orbit-y {
@@ -372,22 +386,21 @@ body, html {
 }
 
 /* =========================================================
-   9. UNIFIED ABSOLUTE EPOCH-TIME GLOBE SYNCHRONIZATION ENGINE
+   9. GLOBAL SYSTEM FONT & ROOT SCALING (TAHOMA ENFORCED)
    ========================================================= */
-
-/* Synchronized Login Screen Globe (Channel 1) */
-.synced-login-globe {
-  background-image: url('/UPF Flag Emblem.png');
-  background-size: cover;
-  background-repeat: repeat-x;
-  /* Driven by React inline style anchored to Date.now() for universal user sync */
-  will-change: background-position, transform;
-}
-
-/* Synchronized Logged-In Screen Globe (Channel 2) */
-.synced-main-globe {
-  background-size: auto 100%;
-  background-repeat: repeat-x;
-  /* Driven by React inline style anchored to Date.now() for universal user sync */
-  will-change: background-position, transform;
+@layer base {
+  html {
+    font-size: 12px !important; 
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+  }
+  body, button, input, select, textarea {
+    font-family: 'Tahoma', Geneva, Verdana, sans-serif !important;
+  }
+  body {
+    background-color: #f8fafc;
+    color: #0f172a;
+    overflow-x: hidden;
+    letter-spacing: -0.01em;
+  }
 }

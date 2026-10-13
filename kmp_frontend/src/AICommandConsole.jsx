@@ -13,7 +13,9 @@ import {
   Maximize2,
   Minimize2,
   X,
-  Power
+  Power,
+  Wrench,
+  CheckCircle2
 } from 'lucide-react';
 import { authFetch } from './api';
 
@@ -23,6 +25,12 @@ const AICommandConsole = ({ currentUser, onBack }) => {
   const officerName = currentUser?.name || 'OPERATIVE';
   const isSuperAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role);
 
+  // 🟢 High-Command Check for Technical Glitch Verification Clearance
+  const hasDiagnosticClearance = 
+    ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes((currentUser?.role || '').toUpperCase()) ||
+    (currentUser?.position || '').toUpperCase().includes('KMP COMMANDER') ||
+    (currentUser?.position || '').toUpperCase().includes('DEPUTY KMP COMMANDER');
+
   const [messages, setMessages] = useState([
   {
     id: 'init-1',
@@ -31,19 +39,15 @@ const AICommandConsole = ({ currentUser, onBack }) => {
 
 Standing by for commander queries across all system modules. Here is an architectural overview of the system's operational interface:
 
-• **Home Dashboard:** Central command hub providing high-level operational summaries, quick-access metrics, and system status indicators.
-• **Command Communications:** Secure internal messaging network used to dispatch and track official directives, circulars, and announcements across regions, divisions, and specific stations.
-• **Crime / Incident Registry:** Core investigative ledger managing Station Diary (SD) references, offense categories, narratives, suspect demographics, and integrated lock-up population matrices.
-• **Disruptive OPS Statistics:** Statistical tracking interface for operational metrics including arrests, police bonds given, cautioned cases, court committals, remands, convictions, and specialized agricultural crime summaries.
-• **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
-• **Impounded Exhibits:** Secure tracking ledger for confiscated vehicles, motorcycles, currency, and property exhibits. Fully integrated into the AI intelligence engine for automated property searches, status summaries, and jurisdiction-scoped queries.
-• **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
-• **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
-  - *Data Ingestion Protocol:* Full-spectrum Excel uploads successfully process and store all **29 columns** of the NeonDB nominal roll schema (including biographical, financial, and identification metrics). No upload fields are restricted or truncated.
-  - *AI Search Security:* When answering searches, high-command clearance allows authorized officers to view operational details while sensitive personal identifiers (such as bank accounts, TINs, and NINs) remain protected under data security protocols.
-• **Documents & Reports & Templates:** Secure repository for uploading, storing, and reviewing general documents, secure operational files, and standardized command templates.
-• **Access & Approvals (Super Control Panel):** High-command administrative gateway featuring unapproved user authorizations, a granular 20+ module clearance matrix, secure audit logs, password reset requests, and emergency system/regional/station lockdown toggles.
-• **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
+- **Home Dashboard:** Central command hub providing high-level operational summaries, quick-access metrics, and system status indicators.
+- **Command Communications:** Secure internal messaging network used to dispatch and track official directives, circulars, and announcements across regions, divisions, and specific stations.
+- **Crime / Incident Registry:** Core investigative ledger managing Station Diary (SD) references, offense categories, narratives, suspect demographics, and integrated lock-up population matrices.
+- **Disruptive OPS Statistics:** Statistical tracking interface for operational metrics including arrests, police bonds given, cautioned cases, court committals, remands, convictions, and specialized agricultural crime summaries.
+- **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
+- **Impounded Exhibits:** Secure tracking ledger for confiscated vehicles, motorcycles, currency, and property exhibits. Fully integrated into the AI intelligence engine for automated property searches, status summaries, and jurisdiction-scoped queries.
+- **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
+- **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
+- **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
 
 *Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
 Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
@@ -51,11 +55,22 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     metadata: null
   }
 ]);
-const [inputQuery, setInputQuery] = useState('');
-const [isLoading, setIsLoading] = useState(false);
-const [isFullScreen, setIsFullScreen] = useState(false);
-const [isDbKillActive, setIsDbKillActive] = useState(false);
-const chatEndRef = useRef(null);
+
+  const [inputQuery, setInputQuery] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isDbKillActive, setIsDbKillActive] = useState(false);
+
+  // 🟢 Technical Glitch Verification States
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verifyCategory, setVerifyCategory] = useState('System showing zeros where data should exist');
+  const [verifyPage, setVerifyPage] = useState('Command Comms');
+  const [verifyElement, setVerifyElement] = useState('Dispatch Button');
+  const [verifyLogs, setVerifyLogs] = useState('TypeError: Cannot read properties of undefined (reading \'fnum\')');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState(null);
+
+  const chatEndRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -71,6 +86,39 @@ const chatEndRef = useRef(null);
       }
     } catch (err) {
       alert("Failed to toggle AI database kill switch.");
+    }
+  };
+
+  const handleVerifyGlitchDiagnosis = async (e) => {
+    e.preventDefault();
+    setIsVerifying(true);
+    setVerificationResult(null);
+
+    try {
+      const response = await authFetch('/api/v1/ai/verify-diagnosis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          glitch_category: verifyCategory,
+          page_name: verifyPage,
+          element_point: verifyElement,
+          description: "Audited telemetry analysis requested via High Command console.",
+          console_logs: [verifyLogs],
+          network_errors: ["500 Internal Server Error at /api/v1/communications"]
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Diagnosis verification failed.");
+      }
+
+      const data = await response.json();
+      setVerificationResult(data.verification_report);
+    } catch (err) {
+      setVerificationResult(`⚠️ **Verification Error**: ${err.message}`);
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -146,6 +194,94 @@ const chatEndRef = useRef(null);
       isFullScreen ? 'fixed inset-4 z-[9999] h-[calc(100vh-2rem)] max-w-none m-0' : 'h-[calc(100vh-6rem)] max-w-7xl mx-auto my-0 px-2 sm:px-6'
     }`}>
       
+      {/* 🟢 Technical Glitch Verification Modal (Restricted to High Command) */}
+      {showVerificationModal && hasDiagnosticClearance && (
+        <div className="fixed inset-0 z-[200] bg-slate-900/80 backdrop-blur-sm flex justify-center items-center p-4">
+          <div className="bg-[#0f172a] rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border-2 border-amber-500/50">
+            <div className="bg-[#020617] text-white px-6 py-4 flex justify-between items-center border-b border-slate-700">
+               <h3 className="font-extrabold flex items-center text-sm text-amber-400">
+                 <Wrench size={18} className="mr-2"/> AI Technical Glitch Diagnosis Auditor
+               </h3>
+               <button onClick={() => setShowVerificationModal(false)} className="hover:bg-slate-800 p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+            </div>
+            
+            <form onSubmit={handleVerifyGlitchDiagnosis} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Glitch Category</label>
+                  <input 
+                    type="text" 
+                    value={verifyCategory} 
+                    onChange={(e) => setVerifyCategory(e.target.value)} 
+                    className="w-full p-2.5 bg-[#020617] border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-amber-500" 
+                    required 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Target Page</label>
+                  <input 
+                    type="text" 
+                    value={verifyPage} 
+                    onChange={(e) => setVerifyPage(e.target.value)} 
+                    className="w-full p-2.5 bg-[#020617] border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-amber-500" 
+                    required 
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Element / Component Coordinate</label>
+                <input 
+                  type="text" 
+                  value={verifyElement} 
+                  onChange={(e) => setVerifyElement(e.target.value)} 
+                  className="w-full p-2.5 bg-[#020617] border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-amber-500" 
+                  required 
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Simulated Console Error Log</label>
+                <textarea 
+                  value={verifyLogs} 
+                  onChange={(e) => setVerifyLogs(e.target.value)} 
+                  rows={3}
+                  className="w-full p-2.5 bg-[#020617] border border-slate-700 rounded-lg font-mono text-xs text-amber-300 outline-none focus:border-amber-500" 
+                  required 
+                />
+              </div>
+
+              {verificationResult && (
+                <div className="bg-[#020617] border border-amber-500/40 p-4 rounded-xl text-xs text-slate-200 whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar font-mono">
+                  <div className="text-amber-400 font-bold mb-1 flex items-center gap-1.5">
+                    <CheckCircle2 size={14}/> Audit Verification Output:
+                  </div>
+                  {verificationResult}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-slate-700">
+                <button 
+                  type="button" 
+                  onClick={() => setShowVerificationModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isVerifying}
+                  className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 shadow-lg"
+                >
+                  {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  Run AI Audit
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Header Bar */}
       <div className="bg-[#0f172a] border-b-2 border-slate-700 px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-3">
@@ -166,6 +302,18 @@ const chatEndRef = useRef(null);
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* 🟢 High-Command Glitch Audit Button */}
+          {hasDiagnosticClearance && (
+            <button
+              onClick={() => setShowVerificationModal(true)}
+              className="px-3 py-1.5 bg-amber-950 hover:bg-amber-900 border border-amber-600 text-amber-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              title="Audit Technical Glitch Diagnosis"
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Verify Glitch</span>
+            </button>
+          )}
+
           {isSuperAdmin && (
             <button
               onClick={handleKillSwitchToggle}

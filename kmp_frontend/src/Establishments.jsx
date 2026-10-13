@@ -106,7 +106,6 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // 🟢 OPSEC Role Classification & Scoping Engine
   const userRoleClean = stripHtml(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtml(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtml(currentUser?.region || '').toUpperCase();
@@ -119,10 +118,7 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
   const canViewGlobalLevel = propCanViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
-  
-  // 🟢 GUARANTEEDSAFE DEFINITION (Prevents undefined crashes entirely)
   const canViewGlobalActive = Boolean(canViewGlobalLevel);
-  
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
@@ -188,7 +184,6 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
     booths: 0, location: '', personnel_in_booth: 0, installed_by: '', status: 'OPERATIONAL', comment: ''
   });
   
-  // Because filtering is managed by the backend, we map the server response directly
   const filteredEstablishments = useMemo(() => {
     return [...serverEstablishments];
   }, [serverEstablishments]);
@@ -300,8 +295,12 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
   };
 
   const handleExportFilteredData = async () => {
-    if (!serverEstablishments.length) return alert("No records available to export.");
-    setNotification("⏳ Generating official CSV export from database. Please wait...");
+    if (!serverEstablishments.length) {
+      alert("No records available to export for the selected filters.");
+      return;
+    }
+    
+    setNotification("⏳ Generating AES-256 secure encrypted spreadsheet archive. Please wait...");
     
     try {
       const params = new URLSearchParams();
@@ -310,19 +309,18 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       if (debouncedSearch) params.append('search', debouncedSearch);
 
       const response = await authFetch(`/api/v1/establishments/export?${params.toString()}`);
-      if (!response.ok) throw new Error("Export failed on server.");
-
+      if (!response.ok) throw new Error("Secure export failed on server.");
+      
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       
       const disposition = response.headers.get('Content-Disposition');
-      let filename = 'KMP_ESTABLISHMENTS_EXPORT.csv';
+      let filename = 'KMP_ESTABLISHMENTS_SECURE_EXPORT.zip';
       if (disposition && disposition.indexOf('filename=') !== -1) {
           filename = disposition.split('filename=')[1].replace(/["']/g, '');
       } else {
           const timestamp = new Date().toISOString().split('T')[0];
-          const fileLabel = filterRegion === 'ALL REGIONS' ? 'ALL_REGIONS' : filterRegion.replace(/\s+/g, '_');
-          filename = `KMP_ESTABLISHMENTS_${fileLabel}_${timestamp}.csv`;
+          filename = `KMP_ESTABLISHMENTS_SECURE_EXPORT_${timestamp}.zip`;
       }
 
       const link = document.createElement('a');
@@ -332,10 +330,11 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      setNotification(null);
+      setNotification("✅ Secure AES-256 archive downloaded successfully! Use your Force Number to unlock.");
+      setTimeout(() => setNotification(null), 6000);
     } catch (err) {
       console.error("Export error:", err);
-      setNotification("❌ Failed to export CSV.");
+      setNotification("❌ Failed to generate secure export archive.");
     }
   };
 
@@ -506,8 +505,8 @@ const Establishments = ({ currentUser, canViewGlobal: propCanViewGlobal = false,
                 ) : <option value={stripHtml(currentUser?.station || '').toUpperCase()}>{stripHtml(currentUser?.station || '').toUpperCase()}</option>}
               </select>
             </div>
-            <button type="button" onClick={handleExportFilteredData} className="px-4 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800 ring-2 ring-blue-500/20 w-full sm:w-auto">
-              <HardDrive className="w-4 h-4 mr-1.5" /> Export CSV
+            <button type="button" onClick={handleExportFilteredData} className="px-4 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-emerald-700 text-white border-emerald-800 hover:bg-emerald-800 ring-2 ring-emerald-500/20 w-full sm:w-auto">
+              <HardDrive className="w-4 h-4 mr-1.5" /> Export Secure Excel (.zip)
             </button>
           </div>
 

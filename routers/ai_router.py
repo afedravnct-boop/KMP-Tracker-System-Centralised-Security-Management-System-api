@@ -1,3 +1,4 @@
+# routers/ai.py
 import os
 import json
 import re
@@ -27,6 +28,15 @@ class QueryPayload(BaseModel):
     target_region: str = "ALL REGIONS"
     target_station: str = "ALL STATIONS"
 
+# 🟢 New Payload for AI Diagnosis Verification
+class DiagnosisVerificationPayload(BaseModel):
+    glitch_category: str
+    page_name: str
+    element_point: str
+    description: str
+    console_logs: list[str] = []
+    network_errors: list[str] = []
+
 # 🟢 Respect global kill switch, but ONLY exempt Super and Assistant Super Admins
 def is_db_query_globally_enabled(user, db: Session) -> bool:
     role = (user.role or "").upper()
@@ -38,7 +48,6 @@ def is_db_query_globally_enabled(user, db: Session) -> bool:
         return True 
     config = db.query(ConfigModel).filter(ConfigModel.config_key == "ai_database_query_enabled").first()
     
-    # If kill switch is false, standard/delegated users are cut off
     if config and str(config.config_value).lower() == "false":
         return False
         
@@ -111,6 +120,83 @@ async def toggle_ai_database_queries(
         "message": f"AI Database Querying has been {'ENABLED' if new_bool_state else 'DISABLED (Navigation & Docs Only for standard users)'}."
     }
 
+# Add this clearance helper in routers/ai.py
+def check_diagnostic_clearance(user) -> bool:
+    role = (user.role or "").strip().upper()
+    pos = (user.position or "").strip().upper()
+    return (
+        role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        "KMP COMMANDER" in pos or
+        "DEPUTY KMP COMMANDER" in pos
+    )
+
+# Update the verification endpoint:
+@router.post("/verify-diagnosis")
+async def verify_client_diagnosis(
+    payload: DiagnosisVerificationPayload,
+    current_user = Depends(get_current_user),
+    logs_db: Session = Depends(get_logs_db)
+):
+    """
+    Tasks the AI to cross-examine and audit a submitted technical glitch report 
+    against raw browser telemetry logs. Strictly restricted to High Command.
+    """
+    if not check_diagnostic_clearance(current_user):
+        raise HTTPException(
+            status_code=403, 
+            detail="Clearance Denied: Technical glitch diagnostics and AI verification audits are strictly restricted to Super Admins, Assistant Super Admins, KMP Commanders, and Deputy KMP Commanders."
+        )
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="GEMINI_API_KEY is missing from the server environment.")
+
+    try:
+        client = genai.Client(api_key=api_key)
+        verification_prompt = f"""
+        You are an expert system auditor and QA debugger for the Kampala Metropolitan Police (KMP) Data Management System.
+        Verify the following technical glitch diagnosis submitted by officer {current_user.fnum} {current_user.rank} {current_user.name} against the provided raw telemetry logs.
+
+        SUBMITTED DIAGNOSIS:
+        - Category: {payload.glitch_category}
+        - Page: {payload.page_name}
+        - Element: {payload.element_point}
+        - Description: {payload.description}
+
+        RAW TELEMETRY:
+        - Console Logs: {json.dumps(payload.console_logs)}
+        - Network Errors: {json.dumps(payload.network_errors)}
+
+        Provide a rigorous verification report indicating:
+        1. Assessment (VALID, PLAUSIBLE, or FALSE POSITIVE).
+        2. Technical reasoning based on the logs.
+        3. Recommended corrective actions for system administrators.
+        """
+
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=verification_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction="You are a strict technical auditor for law enforcement IT infrastructure. Be concise, precise, and professional."
+            )
+        )
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VERIFY",
+            module="TACTICAL_AI",
+            target_id="GLITCH_VERIFICATION",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} audited technical glitch diagnosis on page [{payload.page_name}]."
+        )
+
+        return {
+            "status": "success",
+            "verification_report": response.text if hasattr(response, 'text') else str(response)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI Diagnosis Verification Failed: {str(e)}")
+
 @router.post("/query")
 async def process_tactical_query(
     payload: QueryPayload, 
@@ -128,7 +214,6 @@ async def process_tactical_query(
         user_role_upper = (current_user.role or "").upper()
         is_top_admin = user_role_upper in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]
         
-        # 🟢 Checking global enabled status while allowing top admins to seamlessly bypass it
         db_queries_allowed = is_db_query_globally_enabled(current_user, db)
         can_run_db_query = check_ai_db_query_clearance(current_user)
 

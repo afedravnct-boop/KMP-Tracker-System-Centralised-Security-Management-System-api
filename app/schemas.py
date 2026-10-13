@@ -362,7 +362,7 @@ class Admin_CommunicationCreate(BaseModel):
     target_audience: str
     target_region: Optional[str] = None
     target_fnum: Optional[Union[str, List[str]]] = None
-    message_type: str
+    message_type: str = "GENERAL_INFO"
     subject: str
     message: str
     send_email: bool = False
