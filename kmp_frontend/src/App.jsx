@@ -1062,21 +1062,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   // 🟢 NEW: State for the Help / Support Guide
   const [showHelpModal, setShowHelpModal] = useState(false);
   
-  // 🟢 Unified Epoch-Time Globe Synchronization Hook
-  const [loginGlobeDeg, setLoginGlobeDeg] = useState(0);
-
-  useEffect(() => {
-  let frameId;
-  const updateSync = () => {
-    const nowMs = Date.now() / 1000;
-    const deg = (nowMs % 28) / 28 * 360;
-    setLoginGlobeDeg(deg);
-    frameId = requestAnimationFrame(updateSync);
-  };
-  frameId = requestAnimationFrame(updateSync);
-  return () => cancelAnimationFrame(frameId);
-}, []);
-  
   const [signupData, setSignupData] = useState({
     fnum: '', 
     ipps: '', 
@@ -1332,11 +1317,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         ></div>
 
         <div className="relative z-10 flex flex-col items-center text-center p-6 max-w-3xl">
-          {/* 🟢 SYNCHRONIZED GLOBE ROTATION */}
-          <div 
-            className="upf-css-globe mb-6 border border-slate-600/50"
-            style={{ transform: `rotate(${loginGlobeDeg}deg)` }}
-          ></div>
+          <div className="upf-css-globe mb-6 border border-slate-600/50"></div>
           
           <div className="curtain-title-container">
             <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-white tracking-widest uppercase drop-shadow-lg flex justify-center flex-wrap leading-relaxed">
