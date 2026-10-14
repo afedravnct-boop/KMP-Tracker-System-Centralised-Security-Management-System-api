@@ -570,51 +570,79 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
   const analyticsFilteredDataset = useMemo(() => {
-    if (analyticsMetricFilterValue === 'ALL') return currentRollDataset;
+  if (analyticsMetricFilterValue === 'ALL') return currentRollDataset;
 
-    return currentRollDataset.filter(n => {
-      if (metricCategory === 'RANK') {
-        let r = cleanStr(n.rank);
-        if (r.includes('DRV')) r = 'PC';
-        return r === analyticsMetricFilterValue;
-      } else if (metricCategory === 'UNIT') {
-        const parsed = parseStationHierarchy(n.station);
-        return (parsed.division || parsed.station) === analyticsMetricFilterValue;
-      } else if (metricCategory === 'STATUS') {
-        const normStatus = n.normalized_status || cleanStr(n.status);
-        return normStatus === analyticsMetricFilterValue;
-      } else if (metricCategory === 'SEX') {
-        const sexStr = cleanStr(n.sex);
-        const isFemale = sexStr === 'F' || sexStr === 'FEMALE';
-        return analyticsMetricFilterValue === 'FEMALE' ? isFemale : !isFemale;
-      }
-      return true;
-    });
-  }, [currentRollDataset, metricCategory, analyticsMetricFilterValue]);
-
-  const availableAnalyticsFilterOptions = useMemo(() => {
-    const setVals = new Set();
-    const dataset = Array.isArray(currentRollDataset) ? currentRollDataset : [];
-    
-    for (let i = 0; i < dataset.length; i++) {
-      const n = dataset[i];
-      if (metricCategory === 'RANK') {
-        let r = cleanStr(n.rank);
-        if (r.includes('DRV')) r = 'PC';
-        if (r) setVals.add(r);
-      } else if (metricCategory === 'UNIT') {
-        const parsed = parseStationHierarchy(n.station);
-        if (parsed.division && parsed.division !== 'UNASSIGNED') setVals.add(parsed.division);
-      } else if (metricCategory === 'STATUS') {
-        setVals.add('ACTIVE (DEPLOYABLE)');
-        setVals.add('NON-DEPLOYABLE (HEALTH/LEAVE)');
-      } else if (metricCategory === 'SEX') {
-        setVals.add('MALE');
-        setVals.add('FEMALE');
-      }
+  return currentRollDataset.filter(n => {
+    if (metricCategory === 'RANK') {
+      let r = cleanStr(n.rank);
+      if (r.includes('DRV')) r = 'PC';
+      return r === analyticsMetricFilterValue;
+    } else if (metricCategory === 'UNIT') {
+      const parsed = parseStationHierarchy(n.station);
+      return (parsed.division || parsed.station) === analyticsMetricFilterValue;
+    } else if (metricCategory === 'STATUS') {
+      const normStatus = n.normalized_status || cleanStr(n.status);
+      return normStatus === analyticsMetricFilterValue;
+    } else if (metricCategory === 'EDUCATION') {
+      return parseEducationLevel(n.educlevel || n.educ_level) === analyticsMetricFilterValue;
+    } else if (metricCategory === 'DISTRICT') {
+      return cleanStr(n.homedist || n.home_dist || n.district) === analyticsMetricFilterValue;
+    } else if (metricCategory === 'BANK') {
+      return cleanStr(n.bankbranch || n.bank_branch) === analyticsMetricFilterValue;
+    } else if (metricCategory === 'TRIBE') {
+      return cleanStr(n.tribe) === analyticsMetricFilterValue;
+    } else if (metricCategory === 'SEX') {
+      const sexStr = cleanStr(n.sex);
+      const isFemale = sexStr === 'F' || sexStr === 'FEMALE';
+      return analyticsMetricFilterValue === 'FEMALE' ? isFemale : !isFemale;
+    } else if (metricCategory === 'AGE') {
+      return (n.age_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
+    } else if (metricCategory === 'SECTION') {
+      return cleanStr(n.normalized_section || n.section || n.dir) === analyticsMetricFilterValue;
     }
-    return Array.from(setVals).sort();
-  }, [currentRollDataset, metricCategory]);
+    return true;
+  });
+}, [currentRollDataset, metricCategory, analyticsMetricFilterValue]);
+
+const availableAnalyticsFilterOptions = useMemo(() => {
+  const setVals = new Set();
+  const dataset = Array.isArray(currentRollDataset) ? currentRollDataset : [];
+  
+  for (let i = 0; i < dataset.length; i++) {
+    const n = dataset[i];
+    if (metricCategory === 'RANK') {
+      let r = cleanStr(n.rank);
+      if (r.includes('DRV')) r = 'PC';
+      if (r) setVals.add(r);
+    } else if (metricCategory === 'UNIT') {
+      const parsed = parseStationHierarchy(n.station);
+      if (parsed.division && parsed.division !== 'UNASSIGNED') setVals.add(parsed.division);
+    } else if (metricCategory === 'STATUS') {
+      setVals.add('ACTIVE (DEPLOYABLE)');
+      setVals.add('NON-DEPLOYABLE (HEALTH/LEAVE)');
+    } else if (metricCategory === 'EDUCATION') {
+      setVals.add(parseEducationLevel(n.educlevel || n.educ_level));
+    } else if (metricCategory === 'DISTRICT') {
+      const dist = cleanStr(n.homedist || n.home_dist || n.district);
+      if (dist) setVals.add(dist);
+    } else if (metricCategory === 'BANK') {
+      const bank = cleanStr(n.bankbranch || n.bank_branch);
+      if (bank) setVals.add(bank);
+    } else if (metricCategory === 'TRIBE') {
+      const tr = cleanStr(n.tribe);
+      if (tr) setVals.add(tr);
+    } else if (metricCategory === 'SEX') {
+      setVals.add('MALE');
+      setVals.add('FEMALE');
+    } else if (metricCategory === 'AGE') {
+      setVals.add(n.age_bracket || 'UNKNOWN / UNRECORDED');
+    } else if (metricCategory === 'SECTION') {
+      const sec = cleanStr(n.normalized_section || n.section || n.dir);
+      if (sec) setVals.add(sec);
+    }
+  }
+  return Array.from(setVals).sort();
+}, [currentRollDataset, metricCategory]);
 
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {

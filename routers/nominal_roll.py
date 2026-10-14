@@ -82,6 +82,23 @@ def normalize_personnel_status(status_str) -> str:
         return "NON-DEPLOYABLE (HEALTH/LEAVE)"
     return val
 
+def calculate_age_bracket(dob_val) -> str:
+    if not dob_val:
+        return "UNKNOWN / UNRECORDED"
+    try:
+        birth_date = dob_val if isinstance(dob_val, date) else parse_safe_date(dob_val)
+        if not birth_date:
+            return "UNKNOWN / UNRECORDED"
+        current_year = datetime.now().year
+        age = current_year - birth_date.year
+        if 18 <= age <= 29: return "18-29 YEARS"
+        if 30 <= age <= 39: return "30-39 YEARS"
+        if 40 <= age <= 49: return "40-49 YEARS"
+        if age >= 50: return "50+ YEARS"
+        return "UNKNOWN / UNRECORDED"
+    except Exception:
+        return "UNKNOWN / UNRECORDED"
+
 def normalize_section_unit(pos_str) -> str:
     if not pos_str: return "GENERAL DUTY (GD)"
     val = clean_str(pos_str)
@@ -524,6 +541,8 @@ def get_Nominal_Rolls(
         r_dict['region'] = normalize_region_name(r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
+        r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
+        r_dict['educ_level'] = normalize_education_level(r_dict.get('educlevel') or r_dict.get('educ_level'))
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
             continue
@@ -550,6 +569,8 @@ def get_Nominal_Rolls(
         r_dict['region'] = normalize_region_name(r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
+        r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
+        r_dict['educ_level'] = normalize_education_level(r_dict.get('educlevel') or r_dict.get('educ_level'))
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
             continue
