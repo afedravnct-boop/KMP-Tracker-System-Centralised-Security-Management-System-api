@@ -192,6 +192,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
     grand_stories = 0
 
     if stories_model:
+        # Success_Stories uses 'sn' as its primary key instead of 'id'
         story_query = db.query(
             stories_model.region,
             stories_model.station,

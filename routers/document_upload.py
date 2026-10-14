@@ -84,6 +84,7 @@ def get_document_archive(
         ArchiveModel = get_doc_archive_model()
         query = db.query(ArchiveModel)
 
+        # 🟢 Apply search filtering if search term provided
         if search:
             term = f"%{search.strip().upper()}%"
             search_conds = []
@@ -140,6 +141,7 @@ def get_document_archive(
                     "station": station
                 })
 
+        # 🟢 Precision forensic check: Log search query vs regular archive view
         if search:
             summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched document archive for query: \"{search}\" (Returned {len(results)} matches)."
         else:
@@ -239,6 +241,7 @@ async def upload_word_report(
             db.add(new_archive)
             db.flush()
 
+            # 🟢 Record precise forensic REGISTER activity into NeonDB branch
             record_neon_activity(
                 logs_db=logs_db,
                 fnum=current_user.fnum,
@@ -292,6 +295,7 @@ def download_archive_file(
     
     doc_record = None
     
+    # STRICT TABLE ROUTING
     if category == 'templates' and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
     elif category == 'general_doc' and GeneralDocModel:
@@ -353,11 +357,14 @@ def download_archive_file(
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
             section = word_doc.sections[0]
-            footer = section.footer
-            if not footer.paragraphs:
-                footer.add_paragraph()
+            header = section.header
+            if not header.paragraphs:
+                header_p = header.add_paragraph()
+            else:
+                header_p = header.paragraphs[0]
             
             try:
+                # 🟢 Anchored strictly to the extreme left page edge
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -368,8 +375,8 @@ def download_archive_file(
                             <v:textpath on="t" fitshape="t"/>
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
-                        <v:shape id="VerticalStamp" type="#_x0000_t136" 
-                                style="position:absolute;left:0;text-align:center;margin-left:-265pt;margin-top:0pt;width:600pt;height:12pt;rotation:270;z-index:-251657216;mso-position-horizontal:absolute;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
+                        <v:shape id="LeftMarginStamp" type="#_x0000_t136" 
+                                style="position:absolute;left:0;text-align:center;margin-left:10pt;margin-top:50pt;width:15pt;height:650pt;rotation:270;z-index:251657216;mso-position-horizontal:absolute;mso-position-vertical:absolute;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                 fillcolor="#8B0000" stroked="f">
                             <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
@@ -377,12 +384,35 @@ def download_archive_file(
                 </w:r>
                 '''
                 vml_run = parse_xml(vml_xml)
-                footer.paragraphs[-1]._p.append(vml_run)
+                header_p._p.append(vml_run)
             except Exception as e:
-                print(f"Failed to inject VML vertical watermark: {e}")
+                print(f"Failed to inject VML left margin watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+        elif file_extension == 'pdf':
+            try:
+                pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
+                for page in pdf_doc:
+                    rect = page.rect
+                    # 🟢 Inserted exactly at X = 15pt from left edge, spanning vertically upwards
+                    page.insert_text(
+                        pymupdf.Point(15, rect.height - 50),
+                        vertical_stamp_text,
+                        fontsize=7,
+                        fontname="courier-bold",
+                        color=(0.545, 0, 0), # Deep dark red / maroon
+                        rotate=90,
+                        overlay=True
+                    )
+                stamped_pdf_bytes = pdf_doc.tobytes()
+                output_stream = io.BytesIO(stamped_pdf_bytes)
+                content_type = "application/pdf"
+            except Exception as pdf_err:
+                print(f"PDF watermarking notice: {pdf_err}")
+                output_stream.write(raw_bytes)
+                content_type = "application/pdf"
 
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
@@ -452,6 +482,7 @@ def download_archive_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
+        # 🟢 Record precise forensic UPDATE/DOWNLOAD activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -575,6 +606,7 @@ def delete_archive_file(
         db.delete(doc_record)
         db.commit()
 
+        # 🟢 Record precise forensic DELETE activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,

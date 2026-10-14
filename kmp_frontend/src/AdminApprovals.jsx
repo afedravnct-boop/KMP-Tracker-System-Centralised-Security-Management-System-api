@@ -40,7 +40,7 @@ const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUse
   const isRevoked = user.role === 'REVOKED' || user.is_approved === false;
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-[99999] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/80 z-[99999] flex items-center justify-center p-4 animate-in fade-in">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl text-white">
         <div className="bg-slate-950 px-6 py-4 flex justify-between items-center border-b border-slate-800">
           <h3 className="font-extrabold text-sm uppercase tracking-wider flex items-center">
@@ -50,12 +50,25 @@ const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUse
         </div>
         
         <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar text-xs">
-          <div className="grid grid-cols-2 gap-4 bg-slate-800/60 p-4 rounded-xl border border-slate-700">
-            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Force Number (F/No)</span><span className="font-mono font-bold text-sm text-blue-400">{user.fnum}</span></div>
-            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">IPPS Number</span><span className="font-mono font-bold text-sm">{user.ipps || 'N/A'}</span></div>
-            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">NIN</span><span className="font-mono font-bold text-sm">{user.nin || 'N/A'}</span></div>
-            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">System Role / Status</span><span className="font-bold text-sm text-yellow-400">{user.role}</span></div>
-            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Station / Jurisdiction</span><span className="font-bold">{user.station} / {user.region}</span></div>
+          <div className="flex items-center space-x-4 bg-slate-800/80 p-4 rounded-xl border border-slate-700">
+            {user.profile_photo_path ? (
+              <img src={user.profile_photo_path} alt="Mugshot" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-md shrink-0" />
+            ) : (
+              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center font-bold text-2xl shrink-0">{user.name?.charAt(0) || 'U'}</div>
+            )}
+            <div>
+              <h4 className="text-sm font-extrabold uppercase">{user.rank} {user.name}</h4>
+              <p className="text-blue-400 font-mono text-xs mt-0.5">F/NO: {user.fnum} | IPPS: {user.ipps || 'N/A'}</p>
+              <p className="text-slate-400 text-[11px] mt-0.5">Role Tier: <span className="text-yellow-400 font-bold uppercase">{user.role}</span></p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 bg-slate-800/40 p-4 rounded-xl border border-slate-700">
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">NIN</span><span className="font-mono font-bold">{user.nin || 'N/A'}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Gender</span><span className="font-bold">{user.sex || 'MALE'}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Station / Region</span><span className="font-bold text-blue-300">{user.station} / {user.region}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Position</span><span className="font-bold">{user.position || 'N/A'}</span></div>
+            <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Email</span><span className="font-bold">{user.email || 'N/A'}</span></div>
             <div><span className="text-slate-400 block text-[10px] uppercase font-bold">Contact Phone</span><span className="font-bold">{user.phone || 'N/A'}</span></div>
           </div>
         </div>
@@ -75,10 +88,12 @@ const SignupDossierModal = ({ user, onClose, isProcessingAction, handleRejectUse
                 )}
               </>
             ) : (
-              <>
-                <button onClick={() => handleRejectUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer">Reject</button>
-                <button onClick={() => handleApproveUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs cursor-pointer">Approve Authorization</button>
-              </>
+              user.is_approved === false ? (
+                <>
+                  <button onClick={() => handleRejectUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs cursor-pointer">Reject</button>
+                  <button onClick={() => handleApproveUser(user)} disabled={isProcessingAction} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs cursor-pointer">Approve Authorization</button>
+                </>
+              ) : null
             )
           )}
         </div>
