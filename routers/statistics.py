@@ -2,6 +2,10 @@
 import json
 import csv
 import io
+import pytz
+import pyzipper
+import openpyxl
+from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -138,6 +142,7 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
             
     return query
 
+
 # ==========================================
 # 1. DISRUPTIVE OPS STATS ENDPOINTS
 # ==========================================
@@ -164,7 +169,7 @@ def get_stats(
     return [clean_model_dict(r) for r in records]
 
 @router.get("/stats/export")
-def export_stats_csv(
+def export_stats_secure_zip(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
@@ -182,31 +187,113 @@ def export_stats_csv(
     query = build_filtered_query(query, StatsModel, region, station, start_date, end_date, search)
     records = query.order_by(StatsModel.id.desc()).all()
 
-    stream = io.StringIO()
-    writer = csv.writer(stream)
-    writer.writerow(["ID", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken to Court", "Released by Court", "Remanded", "Convicted"])
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Disruptive OPS Statistics"
+    ws.views.sheetView[0].showGridLines = True
 
+    eat_tz = pytz.timezone("Africa/Nairobi")
+    eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+    
+    officer_name = (current_user.name or "UNKNOWN").strip().upper()
+    officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+    officer_rank = (current_user.rank or "").strip().upper()
+    officer_station = (current_user.station or "HQ").strip().upper()
+    timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+
+    wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+    wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+    wb.properties.title = "Official Law Enforcement Restricted Disruptive OPS Statistics Export"
+    wb.properties.subject = f"Operational Statistics Extract — Downloaded by {officer_fnum} at {timestamp_str}"
+    wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
+
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_font = Font(name="Calibri", size=10)
+    thin_border = Border(
+        left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
+    )
+
+    ws.merge_cells("A1:L1")
+    banner_cell = ws.cell(row=1, column=1)
+    banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+    banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+    banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 22
+
+    ws.cell(row=2, column=1, value="UGANDA POLICE FORCE - DISRUPTIVE OPS STATISTICS LEDGER").font = Font(bold=True, size=11)
+    ws.row_dimensions[2].height = 18
+
+    headers = ["ID", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken to Court", "Released by Court", "Remanded", "Convicted"]
+    ws.row_dimensions[4].height = 26
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    current_row = 5
     for r in records:
-        writer.writerow([
+        row_data = [
             getattr(r, 'id', ''), getattr(r, 'date', ''), getattr(r, 'region', ''), getattr(r, 'station', ''),
             getattr(r, 'arrested', 0), getattr(r, 'given_bond', 0), getattr(r, 'cautioned', 0),
             getattr(r, 'pending_court', 0), getattr(r, 'taken_to_court', 0), getattr(r, 'released', 0),
             getattr(r, 'remanded', 0), getattr(r, 'convicted', 0)
-        ])
+        ]
+        ws.append(row_data)
+        ws.row_dimensions[current_row].height = 20
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.font = cell_font
+            cell.border = thin_border
+            if col_idx in [1, 2, 5, 6, 7, 8, 9, 10, 11, 12]:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+        current_row += 1
+
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+
+    excel_stream = io.BytesIO()
+    wb.save(excel_stream)
+    excel_stream.seek(0)
+
+    zip_stream = io.BytesIO()
+    zip_password = str(current_user.fnum).strip().encode('utf-8')
+    fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+    excel_filename = f"{fnum_clean}_Disruptive_OPS_Stats_{eat_time.strftime('%Y%m%d')}.xlsx"
+    zip_filename = f"SECURE_DISRUPTIVE_OPS_STATS_{eat_time.strftime('%Y%m%d')}.zip"
+
+    with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(zip_password)
+        zf.writestr(excel_filename, excel_stream.getvalue())
+
+    zip_stream.seek(0)
 
     record_neon_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
         action_type="EXPORT",
         module="DISRUPTIVE_OPS_STATS",
-        target_id="CSV_EXPORT",
-        changes_summary=f"{current_user.fnum} exported Disruptive Ops Statistics CSV report."
+        target_id="SECURE_ZIP_EXPORT",
+        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely generated AES-256 encrypted archive for Disruptive OPS Statistics."
     )
 
-    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-    timestamp = datetime.now().strftime("%Y-%m-%d")
-    response.headers["Content-Disposition"] = f"attachment; filename=KMP_DISRUPTIVE_OPS_STATS_{timestamp}.csv"
-    return response
+    return StreamingResponse(
+        zip_stream,
+        media_type="application/zip",
+        headers={
+            'Content-Disposition': f'attachment; filename="{zip_filename}"',
+            'Access-Control-Expose-Headers': 'Content-Disposition'
+        }
+    )
 
 @router.post("/stats")
 def create_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):

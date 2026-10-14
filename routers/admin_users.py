@@ -15,6 +15,30 @@ from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Users"])
 
+# 🟢 HELPER: APPEND AUDIT TIMELINE EVENT TO USER PROFILE
+def append_user_audit_event(target_user: models.Users, action_type: str, actor_fnum: str, details: str):
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    now_str = datetime.now(eat_tz).strftime("%A, %d %b %Y @ %H:%M:%S EAT")
+    
+    current_perms = target_user.permissions or {}
+    if isinstance(current_perms, str):
+        try: current_perms = json.loads(current_perms)
+        except: current_perms = {}
+        
+    audit_history = current_perms.get("_audit_history", [])
+    if not isinstance(audit_history, list):
+        audit_history = []
+        
+    audit_history.insert(0, {
+        "timestamp": now_str,
+        "action": action_type,
+        "actor": actor_fnum,
+        "details": details
+    })
+    
+    current_perms["_audit_history"] = audit_history
+    target_user.permissions = current_perms
+
 # 🟢 STRICT HIGH COMMAND CLEARANCE CHECK FOR MASTER BYPASS / GLOBAL OPEN
 def check_master_clearance(current_user: models.Users) -> bool:
     if not current_user:
@@ -22,7 +46,6 @@ def check_master_clearance(current_user: models.Users) -> bool:
     role = (current_user.role or "").strip().upper()
     pos = (current_user.position or "").strip().upper()
 
-    # Allowed roles and exact command positions
     allowed_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]
     allowed_position_keywords = [
         "PRINCIPAL SUPER ADMIN",
@@ -41,6 +64,27 @@ def check_master_clearance(current_user: models.Users) -> bool:
             return True
 
     return False
+
+# 🟢 COMMAND SENIORITY RANKING FOR HIERARCHICAL LOCKS
+def get_command_tier(user: models.Users) -> int:
+    if not user:
+        return 0
+    fnum = (user.fnum or "").strip().upper()
+    role = (user.role or "").strip().upper()
+    pos = (user.position or "").strip().upper()
+
+    # Principal Super Admin (Apex Tier 5)
+    if "A/2408" in fnum or "PRINCIPAL" in pos:
+        return 5
+    if role == "SUPER_ADMIN" or "SUPER ADMIN" in pos:
+        return 4
+    if role == "ASSISTANT_SUPER_ADMIN" or "KMP COMMANDER" in pos:
+        return 3
+    if "DEPUTY KMP COMMANDER" in pos or "KMP ADMIN OFFICER" in pos:
+        return 2
+    if role in ["ADMIN", "REGIONAL_ADMIN", "RPC"]:
+        return 1
+    return 0
 
 # 🟢 MUTATION GUARD FOR READ-ONLY GLOBAL OBSERVERS
 def enforce_mutation_clearance(current_user: models.Users):
@@ -75,7 +119,6 @@ def verify_admin_delegation(current_user: models.Users, db: Session):
         try: perms = json.loads(perms)
         except Exception: perms = {}
 
-    # 🟢 ENSURE GLOBAL OBSERVER & OPEN FLAGS GRANT GLOBAL SCOPE
     is_global = (
         user_role in ["SUPER_ADMIN", "SYSTEM_ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "SYSTEM MANAGER" in user_position or
@@ -95,7 +138,6 @@ def verify_admin_delegation(current_user: models.Users, db: Session):
         perms.get("manage_station_users") is True
     )
 
-    # Intelligent Failover (RPC downwards): If superior in jurisdiction is offline > 1 hour or manually delegating proxy
     inherited_delegation = False
     if not is_global and not is_native_admin:
         eat_tz = pytz.timezone('Africa/Nairobi')
@@ -219,6 +261,9 @@ def approve_pending_user(
     if hasattr(target_user, 'is_active'):
         target_user.is_active = True
 
+    # Append approval event to embedded profile audit trail
+    append_user_audit_event(target_user, "ACCOUNT_APPROVED", current_user.fnum, f"Account successfully approved and authorized by {current_user.fnum}")
+
     db.commit()
 
     record_neon_activity(
@@ -279,7 +324,7 @@ def get_all_active_users(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# 4. UPDATE USER ACCESS, ROLES & PERMISSIONS (CLEARANCE MATRIX / DELEGATION)
+# 4. UPDATE USER ACCESS, ROLES & PERMISSIONS (CLEARANCE MATRIX / DELEGATION WITH HIERARCHICAL LOCK)
 @router.put("/users/{fnum:path}/access")
 def update_user_access(
     fnum: str,
@@ -303,15 +348,81 @@ def update_user_access(
             raise HTTPException(status_code=403, detail="Delegation Denied: Officer is outside your station jurisdiction.")
 
     if "role" in payload:
+        old_role = target_user.role
         target_user.role = payload["role"]
+        if old_role != payload["role"]:
+            append_user_audit_event(target_user, "ROLE_CHANGE", current_user.fnum, f"Role changed from {old_role} to {payload['role']}")
+
     if "is_approved" in payload:
         target_user.is_approved = payload["is_approved"]
+
     if "permissions" in payload:
         new_perms = payload["permissions"]
         if isinstance(new_perms, str):
             try: new_perms = json.loads(new_perms)
             except: new_perms = {}
+
+        current_perms = target_user.permissions or {}
+        if isinstance(current_perms, str):
+            try: current_perms = json.loads(current_perms)
+            except: current_perms = {}
+
+        # 🟢 EXTRACT METADATA LOCKS (TRACKING WHO REVOKED/LOCKED PERMISSIONS)
+        clearance_locks = current_perms.get("_clearance_locks", {})
+        if not isinstance(clearance_locks, dict):
+            clearance_locks = {}
+
+        actor_tier = get_command_tier(current_user)
+        actor_fnum = (current_user.fnum or "").strip().upper()
+        is_principal_super_admin = "A/2408" in actor_fnum or actor_tier >= 5
+
+        # 🟢 HIERARCHICAL LOCK VALIDATION: PREVENT LOWER-TIER ADMINS FROM REINSTATING SUPERIOR REVOCATIONS
+        for perm_key, new_val in new_perms.items():
+            if perm_key.startswith("_"):
+                continue
             
+            old_val = current_perms.get(perm_key, False)
+            
+            # If permission was previously true and is now being turned off (revoked/unchecked)
+            if old_val is True and new_val is False:
+                clearance_locks[perm_key] = {
+                    "revoked_by_fnum": actor_fnum,
+                    "revoked_by_name": current_user.name,
+                    "tier": actor_tier,
+                    "timestamp": datetime.now(pytz.timezone('Africa/Nairobi')).isoformat()
+                }
+                append_user_audit_event(target_user, "PERMISSION_REVOKED", actor_fnum, f"Granular clearance '{perm_key}' was revoked/unchecked.")
+            
+            # If permission was previously false (or revoked) and is now being turned on (reinstated/checked)
+            elif old_val is False and new_val is True:
+                lock_info = clearance_locks.get(perm_key)
+                if lock_info:
+                    lock_tier = lock_info.get("tier", 0)
+                    locked_by_fnum = lock_info.get("revoked_by_fnum", "")
+                    
+                    # Strict restriction: If revoked by Principal Super Admin (A/2408), ONLY A/2408 can reinstate it
+                    if "A/2408" in locked_by_fnum and not is_principal_super_admin:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Security Violation: Clearance '{perm_key}' was revoked by Principal Super Admin A/2408. No other administrator can reinstate it."
+                        )
+                    
+                    # General hierarchical lock: If revoked by an equal or superior tier, current actor cannot override unless higher tier
+                    if actor_tier < lock_tier and not is_principal_super_admin:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Security Violation: Clearance '{perm_key}' was locked by a superior command authority. You lack sufficient clearance rank to reinstate it."
+                        )
+                
+                # If successfully reinstated by authorized tier, clear the lock record
+                if perm_key in clearance_locks:
+                    del clearance_locks[perm_key]
+                append_user_audit_event(target_user, "PERMISSION_REINSTATED", actor_fnum, f"Granular clearance '{perm_key}' was checked/reinstated.")
+
+        new_perms["_clearance_locks"] = clearance_locks
+        # Preserve existing audit history across permission payloads
+        new_perms["_audit_history"] = current_perms.get("_audit_history", [])
+
         # 🟢 RING-FENCE GLOBAL OPEN / BYPASS CLEARANCE TO AUTHORIZED HIGH COMMAND ONLY
         if new_perms.get("global_open") is True or new_perms.get("bypass_jurisdiction") is True:
             if not check_master_clearance(current_user):
@@ -325,10 +436,10 @@ def update_user_access(
 
     record_neon_activity(
         logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="USER_ACCESS",
-        target_id=clean_fnum, changes_summary=f"{current_user.fnum} updated access matrix for {clean_fnum}."
+        target_id=clean_fnum, changes_summary=f"{current_user.fnum} updated access matrix and granular clearances for {clean_fnum}."
     )
 
-    return {"status": "success", "message": f"User {clean_fnum} updated successfully."}
+    return {"status": "success", "message": f"User {clean_fnum} access updated successfully."}
 
 
 # 5. MANUAL DELEGATION TOGGLE ENDPOINT FOR COMMANDERS
@@ -377,6 +488,8 @@ def revoke_user_access(
     target_user.is_approved = False
     if hasattr(target_user, 'is_active'):
         target_user.is_active = False
+
+    append_user_audit_event(target_user, "ACCOUNT_REVOKED", current_user.fnum, f"Account access revoked. Reason: {reason}")
 
     db.commit()
     return {"status": "success", "message": f"Officer {clean_fnum} access revoked."}
@@ -428,6 +541,9 @@ def force_password_reset(
     from passlib.context import CryptContext
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     target_user.hashed_password = pwd_context.hash(new_password)
+    
+    append_user_audit_event(target_user, "PASSWORD_RESET", current_user.fnum, "Administrative force password reset executed.")
+    
     db.commit()
     return {"status": "success", "message": f"Password successfully updated for {clean_fnum}."}
 

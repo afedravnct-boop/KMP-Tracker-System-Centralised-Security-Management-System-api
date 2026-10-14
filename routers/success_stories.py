@@ -1,8 +1,10 @@
-# routers/success_stories.py
 import json
 import re
 import csv
 import io
+import os
+import requests
+import pyzipper
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -178,7 +180,6 @@ def get_stories(
 
     records = query.order_by(models.Success_Stories.sn.desc()).limit(limit).all()
 
-    # 🟢 HEAVY LIFTING SHIFTED TO BACKEND: Attach linked crime reports internally
     CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
     serialized_records = []
     
@@ -195,7 +196,6 @@ def get_stories(
             
             for prefix, ref_num in matches:
                 search_num = ref_num.strip().upper()
-                # Fast DB query for exact or like match
                 db_case = db.query(CrimeModel).filter(
                     or_(
                         func.upper(CrimeModel.sd_ref).like(f"%{search_num}%"),
@@ -210,7 +210,7 @@ def get_stories(
                         "date_reported": getattr(db_case, 'date_reported', getattr(db_case, 'date', '')),
                         "status": getattr(db_case, 'status', 'OPEN')
                     }
-                    break # Stop looking after finding the primary link
+                    break
 
         r_dict['linked_case'] = linked_case
         serialized_records.append(r_dict)
@@ -266,10 +266,10 @@ def get_unique_categories(
     return sorted(list(set(categories)))
 
 # ====================================================================
-# 1C. EXPORT SUCCESS STORIES TO CSV (BACKEND GENERATION)
+# 1C. SECURE AES-256 ZIP EXPORT (PHYSICAL PHOTOS & EXHIBITS)
 # ====================================================================
 @router.get("/stories/export")
-def export_stories_csv(
+def export_stories_archive(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
@@ -326,42 +326,61 @@ def export_stories_csv(
 
     records = query.order_by(models.Success_Stories.sn.desc()).all()
 
-    # Generate CSV in-memory
-    stream = io.StringIO()
-    writer = csv.writer(stream)
-    writer.writerow(["SN", "Date Recorded", "Region", "Station", "Category / Focus", "Narrative Extract", "Logged By"])
+    zip_stream = io.BytesIO()
+    zip_password = str(current_user.fnum).strip().encode('utf-8')
+    timestamp = datetime.now().strftime("%Y%m%d")
+    zip_filename = f"SECURE_SUCCESS_STORIES_EXHIBITS_{timestamp}.zip"
 
-    total_records = len(records)
-    for idx, r in enumerate(records):
-        # The narrative contains both the headline and body because we merged them
-        narrative_clean = strip_html_tags(getattr(r, 'narrative', ''))
-        
-        writer.writerow([
-            total_records - idx,
-            getattr(r, 'date', getattr(r, 'created_at', '')),
-            getattr(r, 'region', ''),
-            getattr(r, 'station', ''),
-            getattr(r, 'category', 'GENERAL CRIMES'),
-            narrative_clean,
-            getattr(r, 'last_updated_by', '')
-        ])
+    with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(zip_password)
 
-    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-    
-    file_label = category.replace(" ", "_").upper() if category and category not in ["ALL CATEGORIES", "ALL"] else "ALL_STORIES"
-    timestamp = datetime.now().strftime("%Y-%m-%d")
-    response.headers["Content-Disposition"] = f"attachment; filename=KMP_SUCCESS_STORIES_{file_label}_{timestamp}.csv"
-    
+        for r in records:
+            sn = getattr(r, 'sn', getattr(r, 'id', 'UNKNOWN'))
+            station_name = strip_html_tags(getattr(r, 'station', 'STATION')).replace('/', '_').replace(' ', '_')
+            photo_urls = getattr(r, 'photo_url', '')
+
+            if not photo_urls:
+                continue
+
+            urls = [u.strip() for u in photo_urls.split(',') if u.strip()]
+            for idx, url in enumerate(urls):
+                try:
+                    if url.startswith('http://') or url.startswith('https://'):
+                        img_response = requests.get(url, timeout=10)
+                        if img_response.status_code == 200:
+                            file_ext = url.split('.')[-1].split('?')[0].lower()
+                            if file_ext not in ['jpg', 'jpeg', 'png', 'webp', 'pdf']:
+                                file_ext = 'jpg'
+                            
+                            filename = f"SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
+                            zf.writestr(filename, img_response.content)
+                    elif os.path.exists(url):
+                        with open(url, 'rb') as f:
+                            file_ext = url.split('.')[-1].lower()
+                            filename = f"SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
+                            zf.writestr(filename, f.read())
+                except Exception as ex:
+                    print(f"Failed to bundle exhibit for SN {sn}: {str(ex)}")
+
+    zip_stream.seek(0)
+
     record_neon_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
         action_type="EXPORT",
         module="SUCCESS_STORIES",
-        target_id="CSV_EXPORT",
-        changes_summary=f"Officer generated and exported backend CSV containing {total_records} success stories (Filter: {file_label})."
+        target_id="SECURE_PHOTO_ZIP_EXPORT",
+        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely exported physical photo exhibits archive for Success Stories ({len(records)} records processed)."
     )
 
-    return response
+    return StreamingResponse(
+        zip_stream,
+        media_type="application/zip",
+        headers={
+            'Content-Disposition': f'attachment; filename="{zip_filename}"',
+            'Access-Control-Expose-Headers': 'Content-Disposition'
+        }
+    )
 
 # ====================================================================
 # 2. CREATE SUCCESS STORY
@@ -384,7 +403,6 @@ def create_story(
             data["region"] = current_user.region
             data["station"] = current_user.station
 
-        # Ensure category defaults if missing
         if not data.get("category"):
             data["category"] = "GENERAL CRIMES"
 
@@ -445,7 +463,6 @@ def update_story(
             data.pop('region', None)
             data.pop('station', None)
 
-        # Ensure category has a safe fallback if omitted in update payload
         if "category" not in data or not data["category"]:
             data["category"] = record.category or "GENERAL CRIMES"
 

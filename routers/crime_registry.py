@@ -1,10 +1,10 @@
-# routers/crime_registry.py
 import os
 import uuid
 import re
 import html
 import boto3
 import io
+import requests
 import pyzipper
 from typing import Optional, List, Union
 from datetime import datetime, date
@@ -43,9 +43,7 @@ REGIONAL_HIERARCHY = {
 def strip_html_tags(text_str: str) -> str:
     if not text_str:
         return ""
-    # Unescape HTML entities first (&nbsp;, &amp;, etc.)
     unescaped = html.unescape(str(text_str))
-    # Remove HTML tags
     return re.sub(r'<[^<]+?>', '', unescaped).strip()
 
 def parse_crime_incident_backend(offence_str: str, narrative_str: str):
@@ -427,7 +425,7 @@ def get_crime_analytics(
     return summary_data
 
 # ====================================================================
-# 1D. EXPORT CRIME REPORTS TO SECURE AES-256 ZIP (.XLSX)
+# 1D. EXPORT CRIME REPORTS TO SECURE AES-256 ZIP (.XLSX + SUSPECT PHOTOS)
 # ====================================================================
 @router.get("/reports/export")
 def export_reports_excel(
@@ -510,7 +508,6 @@ def export_reports_excel(
     wb.properties.subject = f"Crime Registry Data Extract — Downloaded by {officer_fnum} ({officer_station}) at {timestamp_str}"
     wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
 
-    # Styling definitions
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
     header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -521,16 +518,14 @@ def export_reports_excel(
         top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
     )
 
-    # 3. Insert Forensic Audit Banner Row at the Top
     ws.merge_cells("A1:J1")
     banner_cell = ws.cell(row=1, column=1)
     banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
-    banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B") # Deep Red Warning
+    banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
     banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
     banner_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 22
 
-    # 4. Table Headers (Row 3)
     headers = ["SN", "Reference", "Date Recorded", "Time", "Region", "Station", "Offence / Category", "Suspects", "Status", "Incident Narrative"]
     ws.row_dimensions[3].height = 26
     for col_idx, header_text in enumerate(headers, 1):
@@ -543,14 +538,18 @@ def export_reports_excel(
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     total_records = len(reports)
 
-    # 5. Populate Data Rows starting at Row 4
+    # 🟢 Collect and bundle suspect photos alongside Excel generation
+    suspect_photos_to_bundle = []
+
     for idx, r in enumerate(reports):
         c_dict = clean_model_dict(r)
         narrative_clean = strip_html_tags(c_dict.get('narrative', ''))
         
+        suspects_list = []
         suspect_count = c_dict.get('suspects', 0)
         if SuspectModel and hasattr(r, 'id'):
-            suspect_count = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).count()
+            suspects_list = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).all()
+            suspect_count = len(suspects_list)
 
         row_data = [
             total_records - idx,
@@ -580,6 +579,17 @@ def export_reports_excel(
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="top")
 
+        # Track suspect photos for ZIP archiving
+        for s_idx, s in enumerate(suspects_list):
+            photo_url = getattr(s, 'photo_url', None)
+            if photo_url:
+                suspect_name = strip_html_tags(getattr(s, 'name', f'Suspect_{s_idx + 1}')).replace('/', '_').replace(' ', '_')
+                ref_str = str(c_dict.get('sdRef', c_dict.get('sd_ref', 'REF'))).replace('/', '_')
+                suspect_photos_to_bundle.append({
+                    "url": photo_url,
+                    "filename": f"Ref_{ref_str}_Suspect_{s_idx + 1}_{suspect_name}.jpg"
+                })
+
     column_widths = {'A': 8, 'B': 18, 'C': 15, 'D': 10, 'E': 16, 'F': 18, 'G': 22, 'H': 12, 'I': 18, 'J': 60}
     for col_letter, width in column_widths.items():
         ws.column_dimensions[col_letter].width = width
@@ -588,7 +598,7 @@ def export_reports_excel(
     wb.save(excel_buffer)
     excel_buffer.seek(0)
 
-    # 6. Compress and Encrypt into AES-256 ZIP Archive using Officer's Force Number
+    # 3. Compress and Encrypt into AES-256 ZIP Archive (.xlsx + Suspect Photos)
     zip_buffer = io.BytesIO()
     with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
         zf.setpassword(officer_fnum.encode('utf-8'))
@@ -596,6 +606,21 @@ def export_reports_excel(
         timestamp = datetime.now().strftime("%Y-%m-%d")
         excel_filename = f"KMP_REGISTRY_{file_label}_{timestamp}.xlsx"
         zf.writestr(excel_filename, excel_buffer.getvalue())
+
+        # 🟢 Embed Suspect Photos into ZIP Archive
+        for photo_item in suspect_photos_to_bundle:
+            url = photo_item["url"]
+            target_filename = f"Suspect_Photos/{photo_item['filename']}"
+            try:
+                if url.startswith('http://') or url.startswith('https://'):
+                    img_resp = requests.get(url, timeout=10)
+                    if img_resp.status_code == 200:
+                        zf.writestr(target_filename, img_resp.content)
+                elif os.path.exists(url):
+                    with open(url, 'rb') as f:
+                        zf.writestr(target_filename, f.read())
+            except Exception as ex:
+                print(f"Failed to bundle suspect photo {url}: {str(ex)}")
 
     zip_buffer.seek(0)
     zip_filename = f"KMP_REGISTRY_SECURE_EXPORT_{timestamp}.zip"
@@ -606,7 +631,7 @@ def export_reports_excel(
         action_type="EXPORT",
         module="CRIME_REGISTRY",
         target_id="AES_ZIP_EXPORT",
-        changes_summary=f"Officer generated AES-256 encrypted archive containing {total_records} records (Keyed to FNum: {officer_fnum})."
+        changes_summary=f"Officer generated AES-256 encrypted archive containing {total_records} crime reports and {len(suspect_photos_to_bundle)} suspect photos (Keyed to FNum: {officer_fnum})."
     )
 
     return StreamingResponse(

@@ -1,7 +1,7 @@
 // src/components/Statistics.jsx
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle, Sprout, Save, HardDrive } from 'lucide-react';
-import { authFetch, getAuthToken, hasValidSession } from './api';
+import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle, Sprout, Save, HardDrive, X } from 'lucide-react';
+import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -93,7 +93,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const [statsDomain, setStatsDomain] = useState('DISRUPTIVE');
   
-  // Backend Fetched Data States
   const [currentDomainStats, setCurrentDomainStats] = useState([]);
   const [agricSummaryRecords, setAgricSummaryRecords] = useState([]);
 
@@ -122,7 +121,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
   
   const isCommandOrHR = isGlobalTier || isKmpSystemManager || isRegionalCommand || userPosClean.includes('HR');
-  const canEditRecords = isCommandOrHR || currentUser?.permissions?.upload_hr === true || currentUser?.permissions?.log_crime === true;
+  const canEditRecords = (isCommandOrHR || currentUser?.permissions?.upload_hr === true || currentUser?.permissions?.log_crime === true) && !isReadOnlyObserver;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
@@ -213,6 +212,56 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     fetchDomainStats();
     fetchAgricSummaries();
   }, [fetchDomainStats, fetchAgricSummaries]);
+
+  // 🟢 Secure Forensic AES-256 Export Handler Matching CrimeRegistry Layout Standards
+  const handleExportDomainStats = async () => {
+    if (!currentDomainStats.length) {
+      alert("No records available to export for the selected filters.");
+      return;
+    }
+    
+    setNotification("⏳ Generating AES-256 secure encrypted spreadsheet archive. Please wait...");
+    
+    try {
+      const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats/export' : '/api/v1/stats/export';
+      const params = new URLSearchParams();
+      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const response = await authFetch(`${targetEndpoint}?${params.toString()}`);
+      if (!response.ok) throw new Error("Secure export failed on server.");
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = `KMP_${statsDomain}_SECURE_EXPORT.zip`;
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          filename = disposition.split('filename=')[1].replace(/["']/g, '');
+      } else {
+          const timestamp = new Date().toISOString().split('T')[0];
+          filename = `KMP_${statsDomain}_SECURE_EXPORT_${timestamp}.zip`;
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      setNotification("✅ Secure AES-256 archive downloaded successfully! Use your Force Number to unlock.");
+      setTimeout(() => setNotification(null), 6000);
+    } catch (err) {
+      console.error("Export error:", err);
+      setNotification("❌ Failed to generate secure export archive.");
+    }
+  };
 
   const groupedAgricData = useMemo(() => {
     const groups = {};
@@ -481,71 +530,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     }
   };
 
-  const handleExportDomainStats = async () => {
-    if (!currentDomainStats.length) return alert("No records available to export.");
-    setNotification("⏳ Generating official statistics export...");
-    
-    try {
-      const targetEndpoint = statsDomain === 'AGRICULTURAL' ? '/api/v1/agric-stats/export' : '/api/v1/stats/export';
-      const params = new URLSearchParams();
-      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
-      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
-      
-      const { start, end } = getDateRangeParams(dateFilter);
-      if (start) params.append('start_date', start);
-      if (end) params.append('end_date', end);
-
-      const response = await authFetch(`${targetEndpoint}?${params.toString()}`);
-      if (!response.ok) throw new Error("Export failed on server.");
-      
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `KMP_${statsDomain}_STATS_${getTodayString()}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      setNotification(null);
-    } catch (err) {
-      console.error(err);
-      setNotification("❌ Failed to export statistics.");
-    }
-  };
-
-  const handleExportAgricSummary = async () => {
-    if (!agricSummaryRecords.length) return alert("No records available to export.");
-    setNotification("⏳ Generating agricultural summary export...");
-    
-    try {
-      const params = new URLSearchParams();
-      if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
-      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
-      
-      const { start, end } = getDateRangeParams(dateFilter);
-      if (start) params.append('start_date', start);
-      if (end) params.append('end_date', end);
-
-      const response = await authFetch(`/api/v1/agric-summary/export?${params.toString()}`);
-      if (!response.ok) throw new Error("Export failed on server.");
-      
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `KMP_AGRIC_SUMMARY_${getTodayString()}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      setNotification(null);
-    } catch (err) {
-      console.error(err);
-      setNotification("❌ Failed to export summaries.");
-    }
-  };
-
   const parseAgricStatus = (record) => {
     try {
       if (record.status && record.status.includes('{')) {
@@ -673,10 +657,15 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           
           <div className="lg:col-span-8 space-y-4">
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative">
-              {/* 🟢 Proper placement of Export Button matching Crime Registry layout standards */}
+              
+              {/* 🟢 UPDATED: Forensic AES-256 Export Button matching CrimeIncidentRegistry layout & styling */}
               <div className="absolute top-4 right-4 z-10 flex gap-2">
-                <button type="button" onClick={handleExportDomainStats} className="px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-blue-700 text-white border-blue-800 hover:bg-blue-800">
-                  <HardDrive className="w-3.5 h-3.5 mr-1.5" /> Export Data
+                <button 
+                  type="button" 
+                  onClick={handleExportDomainStats} 
+                  className="px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-emerald-700 text-white border-emerald-800 hover:bg-emerald-800 ring-2 ring-emerald-500/20"
+                >
+                  <HardDrive className="w-3.5 h-3.5 mr-1.5" /> Export Secure Excel (.zip)
                 </button>
                 <select 
                   value={dateFilter} 
@@ -835,9 +824,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                 <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-300 dark:border-slate-800 overflow-hidden">
                   <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 text-white font-extrabold text-xs uppercase tracking-wider flex items-center justify-between">
                     <span>📋 Regional Agricultural & Produce Theft Command Ledger</span>
-                    <button type="button" onClick={handleExportAgricSummary} className="px-3 py-1.5 text-[10px] font-black rounded border border-emerald-500 transition-all flex items-center shadow-sm cursor-pointer bg-emerald-700 text-white hover:bg-emerald-800">
-                      <HardDrive className="w-3 h-3 mr-1.5" /> Export Ledger
-                    </button>
                   </div>
 
                   <div className="overflow-x-auto w-full custom-scrollbar dark:bg-slate-900">

@@ -1,4 +1,3 @@
-# routers/admin_communication.py
 import os
 import asyncio
 import json
@@ -97,7 +96,9 @@ async def send_command_briefing(email_to: List[str], subject: str, html_body: st
     except Exception as e:
         print(f"❌ Failed to dispatch command email: {e}")
 
-# 🟢 AI Telemetry Diagnostic Payload Model
+# ====================================================================
+# AI TELEMETRY DIAGNOSTIC PROBE
+# ====================================================================
 class GlitchTelemetryPayload(BaseModel):
     console_logs: List[str]
     network_errors: List[str]
@@ -111,9 +112,13 @@ def diagnose_client_glitch(
     current_user: models.Users = Depends(get_current_user)
 ):
     """
-    AI-powered backend telemetry inspector using the modern google.genai SDK.
+    Automated background AI console probe that reads console errors, captures network faults,
+    and returns a structured diagnostic description for technical glitch alerts.
     """
     try:
+        latest_error = payload.console_logs[-1] if payload.console_logs else "No explicit console error trapped"
+        network_summary = "; ".join(payload.network_errors) if payload.network_errors else "No network faults recorded"
+
         analysis_prompt = f"""
         You are an expert system debugger for a Police Data Management System.
         Analyze the following client browser telemetry and identify the exact fault:
@@ -126,7 +131,7 @@ def diagnose_client_glitch(
             "glitch_category": "One of: [System showing zeros where data should exist, Data synchronization failure, Database timeout / latency error, UI layout rendering defect, Authentication / permission mismatch]",
             "page_name": "Identified page or component name",
             "element_point": "Exact UI button, table, or input element causing the fault",
-            "description": "Professional technical summary of the error found in logs"
+            "description": "Professional technical summary incorporating console error: {latest_error} | Network: {network_summary}"
         }}
         """
 
@@ -147,17 +152,20 @@ def diagnose_client_glitch(
             "diagnostic": diagnostic_data
         }
     except Exception as e:
-        latest_log = payload.console_logs[-1] if payload.console_logs else "No explicit console error trapped"
+        latest_log = payload.console_logs[-1] if payload.console_logs else "Unspecified runtime exception"
         return {
             "status": "success",
             "diagnostic": {
-                "glitch_category": "System showing zeros where data should exist",
+                "glitch_category": "Data synchronization failure",
                 "page_name": payload.current_page or "Dashboard",
                 "element_point": "Active View State",
-                "description": f"Automated inspection captured browser event: {latest_log}"
+                "description": f"Automated console probe intercepted runtime fault: {latest_log}"
             }
         }
 
+# ====================================================================
+# CREATE ADMIN COMMUNICATION / GLITCH ALERT
+# ====================================================================
 @router.post("/communications")
 @router.post("/Admin_Communication")
 def create_admin_communication(
@@ -181,7 +189,6 @@ def create_admin_communication(
         is_glitch_alert = (comm.message_type == "TECHNICAL_GLITCH_ALERT")
         target_fnum_val = comm.target_fnum
 
-        # 🟢 Restricted High Command Target Routing for Glitch Alerts
         if is_glitch_alert:
             high_command_users = db.query(models.Users.fnum).filter(
                 models.Users.is_approved == True,
@@ -307,6 +314,9 @@ def create_admin_communication(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to post communication: {str(e)}")
 
+# ====================================================================
+# RETRIEVE COMMUNICATIONS (WITH FIXED READ PERSISTENCE)
+# ====================================================================
 @router.get("/Admin_Communication")
 @router.get("/communications")
 def get_admin_communications(
@@ -408,21 +418,13 @@ def get_admin_communications(
      
     eat_tz = pytz.timezone("Africa/Nairobi")
     clean_comms = []
-     
-    user_created_at = getattr(current_user, 'created_at', None)
 
     for c in comms:
         sender_clean = (c.sender_fnum or "").strip().upper()
         comm_id = getattr(c, 'id', getattr(c, 'sn', 1))
          
-        is_older_than_user = False
-        if user_created_at and c.created_at and isinstance(c.created_at, datetime):
-            msg_dt = c.created_at.replace(tzinfo=None) if c.created_at.tzinfo else c.created_at
-            usr_dt = user_created_at.replace(tzinfo=None) if user_created_at.tzinfo else user_created_at
-            if msg_dt < usr_dt:
-                is_older_than_user = True
-
-        is_read = (comm_id in read_comm_ids) or (sender_clean == clean_user_fnum) or is_older_than_user
+        # 🟢 Corrected Read Logic: Rely strictly on read receipts or authorship (no false persistence overrides)
+        is_read = (comm_id in read_comm_ids) or (sender_clean == clean_user_fnum)
          
         local_time = getattr(c, 'created_at', None)
         if local_time:
@@ -466,6 +468,9 @@ def get_admin_communications(
 
     return clean_comms
 
+# ====================================================================
+# ACKNOWLEDGE, READERS, AND PING ENDPOINTS
+# ====================================================================
 @router.post("/communications/{comm_id:path}/acknowledge")
 @router.post("/Admin_Communication/{comm_id:path}/acknowledge")
 def acknowledge_communication(
@@ -784,11 +789,10 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
     query = query.filter(or_(*visibility_conditions))
 
     comms = query.order_by(CommModel.created_at.desc()).limit(50).all()
-    
+     
     read_records = db.query(ReadsModel.comm_id).filter(func.trim(func.upper(read_fnum_col)) == clean_user_fnum).all()
     read_comm_ids = {r[0] for r in read_records} 
      
-    user_created_at = getattr(current_user, 'created_at', None)
     has_unread = False
 
     for c_id, c_sender, c_created, c_audience, c_target_fnum in comms:
@@ -796,15 +800,7 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
         if c_id in read_comm_ids or sender_clean == clean_user_fnum:
             continue
              
-        is_older_than_user = False
-        if user_created_at and c_created and isinstance(c_created, datetime):
-            msg_dt = c_created.replace(tzinfo=None) if c_created.tzinfo else c_created
-            usr_dt = user_created_at.replace(tzinfo=None) if user_created_at.tzinfo else user_created_at
-            if msg_dt < usr_dt:
-                is_older_than_user = True
-
-        if not is_older_than_user:
-            has_unread = True
-            break
+        has_unread = True
+        break
 
     return {"hasUnread": has_unread}

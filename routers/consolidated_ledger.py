@@ -1,6 +1,7 @@
 # routers/consolidated_ledger.py
 import io
 import json
+import re
 from datetime import datetime, date
 from typing import Optional, List, Union
 from urllib.parse import unquote
@@ -70,7 +71,7 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
         return clean_db_region
 
     for region_name, stations_list in REGIONAL_HIERARCHY.items():
-        if clean_station in stations_list or any(is_stationEquivalent(s, clean_station) for s in stations_list):
+        if clean_station in stations_list or any(is_station_equivalent(s, clean_station) for s in stations_list):
             return region_name
 
     return clean_db_region or 'KMP GENERAL'
@@ -86,18 +87,20 @@ def get_consolidated_ledger(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        # Fetch raw data models safely from database tables
         crime_model = getattr(models, 'CrimeIncident', getattr(models, 'Crime_Incident', None))
         stats_model = getattr(models, 'OperationalStats', getattr(models, 'Operational_Stats', None))
         stories_model = getattr(models, 'SuccessStories', getattr(models, 'Success_Stories', None))
         agric_model = getattr(models, 'AgricSummary', getattr(models, 'Agric_Summary', None))
 
-        crimes = db.query(crime_model).all() if crime_model else []
-        statistics = db.query(stats_model).all() if stats_model else []
-        stories = db.query(stories_model).all() if stories_model else []
-        agric = db.query(agric_model).all() if agric_model else []
+        # 🟢 Apply date filtering at the database query level rather than pulling everything into memory
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
 
-        # Convert ORM instances to dictionaries to serialize securely
+        crimes = db.query(crime_model).filter(crime_model.date >= start_dt, crime_model.date <= end_dt).all() if crime_model else []
+        statistics = db.query(stats_model).filter(stats_model.date >= start_dt, stats_model.date <= end_dt).all() if stats_model else []
+        stories = db.query(stories_model).filter(stories_model.date >= start_dt, stories_model.date <= end_dt).all() if stories_model else []
+        agric = db.query(agric_model).filter(agric_model.date >= start_dt, agric_model.date <= end_dt).all() if agric_model else []
+
         def serialize_list(items):
             result = []
             for item in items:
@@ -108,15 +111,6 @@ def get_consolidated_ledger(
                         d[k] = v.isoformat()
                 result.append(d)
             return result
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="VIEW",
-            module="CONSOLIDATED_LEDGER",
-            target_id="MASTER_SUMMARY",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} inspected the Consolidated Master Ledger."
-        )
 
         return {
             "status": "success",
