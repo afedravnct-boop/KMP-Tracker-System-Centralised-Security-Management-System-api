@@ -1879,6 +1879,27 @@ def export_filtered_nominal_roll(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Filtered Ledger Export Failed: {str(e)}")
 
+@router.get("/nominal-roll/ranks-list")
+def get_nominal_roll_ranks(
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    try:
+        ActiveModel = get_active_model()
+        query = get_scoped_nominal_query(db, current_user, ActiveModel)
+        records = query.all()
+        
+        ranks_set = set()
+        for r in records:
+            if is_invalid_roster_entry(r): continue
+            rk = clean_str(getattr(r, 'rank', ''))
+            if rk:
+                ranks_set.add(rk)
+                
+        return sorted(list(ranks_set))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch ranks list: {str(e)}")
+
 @router.get("/nominal-roll/audit-missing-preview")
 def audit_missing_preview(
     region: str = "ALL REGIONS",
