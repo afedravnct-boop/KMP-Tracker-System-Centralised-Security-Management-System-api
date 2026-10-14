@@ -70,6 +70,7 @@ from routers import exhibits
 from routers.activity_logger import record_neon_activity, SystemActivityMiddleware 
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
 from routers import hr_router
+from routers import consolidated_ledger
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
@@ -112,6 +113,7 @@ app.include_router(ai_router.router)
 app.include_router(auth_router)
 app.include_router(exhibits.router)
 app.include_router(hr_router.router)
+app.include_router(consolidated_ledger.router)
 
 # ==========================================
 # GLOBAL EXCEPTION HANDLER
