@@ -47,17 +47,13 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
     const fetchLedgerData = async () => {
       setLoading(true);
       try {
-        const token = localStorage.getItem('token'); 
         const url = `/api/v1/reports/consolidated-ledger?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
         
-        const response = await fetch(url, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        // Use your global authFetch utility which automatically attaches the token and base URL
+        const response = await authFetch(url);
         
         const result = await response.json();
-        if (result.status === 'success') {
+        if (response.ok && result.status === 'success') {
           setLedgerData(result.data);
         }
       } catch (error) {

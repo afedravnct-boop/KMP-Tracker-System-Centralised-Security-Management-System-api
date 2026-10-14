@@ -7,6 +7,7 @@ from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, and_
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -28,16 +29,6 @@ def normalize_region_name(region_str) -> str:
     if r in ["KMP HQ", "KMP HEADQUARTERS"]: return "KMP HEADQUARTERS"
     if r in ["POLICE HQ", "POLICE HEADQUARTERS", "NAGURU"]: return "POLICE HEADQUARTERS"
     return r
-
-def normalize_station_name(station_str) -> str:
-    if not station_str: return "UNKNOWN"
-    val = clean_str(station_str)
-    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION"]:
-        return "OLD KAMPALA"
-    val = val.replace(" POLICE STATION", "").replace(" POL STN", "").replace(" P/STN", "").replace(" DIVISION", "")
-    if val.endswith(" P") and len(val) > 2:  
-        val = val[:-2].strip()
-    return val
 
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -75,17 +66,6 @@ def get_model_safe(*names):
             return getattr(models, name)
     return None
 
-def is_lockup_log(item) -> bool:
-    try:
-        if getattr(item, 'is_hq_general_total', False): return True
-        if 'HEADQUARTERS GENERAL TOTAL' in str(getattr(item, 'station', '')).upper(): return True
-        lockup = getattr(item, 'daily_lock_up', None)
-        offence = getattr(item, 'offence', None)
-        if lockup is not None and float(lockup) > 0 and not offence: return True
-        return False
-    except:
-        return False
-
 @router.get("/reports/consolidated-ledger")
 def get_consolidated_ledger(
     start_date: Optional[str] = Query(default=None),
@@ -112,104 +92,162 @@ def get_consolidated_ledger(
             start_dt = default_start
             end_dt = today
 
-        # Fetch basic records efficiently
-        crimes = db.query(crime_model).filter(crime_model.date >= str(start_dt), crime_model.date <= str(end_dt)).all() if crime_model else []
-        statistics = db.query(stats_model).filter(stats_model.date >= str(start_dt), stats_model.date <= str(end_dt)).all() if stats_model else []
-        stories = db.query(stories_model).filter(stories_model.date >= str(start_dt), stories_model.date <= str(end_dt)).all() if stories_model else []
-        agric = db.query(agric_model).filter(agric_model.date >= str(start_dt), agric_model.date <= str(end_dt)).all() if agric_model else []
-
-        # --- DATA AGGREGATION ENGINE (Moved from Frontend) ---
-        crime_regional, crime_general = {}, {}
-        grand_crime_cases, grand_crime_suspects = 0, 0
-        ops_regional = {}
-        ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
-        story_regional = {}
-        grand_stories = 0
-
-        # Helper to check jurisdiction matches
-        def matches_jurisdiction(stn, reg):
-            if region == 'ALL REGIONS':
-                pass
-            elif reg == region:
-                pass
-            elif region in REGIONAL_HIERARCHY and any(is_station_equivalent(s, stn) for s in REGIONAL_HIERARCHY[region]):
-                pass
-            else:
-                return False
-                
-            if station != 'ALL STATIONS':
-                if not is_station_equivalent(stn, station):
-                    return False
-            return True
-
-        # Process Crimes
-        for r in crimes:
-            if is_lockup_log(r): continue
-            stn = clean_str(getattr(r, 'station', ''))
-            reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
-            
-            if not matches_jurisdiction(stn, reg): continue
-
-            off = clean_str(getattr(r, 'offence', '')) or 'UNSPECIFIED INCIDENT'
-            suspects = int(getattr(r, 'suspects', 0) or 0)
-
-            if reg not in crime_regional: crime_regional[reg] = {}
-            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-            crime_regional[reg][off]["cases"] += 1
-            crime_regional[reg][off]["suspects"] += suspects
-
-            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-            crime_general[off]["cases"] += 1
-            crime_general[off]["suspects"] += suspects
-
-            grand_crime_cases += 1
-            grand_crime_suspects += suspects
-
-        # Process Agricultural Crimes
-        for a in agric:
-            stn = clean_str(getattr(a, 'station', ''))
-            reg = get_official_region_for_station(stn, getattr(a, 'region', ''))
-            
-            if not matches_jurisdiction(stn, reg): continue
-
-            off = (getattr(a, 'agric_crime_report', 'AGRICULTURAL THEFT') or 'AGRICULTURAL THEFT').upper()
-            count = int(getattr(a, 'number_count', 0) or 0)
-
-            if reg not in crime_regional: crime_regional[reg] = {}
-            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-            crime_regional[reg][off]["cases"] += count
-
-            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-            crime_general[off]["cases"] += count
-            grand_crime_cases += count
-
-        # Process Ops Stats
-        for s in statistics:
-            stn = clean_str(getattr(s, 'station', ''))
-            reg = get_official_region_for_station(stn, getattr(s, 'region', ''))
-            if not matches_jurisdiction(stn, reg): continue
-
-            if reg not in ops_regional:
-                ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-            
-            for key in ops_general.keys():
-                val = int(getattr(s, key, 0) or 0)
-                ops_regional[reg][key] += val
-                ops_general[key] += val
-
-        # Process Stories
-        for st in stories:
-            stn = clean_str(getattr(st, 'station', ''))
-            reg = get_official_region_for_station(stn, getattr(st, 'region', ''))
-            if not matches_jurisdiction(stn, reg): continue
-
-            story_regional[reg] = story_regional.get(reg, 0) + 1
-            grand_stories += 1
-
-        # Sorting logic (matching frontend exactly)
         region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
         def sort_regions(regions):
             return sorted(regions, key=lambda x: region_order.index(x) if x in region_order else 999)
+
+        # ==========================================
+        # 1. DATABASE-LEVEL AGGREGATION: CRIMES
+        # ==========================================
+        crime_regional, crime_general = {}, {}
+        grand_crime_cases, grand_crime_suspects = 0, 0
+
+        if crime_model:
+            query = db.query(
+                crime_model.region,
+                crime_model.station,
+                crime_model.offence,
+                func.count(crime_model.id).label('cases'),
+                func.sum(func.coalesce(crime_model.suspects, 0)).label('suspects')
+            ).filter(
+                crime_model.date >= str(start_dt),
+                crime_model.date <= str(end_dt)
+            )
+
+            # Apply DB-level filters if specific region/station are chosen
+            if region != "ALL REGIONS":
+                query = query.filter(crime_model.region == region)
+            if station != "ALL STATIONS":
+                query = query.filter(crime_model.station == station)
+
+            crime_rows = query.group_by(crime_model.region, crime_model.station, crime_model.offence).all()
+
+            for row in crime_rows:
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+                off = clean_str(row.offence) or 'UNSPECIFIED INCIDENT'
+                cases = int(row.cases or 0)
+                suspects = int(row.suspects or 0)
+
+                if reg not in crime_regional: crime_regional[reg] = {}
+                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+                crime_regional[reg][off]["cases"] += cases
+                crime_regional[reg][off]["suspects"] += suspects
+
+                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                crime_general[off]["cases"] += cases
+                crime_general[off]["suspects"] += suspects
+
+                grand_crime_cases += cases
+                grand_crime_suspects += suspects
+
+        # ==========================================
+        # 2. DATABASE-LEVEL AGGREGATION: AGRICULTURAL CRIMES
+        # ==========================================
+        if agric_model:
+            ag_query = db.query(
+                agric_model.region,
+                agric_model.station,
+                agric_model.agric_crime_report,
+                func.sum(func.coalesce(agric_model.number_count, 0)).label('total_count')
+            ).filter(
+                agric_model.date >= str(start_dt),
+                agric_model.date <= str(end_dt)
+            )
+
+            if region != "ALL REGIONS":
+                ag_query = ag_query.filter(agric_model.region == region)
+            if station != "ALL STATIONS":
+                ag_query = ag_query.filter(agric_model.station == station)
+
+            ag_rows = ag_query.group_by(agric_model.region, agric_model.station, agric_model.agric_crime_report).all()
+
+            for row in ag_rows:
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+                off = (row.agric_crime_report or 'AGRICULTURAL THEFT').upper()
+                count = int(row.total_count or 0)
+
+                if reg not in crime_regional: crime_regional[reg] = {}
+                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+                crime_regional[reg][off]["cases"] += count
+
+                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                crime_general[off]["cases"] += count
+                grand_crime_cases += count
+
+        # ==========================================
+        # 3. DATABASE-LEVEL AGGREGATION: OPS STATS
+        # ==========================================
+        ops_regional = {}
+        ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
+
+        if stats_model:
+            stats_query = db.query(
+                stats_model.region,
+                stats_model.station,
+                func.sum(func.coalesce(stats_model.arrested, 0)).label('arrested'),
+                func.sum(func.coalesce(stats_model.given_bond, 0)).label('given_bond'),
+                func.sum(func.coalesce(stats_model.cautioned, 0)).label('cautioned'),
+                func.sum(func.coalesce(stats_model.pending_court, 0)).label('pending_court'),
+                func.sum(func.coalesce(stats_model.taken_to_court, 0)).label('taken_to_court'),
+                func.sum(func.coalesce(stats_model.released, 0)).label('released'),
+                func.sum(func.coalesce(stats_model.remanded, 0)).label('remanded'),
+                func.sum(func.coalesce(stats_model.convicted, 0)).label('convicted')
+            ).filter(
+                stats_model.date >= str(start_dt),
+                stats_model.date <= str(end_dt)
+            )
+
+            if region != "ALL REGIONS":
+                stats_query = stats_query.filter(stats_model.region == region)
+            if station != "ALL STATIONS":
+                stats_query = stats_query.filter(stats_model.station == station)
+
+            stats_rows = stats_query.group_by(stats_model.region, stats_model.station).all()
+
+            for row in stats_rows:
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+
+                if reg not in ops_regional:
+                    ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+
+                for key in ops_general.keys():
+                    val = int(getattr(row, key, 0) or 0)
+                    ops_regional[reg][key] += val
+                    ops_general[key] += val
+
+        # ==========================================
+        # 4. DATABASE-LEVEL AGGREGATION: STORIES
+        # ==========================================
+        story_regional = {}
+        grand_stories = 0
+
+        if stories_model:
+            story_query = db.query(
+                stories_model.region,
+                stories_model.station,
+                func.count(stories_model.id).label('story_count')
+            ).filter(
+                stories_model.date >= str(start_dt),
+                stories_model.date <= str(end_dt)
+            )
+
+            if region != "ALL REGIONS":
+                story_query = story_query.filter(stories_model.region == region)
+            if station != "ALL STATIONS":
+                story_query = story_query.filter(stories_model.station == station)
+
+            story_rows = story_query.group_by(stories_model.region, stories_model.station).all()
+
+            for row in story_rows:
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+                count = int(row.story_count or 0)
+
+                story_regional[reg] = story_regional.get(reg, 0) + count
+                grand_stories += count
 
         record_neon_activity(
             logs_db=logs_db,
