@@ -58,9 +58,9 @@ def clean_str(val) -> str:
 def normalize_region_name(region_str) -> str:
     if not region_str: return "KMP HEADQUARTERS"
     r = clean_str(region_str)
-    if r in ["KMPN", "KMP/N", "KMP NORTH"]: return "KMP NORTH"
-    if r in ["KMPS", "KMP/S", "KMP SOUTH"]: return "KMP SOUTH"
-    if r in ["KMPE", "KMP/E", "KMP EAST"]: return "KMP EAST"
+    if r in ["KMPN", "KMP/N", "KMP NORTH", "KMP NORTH HQ", "KMP NORTH HEADQUARTERS"]: return "KMP NORTH"
+    if r in ["KMPS", "KMP/S", "KMP SOUTH", "KMP SOUTH HQ", "KMP SOUTH HEADQUARTERS"]: return "KMP SOUTH"
+    if r in ["KMPE", "KMP/E", "KMP EAST", "KMP EAST HQ", "KMP EAST HEADQUARTERS"]: return "KMP EAST"
     if r in ["KMP HQ", "KMP HEADQUARTERS"]: return "KMP HEADQUARTERS"
     if r in ["POLICE HQ", "POLICE HEADQUARTERS", "NAGURU"]: return "POLICE HEADQUARTERS"
     return r
@@ -68,9 +68,10 @@ def normalize_region_name(region_str) -> str:
 def normalize_station_name(station_str) -> str:
     if not station_str: return "UNKNOWN"
     val = clean_str(station_str)
-    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION"]:
+    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"]:
         return "OLD KAMPALA"
-    val = val.replace(" POLICE STATION", "").replace(" POL STN", "").replace(" P/STN", "").replace(" DIVISION", "")
+    val = val.replace(" POLICE STATION", "").replace(" POL STN", "").replace(" P/STN", "").replace(" P/STATION", "").replace(" P/S", "").replace(" PS", "").replace(" DIVISION", "")
+    val = val.replace(" POLICE POST", "").replace(" P/P", "").replace(" P.P", "")
     if val.endswith(" P") and len(val) > 2:  
         val = val[:-2].strip()
     return val
@@ -90,13 +91,30 @@ def normalize_section_unit(pos_str) -> str:
     if any(k in val for k in ["COUNTER", "TERRORISM", " C.T.", "CT "]) or val == "CT": return "COUNTER-TERRORISM"
     if any(k in val for k in ["TRAFFIC", "TRAFF", "TRAF", "T&RSA", "TRAS", "TRSA", "TRAFFIC&RS", "TRAFFIC & RS"]): return "TRAFFIC & RS"
     if any(k in val for k in ["CFPU", "CPC", "FAMILY", "CLO", "GBV", "GENDER"]): return "CFPU / GENDER"
-    if any(k in val for k in ["LOGISTIC", "LOGS", "L&E", "DRV", "DRIVING", "FLEET", "CONSTRUCTION", "LOG & ENG"]): return "LOGISTICS & ENGINEERING"
+    if any(k in val for k in ["LOGISTIC", "LOGS", "L&E", "DRV", "DRIVING", "FLEET", "CONSTRUCTION", "LOG & ENG", "LOG AND ENG", "LOGS&ENG"]): return "LOGISTICS & ENGINEERING"
     if any(k in val for k in ["SOCO", "FORENSIC"]): return "FORENSIC / SOCO"
     if any(k in val for k in ["PRO", "MEDIA", "PUBLIC RELATIONS"]): return "PRO / MEDIA"
-    if any(k in val for k in ["ICT", "CCTV", "COMM", "SIGNALLER", "COMMUNICATOR"]): return "ICT & COMMUNICATIONS"
+    if any(k in val for k in ["ICT", "CCTV", "COMM", "SIGNALLER", "COMMUNICATOR", "COMM/SIGN"]): return "ICT & COMMUNICATIONS"
     if any(k in val for k in ["FIRE", "F&RS", "RESCUE"]): return "FIRE & RESCUE"
     if any(k in val for k in ["GD", "G.D", "G/D", "OPERATIONS", "OPS"]): return "OPERATIONS / GD"
     return val
+
+def calculate_age_bracket(dob_val) -> str:
+    if not dob_val:
+        return "UNKNOWN / UNRECORDED"
+    try:
+        birth_date = dob_val if isinstance(dob_val, date) else parse_safe_date(dob_val)
+        if not birth_date:
+            return "UNKNOWN / UNRECORDED"
+        current_year = datetime.now().year
+        age = current_year - birth_date.year
+        if 18 <= age <= 29: return "18-29 YEARS"
+        if 30 <= age <= 39: return "30-39 YEARS"
+        if 40 <= age <= 49: return "40-49 YEARS"
+        if age >= 50: return "50+ YEARS"
+        return "UNKNOWN / UNRECORDED"
+    except Exception:
+        return "UNKNOWN / UNRECORDED"
 
 def get_station_priority_weight(station, region) -> int:
     stn = clean_str(station)
@@ -524,6 +542,7 @@ def get_Nominal_Rolls(
         r_dict['region'] = normalize_region_name(r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
+        r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
             continue
@@ -550,6 +569,7 @@ def get_Nominal_Rolls(
         r_dict['region'] = normalize_region_name(r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
+        r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
             continue

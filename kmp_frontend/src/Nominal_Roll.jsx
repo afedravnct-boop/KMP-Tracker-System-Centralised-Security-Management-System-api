@@ -46,7 +46,7 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-// 🟢 2. STATION & POST PARSING ENGINE (Substations Omitted entirely)
+// 🟢 2. STATION & POST PARSING ENGINE
 const parseStationHierarchy = (rawStation) => {
   const cleaned = cleanStr(rawStation);
   if (!cleaned) return { division: 'UNASSIGNED', station: 'UNASSIGNED', post: '', type: 'POST' };
@@ -178,7 +178,6 @@ const getRankWeight = (rank) => {
   return 50;
 };
 
-// 🟢 4. GRANULAR EDUCATION PARSING
 const parseEducationLevel = (educ) => {
   if (!educ) return 'UNEDUCATED / UNRECORDED';
   const e = cleanStr(educ);
@@ -260,7 +259,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   
   const [analyticsMetricFilterValue, setAnalyticsMetricFilterValue] = useState('ALL');
   
-  // 🟢 Analytics Dossier States
   const [showAnalyticsDossier, setShowAnalyticsDossier] = useState(false);
   const [analyticsSelectedOfficer, setAnalyticsSelectedOfficer] = useState(null);
 
@@ -269,7 +267,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const userRegClean = cleanStr(currentUser?.region);
 
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN';
-
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
   const hasMasterOverride = useMemo(() => {
@@ -813,6 +810,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       } else if (metricCategory === 'UNIT') {
         const parsed = parseStationHierarchy(n.station);
         return (parsed.division || parsed.station) === analyticsMetricFilterValue;
+      } else if (metricCategory === 'STATUS') {
+        const normStatus = n.normalized_status || cleanStr(n.status);
+        return normStatus === analyticsMetricFilterValue;
       } else if (metricCategory === 'EDUCATION') {
         return parseEducationLevel(n.educlevel || n.educ_level) === analyticsMetricFilterValue;
       } else if (metricCategory === 'DISTRICT') {
@@ -841,6 +841,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       } else if (metricCategory === 'UNIT') {
         const parsed = parseStationHierarchy(n.station);
         if (parsed.division && parsed.division !== 'UNASSIGNED') setVals.add(parsed.division);
+      } else if (metricCategory === 'STATUS') {
+        setVals.add('ACTIVE (DEPLOYABLE)');
+        setVals.add('NON-DEPLOYABLE (HEALTH/LEAVE)');
       } else if (metricCategory === 'EDUCATION') {
         setVals.add(parseEducationLevel(n.educlevel || n.educ_level));
       } else if (metricCategory === 'DISTRICT') {
@@ -1511,6 +1514,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         <select value={metricCategory} onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer">
                             <option value="RANK">Rank Breakdown</option>
                             <option value="UNIT">Unit / Station Breakdown</option>
+                            <option value="STATUS">📋 Personnel Status (Deployable / Non-Deployable)</option>
                             <option value="SEX">Sex Distribution</option>
                             <option value="DISTRICT">Home District Breakdown</option>
                             <option value="BANK">Bank Branch Breakdown</option>
