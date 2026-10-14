@@ -1,8 +1,6 @@
-// src/components/ConsolidatedLedger.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, Filter, X } from 'lucide-react';
 
-// 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -16,45 +14,17 @@ const cleanStr = (str) => {
   return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
-const isStationEquivalent = (statA, statB) => {
-  const a = cleanStr(statA);
-  const b = cleanStr(statB);
-  if (!a || !b) return false;
-  if (a === b) return true;
-
-  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
-  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
-
-  return cleanA === cleanB && cleanA.length > 0;
-};
-
-const getOfficialRegionForStation = (stationName, dbRegion) => {
-  const cleanStation = cleanStr(stationName);
-  const cleanDbRegion = cleanStr(dbRegion);
-
-  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].includes(cleanStation)) {
-    return cleanDbRegion;
-  }
-
-  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-    if (stationsList.includes(cleanStation)) {
-      return regionName;
-    }
-  }
-
-  return cleanDbRegion || 'KMP GENERAL';
-};
-
-const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], onClose, currentUser, canViewGlobal = false }) => {
+const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => {
   const today = new Date();
   const lastWeek = new Date(today);
   lastWeek.setDate(today.getDate() - 6);
 
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+  const [loading, setLoading] = useState(false);
+  const [ledgerData, setLedgerData] = useState(null);
 
-  // 🟢 OPSEC Role Classification Engine
+  // OPSEC Role Classification Engine
   const userRoleClean = cleanStr(currentUser?.role);
   const userPosClean = cleanStr(currentUser?.position);
   const userRegClean = cleanStr(currentUser?.region);
@@ -67,29 +37,38 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
   const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
-  
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
 
+  // Fetch aggregated data from backend whenever filters change
   useEffect(() => {
-    if (canViewGlobalLevel) {
-      setFilterRegion('ALL REGIONS');
-      setFilterStation('ALL STATIONS');
-    } else if (isRegionalCommand) {
-      setFilterRegion(userRegClean);
-      setFilterStation('ALL STATIONS');
-    } else {
-      setFilterRegion(userRegClean);
-      setFilterStation(cleanStr(currentUser?.station));
-    }
-  }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
+    const fetchLedgerData = async () => {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('token'); 
+        const url = `/api/v1/reports/consolidated-ledger?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
+        
+        const response = await fetch(url, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        const result = await response.json();
+        if (result.status === 'success') {
+          setLedgerData(result.data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch ledger data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const rawReports = Array.isArray(reports) ? reports : (data?.crimes || data?.reports || []);
-  const rawStats = Array.isArray(stats) ? stats : (data?.statistics || data?.stats || []);
-  const rawStories = Array.isArray(stories) ? stories : (data?.stories || data?.successStories || []);
-  const rawAgric = Array.isArray(agricSummary) ? agricSummary : (data?.agricSummary || []);
+    fetchLedgerData();
+  }, [startDate, endDate, filterRegion, filterStation]);
 
   const getRoman = (num) => {
     const romans = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx'];
@@ -101,166 +80,12 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
     return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }).toUpperCase();
   };
 
-  const isLockupLog = (item) => {
-    return Boolean(
-      item.is_hq_general_total || 
-      (item.station || '').includes('HEADQUARTERS GENERAL TOTAL') || 
-      (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0 && !item.offence)
-    );
+  // Safe defaults if data is still loading
+  const dataMapping = ledgerData || {
+      crimeRegional: {}, crimeGeneral: {}, sortedCrimeRegions: [], grandCrimeCases: 0, grandCrimeSuspects: 0,
+      opsRegional: {}, opsGeneral: { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 }, sortedOpsRegions: [],
+      storyRegional: {}, sortedStoryRegions: [], grandStories: 0
   };
-
-  const dataMapping = useMemo(() => {
-    const crimeRegional = {};
-    const crimeGeneral = {};
-    let grandCrimeCases = 0;
-    let grandCrimeSuspects = 0;
-
-    const opsRegional = {};
-    const opsGeneral = { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 };
-
-    const storyRegional = {};
-    let grandStories = 0;
-
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setDate(end.getDate() + 1); 
-
-    const isWithinWeek = (dateStr) => {
-      if (!dateStr) return false;
-      const recordDate = new Date(dateStr);
-      return recordDate >= start && recordDate < end;
-    };
-
-    // --- Process Standard Crimes ---
-    rawReports.filter(r => isWithinWeek(r.date)).forEach(r => {
-      if (isLockupLog(r)) return;
-
-      const stn = cleanStr(r.station);
-      const reg = getOfficialRegionForStation(stn, r.region);
-
-      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                            reg === filterRegion || 
-                            (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
-
-      if (!belongsToRegion) return;
-
-      if (filterStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, filterStation)) return;
-      }
-
-      const off = r.offence ? cleanStr(r.offence) : 'UNSPECIFIED INCIDENT';
-      const suspects = parseInt(r.suspects, 10) || 0;
-
-      if (!crimeRegional[reg]) crimeRegional[reg] = {};
-      if (!crimeRegional[reg][off]) crimeRegional[reg][off] = { cases: 0, suspects: 0 };
-      
-      crimeRegional[reg][off].cases += 1;
-      crimeRegional[reg][off].suspects += suspects;
-
-      if (!crimeGeneral[off]) crimeGeneral[off] = { cases: 0, suspects: 0 };
-      crimeGeneral[off].cases += 1;
-      crimeGeneral[off].suspects += suspects;
-
-      grandCrimeCases += 1;
-      grandCrimeSuspects += suspects;
-    });
-
-    // --- Process Agricultural Crimes & Produce Summaries ---
-    rawAgric.filter(a => isWithinWeek(a.date)).forEach(a => {
-      const stn = cleanStr(a.station);
-      const reg = getOfficialRegionForStation(stn, a.region);
-
-      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                            reg === filterRegion || 
-                            (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(s => isStationEquivalent(s, stn)));
-
-      if (!belongsToRegion) return;
-
-      if (filterStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, filterStation)) return;
-      }
-
-      const off = (a.agric_crime_report || 'AGRICULTURAL THEFT').toUpperCase();
-      const count = parseInt(a.number_count, 10) || 0;
-
-      if (!crimeRegional[reg]) crimeRegional[reg] = {};
-      if (!crimeRegional[reg][off]) crimeRegional[reg][off] = { cases: 0, suspects: 0 };
-      
-      crimeRegional[reg][off].cases += count;
-
-      if (!crimeGeneral[off]) crimeGeneral[off] = { cases: 0, suspects: 0 };
-      crimeGeneral[off].cases += count;
-
-      grandCrimeCases += count;
-    });
-
-    // --- Process Operational Statistics ---
-    rawStats.filter(s => isWithinWeek(s.date)).forEach(s => {
-      const stn = cleanStr(s.station);
-      const reg = getOfficialRegionForStation(stn, s.region);
-
-      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                            reg === filterRegion || 
-                            (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, stn)));
-
-      if (!belongsToRegion) return;
-
-      if (filterStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, filterStation)) return;
-      }
-      
-      if (!opsRegional[reg]) {
-        opsRegional[reg] = { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 };
-      }
-
-      const keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'];
-      keys.forEach(key => {
-        const val = parseInt(s[key], 10) || 0;
-        opsRegional[reg][key] += val;
-        opsGeneral[key] += val;
-      });
-    });
-
-    // --- Process Success Stories ---
-    rawStories.filter(s => isWithinWeek(s.date)).forEach(s => {
-      const stn = cleanStr(s.station);
-      const reg = getOfficialRegionForStation(stn, s.region);
-
-      const belongsToRegion = filterRegion === 'ALL REGIONS' || 
-                            reg === filterRegion || 
-                            (REGIONAL_HIERARCHY[filterRegion] && REGIONAL_HIERARCHY[filterRegion].some(st => isStationEquivalent(st, stn)));
-
-      if (!belongsToRegion) return;
-
-      if (filterStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, filterStation)) return;
-      }
-
-      if (!storyRegional[reg]) storyRegional[reg] = 0;
-      storyRegional[reg] += 1;
-      grandStories += 1;
-    });
-
-    const regionOrder = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"];
-    const sorter = (a, b) => {
-       const idxA = regionOrder.indexOf(a); 
-       const idxB = regionOrder.indexOf(b);
-       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-       if (idxA !== -1) return -1; 
-       if (idxB !== -1) return 1;
-       return a.localeCompare(b);
-    };
-
-    const sortedCrimeRegions = Object.keys(crimeRegional).sort(sorter);
-    const sortedOpsRegions = Object.keys(opsRegional).sort(sorter);
-    const sortedStoryRegions = Object.keys(storyRegional).sort(sorter);
-
-    return { 
-      crimeRegional, crimeGeneral, sortedCrimeRegions, grandCrimeCases, grandCrimeSuspects,
-      opsRegional, opsGeneral, sortedOpsRegions,
-      storyRegional, sortedStoryRegions, grandStories
-    };
-  }, [rawReports, rawStats, rawStories, rawAgric, startDate, endDate, filterRegion, filterStation]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto space-y-10 relative z-10 animate-in fade-in duration-300 bg-gray-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen">
@@ -268,7 +93,10 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
       {/* FILTER BAR */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col lg:flex-row justify-between items-center gap-4">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-800 dark:text-white flex items-center"><Eye size={20} className="mr-2 text-blue-600"/> Command Master Ledger</h2>
+          <h2 className="text-xl font-extrabold text-slate-800 dark:text-white flex items-center">
+            <Eye size={20} className="mr-2 text-blue-600"/> 
+            Command Master Ledger {loading && <span className="ml-3 text-xs text-blue-500 animate-pulse">(Updating...)</span>}
+          </h2>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -279,7 +107,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
           <select 
             value={filterRegion} 
             onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }}
-            disabled={!canViewGlobalLevel}
+            disabled={!canViewGlobalLevel || loading}
             className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 outline-none cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-500"
           >
             {canViewGlobalLevel ? (
@@ -297,7 +125,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
           <select 
             value={filterStation} 
             onChange={(e) => setFilterStation(e.target.value)}
-            disabled={!(canViewGlobalLevel || isRegionalCommand)}
+            disabled={!(canViewGlobalLevel || isRegionalCommand) || loading}
             className="border border-slate-300 dark:border-slate-700 rounded-lg p-2 text-xs font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 outline-none cursor-pointer disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-500"
           >
             {(canViewGlobalLevel || isRegionalCommand) ? (
@@ -314,20 +142,18 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
 
           <div>
             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">From Date</label>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="text-sm font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 outline-none" />
+            <input type="date" value={startDate} disabled={loading} onChange={e => setStartDate(e.target.value)} className="text-sm font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 outline-none disabled:opacity-50" />
           </div>
           <span className="text-slate-400 font-bold mt-4">-</span>
           <div>
             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">To Date</label>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="text-sm font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 outline-none" />
+            <input type="date" value={endDate} disabled={loading} onChange={e => setEndDate(e.target.value)} className="text-sm font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 outline-none disabled:opacity-50" />
           </div>
           <button onClick={onClose} className="mt-4 ml-2 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold text-xs shadow-sm transition-colors cursor-pointer">Close Ledger</button>
         </div>
       </div>
 
-      {/* ======================================================== */}
-      {/* SECTION 1: CRIME & AGRICULTURAL SUMMARY TABLES            */}
-      {/* ======================================================== */}
+      {/* SECTION 1: CRIME & AGRICULTURAL SUMMARY TABLES */}
       <div className="space-y-6">
         <div className="bg-white dark:bg-slate-900 shadow-xl overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
           <table className="w-full text-sm border-collapse border-2 border-slate-400 dark:border-slate-700 bg-white dark:bg-slate-900">
@@ -345,7 +171,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                 <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 w-32 uppercase text-xs leading-tight">SUSPECTS IN<br/>CUSTODY</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={loading ? 'opacity-50' : ''}>
               {dataMapping.sortedCrimeRegions.map(region => {
                 const offences = Object.keys(dataMapping.crimeRegional[region]);
                 let regCases = 0; 
@@ -377,7 +203,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                 );
                 return rows;
               })}
-              {dataMapping.sortedCrimeRegions.length === 0 && (
+              {(!loading && dataMapping.sortedCrimeRegions.length === 0) && (
                 <tr><td colSpan="5" className="text-center py-6 text-gray-500 italic">No crimes or agricultural thefts registered in this period.</td></tr>
               )}
             </tbody>
@@ -400,7 +226,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                   <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 w-40 uppercase text-xs leading-tight">SUSPECTS IN<br/>CUSTODY</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className={loading ? 'opacity-50' : ''}>
                 {Object.keys(dataMapping.crimeGeneral).map((off, idx) => {
                   const item = dataMapping.crimeGeneral[off];
                   return (
@@ -425,9 +251,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
         )}
       </div>
 
-      {/* ======================================================== */}
-      {/* SECTION 2: OPERATIONAL STATISTICS TABLES                 */}
-      {/* ======================================================== */}
+      {/* SECTION 2: OPERATIONAL STATISTICS TABLES */}
       <div className="space-y-6 pt-6">
         <div className="bg-white dark:bg-slate-900 shadow-xl overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
           <table className="min-w-full text-sm border-collapse border-2 border-slate-400 dark:border-slate-700 bg-white dark:bg-slate-900">
@@ -449,7 +273,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                 <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CONVICTED</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={loading ? 'opacity-50' : ''}>
               {dataMapping.sortedOpsRegions.map((region) => {
                 const item = dataMapping.opsRegional[region];
                 return (
@@ -466,7 +290,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                   </tr>
                 );
               })}
-              {dataMapping.sortedOpsRegions.length === 0 && (
+              {(!loading && dataMapping.sortedOpsRegions.length === 0) && (
                 <tr><td colSpan="9" className="text-center py-6 text-gray-500 italic">No operational statistics recorded in this period.</td></tr>
               )}
             </tbody>
@@ -494,7 +318,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                   <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CONVICTED</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className={loading ? 'opacity-50' : ''}>
                 <tr className="bg-[#e2efda] dark:bg-slate-800 font-extrabold text-slate-900 dark:text-slate-100 border-2 border-slate-400 dark:border-slate-700">
                   <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center uppercase tracking-wide text-xs">SELECTED JURISDICTION</td>
                   <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.arrested}</td>
@@ -512,9 +336,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
         )}
       </div>
 
-      {/* ======================================================== */}
-      {/* SECTION 3: SUCCESS STORIES SUMMARY                       */}
-      {/* ======================================================== */}
+      {/* SECTION 3: SUCCESS STORIES SUMMARY */}
       <div className="space-y-6 pt-6">
         <div className="bg-white dark:bg-slate-900 shadow-xl overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
           <table className="min-w-full text-sm border-collapse border-2 border-slate-400 dark:border-slate-700 bg-white dark:bg-slate-900">
@@ -530,7 +352,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                 <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-xs">TOTAL SUCCESS STORIES LOGGED</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={loading ? 'opacity-50' : ''}>
               {dataMapping.sortedStoryRegions.map((region, idx) => (
                 <tr key={`story-${region}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-medium text-slate-600 dark:text-slate-400">{idx + 1}</td>
@@ -538,7 +360,7 @@ const ConsolidatedLedger = ({ data, reports, stats, stories, agricSummary = [], 
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-amber-600 dark:text-amber-400 text-base">{dataMapping.storyRegional[region]}</td>
                 </tr>
               ))}
-              {dataMapping.sortedStoryRegions.length === 0 && (
+              {(!loading && dataMapping.sortedStoryRegions.length === 0) && (
                 <tr><td colSpan="3" className="text-center py-6 text-gray-500 italic">No success stories recorded in this period.</td></tr>
               )}
             </tbody>

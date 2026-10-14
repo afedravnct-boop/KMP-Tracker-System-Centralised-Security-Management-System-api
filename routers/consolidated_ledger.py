@@ -5,14 +5,8 @@ from datetime import datetime, date, timedelta
 from typing import Optional, List, Union
 from urllib.parse import unquote
 
-import pandas as pd
-import openpyxl
-from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
-
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -81,6 +75,17 @@ def get_model_safe(*names):
             return getattr(models, name)
     return None
 
+def is_lockup_log(item) -> bool:
+    try:
+        if getattr(item, 'is_hq_general_total', False): return True
+        if 'HEADQUARTERS GENERAL TOTAL' in str(getattr(item, 'station', '')).upper(): return True
+        lockup = getattr(item, 'daily_lock_up', None)
+        offence = getattr(item, 'offence', None)
+        if lockup is not None and float(lockup) > 0 and not offence: return True
+        return False
+    except:
+        return False
+
 @router.get("/reports/consolidated-ledger")
 def get_consolidated_ledger(
     start_date: Optional[str] = Query(default=None),
@@ -95,8 +100,6 @@ def get_consolidated_ledger(
         crime_model = get_model_safe('CrimeIncident', 'Crime_Incident', 'Crime_Reports', 'CrimeReports', 'reports')
         stats_model = get_model_safe('OperationalStats', 'Operational_Stats', 'Operational_Statistics', 'operational_stats', 'stats')
         stories_model = get_model_safe('SuccessStories', 'Success_Stories', 'stories')
-        
-        # 🟢 Corrected to exactly match your models.py
         agric_model = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary')
 
         today = date.today()
@@ -104,50 +107,109 @@ def get_consolidated_ledger(
         
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
-        except ValueError:
-            start_dt = default_start
-
-        try:
             end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
         except ValueError:
+            start_dt = default_start
             end_dt = today
 
-        # Standard Crimes
-        if crime_model and hasattr(crime_model, 'date'):
-            crimes = db.query(crime_model).filter(crime_model.date >= str(start_dt), crime_model.date <= str(end_dt)).all()
-        else:
-            crimes = db.query(crime_model).all() if crime_model else []
+        # Fetch basic records efficiently
+        crimes = db.query(crime_model).filter(crime_model.date >= str(start_dt), crime_model.date <= str(end_dt)).all() if crime_model else []
+        statistics = db.query(stats_model).filter(stats_model.date >= str(start_dt), stats_model.date <= str(end_dt)).all() if stats_model else []
+        stories = db.query(stories_model).filter(stories_model.date >= str(start_dt), stories_model.date <= str(end_dt)).all() if stories_model else []
+        agric = db.query(agric_model).filter(agric_model.date >= str(start_dt), agric_model.date <= str(end_dt)).all() if agric_model else []
 
-        # Operational Statistics
-        if stats_model and hasattr(stats_model, 'date'):
-            statistics = db.query(stats_model).filter(stats_model.date >= str(start_dt), stats_model.date <= str(end_dt)).all()
-        else:
-            statistics = db.query(stats_model).all() if stats_model else []
+        # --- DATA AGGREGATION ENGINE (Moved from Frontend) ---
+        crime_regional, crime_general = {}, {}
+        grand_crime_cases, grand_crime_suspects = 0, 0
+        ops_regional = {}
+        ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
+        story_regional = {}
+        grand_stories = 0
 
-        # Success Stories
-        if stories_model and hasattr(stories_model, 'date'):
-            stories = db.query(stories_model).filter(stories_model.date >= str(start_dt), stories_model.date <= str(end_dt)).all()
-        else:
-            stories = db.query(stories_model).all() if stories_model else []
+        # Helper to check jurisdiction matches
+        def matches_jurisdiction(stn, reg):
+            if region == 'ALL REGIONS':
+                pass
+            elif reg == region:
+                pass
+            elif region in REGIONAL_HIERARCHY and any(is_station_equivalent(s, stn) for s in REGIONAL_HIERARCHY[region]):
+                pass
+            else:
+                return False
+                
+            if station != 'ALL STATIONS':
+                if not is_station_equivalent(stn, station):
+                    return False
+            return True
 
-        # Agricultural Crimes
-        if agric_model and hasattr(agric_model, 'date'):
-            agric = db.query(agric_model).filter(agric_model.date >= str(start_dt), agric_model.date <= str(end_dt)).all()
-        else:
-            agric = db.query(agric_model).all() if agric_model else []
+        # Process Crimes
+        for r in crimes:
+            if is_lockup_log(r): continue
+            stn = clean_str(getattr(r, 'station', ''))
+            reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
+            
+            if not matches_jurisdiction(stn, reg): continue
 
-        def serialize_list(items):
-            result = []
-            for item in items:
-                if not item:
-                    continue
-                d = item.__dict__.copy()
-                d.pop("_sa_instance_state", None)
-                for k, v in d.items():
-                    if hasattr(v, 'isoformat'):
-                        d[k] = v.isoformat()
-                result.append(d)
-            return result
+            off = clean_str(getattr(r, 'offence', '')) or 'UNSPECIFIED INCIDENT'
+            suspects = int(getattr(r, 'suspects', 0) or 0)
+
+            if reg not in crime_regional: crime_regional[reg] = {}
+            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+            crime_regional[reg][off]["cases"] += 1
+            crime_regional[reg][off]["suspects"] += suspects
+
+            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+            crime_general[off]["cases"] += 1
+            crime_general[off]["suspects"] += suspects
+
+            grand_crime_cases += 1
+            grand_crime_suspects += suspects
+
+        # Process Agricultural Crimes
+        for a in agric:
+            stn = clean_str(getattr(a, 'station', ''))
+            reg = get_official_region_for_station(stn, getattr(a, 'region', ''))
+            
+            if not matches_jurisdiction(stn, reg): continue
+
+            off = (getattr(a, 'agric_crime_report', 'AGRICULTURAL THEFT') or 'AGRICULTURAL THEFT').upper()
+            count = int(getattr(a, 'number_count', 0) or 0)
+
+            if reg not in crime_regional: crime_regional[reg] = {}
+            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+            crime_regional[reg][off]["cases"] += count
+
+            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+            crime_general[off]["cases"] += count
+            grand_crime_cases += count
+
+        # Process Ops Stats
+        for s in statistics:
+            stn = clean_str(getattr(s, 'station', ''))
+            reg = get_official_region_for_station(stn, getattr(s, 'region', ''))
+            if not matches_jurisdiction(stn, reg): continue
+
+            if reg not in ops_regional:
+                ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+            
+            for key in ops_general.keys():
+                val = int(getattr(s, key, 0) or 0)
+                ops_regional[reg][key] += val
+                ops_general[key] += val
+
+        # Process Stories
+        for st in stories:
+            stn = clean_str(getattr(st, 'station', ''))
+            reg = get_official_region_for_station(stn, getattr(st, 'region', ''))
+            if not matches_jurisdiction(stn, reg): continue
+
+            story_regional[reg] = story_regional.get(reg, 0) + 1
+            grand_stories += 1
+
+        # Sorting logic (matching frontend exactly)
+        region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+        def sort_regions(regions):
+            return sorted(regions, key=lambda x: region_order.index(x) if x in region_order else 999)
 
         record_neon_activity(
             logs_db=logs_db,
@@ -155,15 +217,24 @@ def get_consolidated_ledger(
             action_type="VIEW",
             module="CONSOLIDATED_LEDGER",
             target_id="MASTER_SUMMARY",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} compiled consolidated ledger ({start_dt} to {end_dt})."
+            changes_summary=f"{current_user.fnum} {current_user.rank} compiled consolidated ledger ({start_dt} to {end_dt})."
         )
 
         return {
             "status": "success",
-            "crimes": serialize_list(crimes),
-            "statistics": serialize_list(statistics),
-            "stories": serialize_list(stories),
-            "agricSummary": serialize_list(agric)
+            "data": {
+                "crimeRegional": crime_regional,
+                "crimeGeneral": crime_general,
+                "sortedCrimeRegions": sort_regions(list(crime_regional.keys())),
+                "grandCrimeCases": grand_crime_cases,
+                "grandCrimeSuspects": grand_crime_suspects,
+                "opsRegional": ops_regional,
+                "opsGeneral": ops_general,
+                "sortedOpsRegions": sort_regions(list(ops_regional.keys())),
+                "storyRegional": story_regional,
+                "sortedStoryRegions": sort_regions(list(story_regional.keys())),
+                "grandStories": grand_stories
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated Ledger Data Fetch Failed: {str(e)}")
