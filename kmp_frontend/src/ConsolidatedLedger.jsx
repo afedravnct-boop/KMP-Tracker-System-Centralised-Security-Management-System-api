@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Filter, X } from 'lucide-react';
+import { Eye, Filter, X, Download } from 'lucide-react';
 import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
@@ -50,9 +50,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
       try {
         const url = `/api/v1/reports/consolidated-ledger?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
         
-        // Use your global authFetch utility which automatically attaches the token and base URL
         const response = await authFetch(url);
-        
         const result = await response.json();
         if (response.ok && result.status === 'success') {
           setLedgerData(result.data);
@@ -66,6 +64,34 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
 
     fetchLedgerData();
   }, [startDate, endDate, filterRegion, filterStation]);
+
+  // Secure Encrypted Export Handler
+  const handleExportLedger = async () => {
+    try {
+      setLoading(true);
+      const url = `/api/v1/reports/consolidated-ledger/export?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
+      
+      const response = await authFetch(url);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Export failed on server.");
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `KMP_Consolidated_Ledger_${startDate}_to_${endDate}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      alert(`Export Failed: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getRoman = (num) => {
     const romans = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx'];
@@ -92,7 +118,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
         <div>
           <h2 className="text-xl font-extrabold text-slate-800 dark:text-white flex items-center">
             <Eye size={20} className="mr-2 text-blue-600"/> 
-            Command Master Ledger {loading && <span className="ml-3 text-xs text-blue-500 animate-pulse">(Updating...)</span>}
+            Command Master Ledger {loading && <span className="ml-3 text-xs text-blue-500 animate-pulse">(Processing...)</span>}
           </h2>
         </div>
 
@@ -146,6 +172,17 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">To Date</label>
             <input type="date" value={endDate} disabled={loading} onChange={e => setEndDate(e.target.value)} className="text-sm font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 outline-none disabled:opacity-50" />
           </div>
+
+          {/* 🟢 SECURE AES-256 EXPORT BUTTON */}
+          <button 
+            onClick={handleExportLedger} 
+            disabled={loading}
+            className="mt-4 bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 rounded font-bold text-xs shadow-sm transition-colors cursor-pointer flex items-center disabled:opacity-50"
+            title="Export Encrypted Excel (.zip)"
+          >
+            <Download size={14} className="mr-1.5" /> Export Encrypted Excel
+          </button>
+
           <button onClick={onClose} className="mt-4 ml-2 bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold text-xs shadow-sm transition-colors cursor-pointer">Close Ledger</button>
         </div>
       </div>
@@ -350,7 +387,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
               </tr>
             </thead>
             <tbody className={loading ? 'opacity-50' : ''}>
-              {dataMapping.sortedStoryRegions.map((region, idx) => (
+              {dataMapping.sortedStoryRegions.link ? null : dataMapping.sortedStoryRegions.map((region, idx) => (
                 <tr key={`story-${region}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-medium text-slate-600 dark:text-slate-400">{idx + 1}</td>
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-slate-900 dark:text-slate-100">{region}</td>

@@ -2974,7 +2974,7 @@ const App = () => {
     };   
 
     fetchAllData();
-    const pollingInterval = setInterval(fetchAllData, 15000);
+    const pollingInterval = setInterval(fetchAllData, 60000);
 
     const handleVisibilityChange = () => {
       if (!document.hidden) {
@@ -3346,15 +3346,10 @@ const App = () => {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `Server status ${response.status}`);
       }
-      const data = await response.json(); 
+      const result = await response.json(); 
       
-      setConsolidatedData({
-        crimes: data.crimes || [],
-        statistics: data.statistics || [],
-        stories: data.stories || [],
-        establishments: data.establishments || [],
-        nominal_rolls: data.nominal_rolls || []
-      });
+      // Store the new aggregated data structure
+      setConsolidatedData(result.data || {});
       setIsViewingConsolidated(true);
     } catch (err) { 
       console.error("Consolidated Ledger load error:", err);

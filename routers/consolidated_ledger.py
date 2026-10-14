@@ -43,6 +43,16 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
+def normalize_station_name(station_str) -> str:
+    if not station_str: return "UNKNOWN"
+    val = clean_str(station_str)
+    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"]:
+        return "OLD KAMPALA"
+    val = val.replace(" POLICE STATION", "").replace(" POL STN", "").replace(" P/STN", "").replace(" DIVISION", "")
+    if val.endswith(" P") and len(val) > 2:  
+        val = val[:-2].strip()
+    return val
+
 def is_station_equivalent(stat_a, stat_b) -> bool:
     a = clean_str(stat_a)
     b = clean_str(stat_b)
@@ -53,8 +63,13 @@ def is_station_equivalent(stat_a, stat_b) -> bool:
     return clean_a == clean_b and len(clean_a) > 0
 
 def get_official_region_for_station(station_name: str, db_region: Optional[str] = None) -> str:
-    clean_station = clean_str(station_name)
+    clean_station = normalize_station_name(station_name)
     clean_db_region = normalize_region_name(db_region)
+
+    for region_name, stations_list in REGIONAL_HIERARCHY.items():
+        norm_stations = [normalize_station_name(s) for s in stations_list]
+        if clean_station in norm_stations or clean_db_region in norm_stations:
+            return region_name
 
     if REGIONAL_HIERARCHY.get(clean_db_region) and clean_station in REGIONAL_HIERARCHY[clean_db_region]:
         return clean_db_region
@@ -63,19 +78,14 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
         if clean_station in stations_list or any(is_station_equivalent(s, clean_station) for s in stations_list):
             return region_name
 
-    return clean_db_region or 'KMP GENERAL'
-
-def get_model_safe(*names):
-    for name in names:
-        if hasattr(models, name):
-            return getattr(models, name)
-    return None
+    return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region: str, station: str):
-    crime_model = get_model_safe('CrimeIncident', 'Crime_Incident', 'Crime_Reports', 'CrimeReports', 'reports')
-    stats_model = get_model_safe('OperationalStats', 'Operational_Stats', 'Operational_Statistics', 'operational_stats', 'stats')
-    stories_model = get_model_safe('SuccessStories', 'Success_Stories', 'stories')
-    agric_model = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary')
+    # Bind directly to your exact models from models.py
+    crime_model = getattr(models, 'Crime_Reports', None)
+    stats_model = getattr(models, 'Operational_Statistics', None)
+    stories_model = getattr(models, 'Success_Stories', None)
+    agric_model = getattr(models, 'Agricultural_Crime_Summary', None)
 
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     def sort_regions(regions):
@@ -93,7 +103,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             func.sum(func.coalesce(crime_model.suspects, 0)).label('suspects')
         ).filter(
             crime_model.date >= str(start_dt),
-            crime_model.date <= str(end_dt)
+            crime_model.date <= str(end_dt) + " 23:59:59"
         )
         if region != "ALL REGIONS": query = query.filter(crime_model.region == region)
         if station != "ALL STATIONS": query = query.filter(crime_model.station == station)
@@ -126,7 +136,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             func.sum(func.coalesce(agric_model.number_count, 0)).label('total_count')
         ).filter(
             agric_model.date >= str(start_dt),
-            agric_model.date <= str(end_dt)
+            agric_model.date <= str(end_dt) + " 23:59:59"
         )
         if region != "ALL REGIONS": ag_query = ag_query.filter(agric_model.region == region)
         if station != "ALL STATIONS": ag_query = ag_query.filter(agric_model.station == station)
@@ -163,7 +173,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             func.sum(func.coalesce(stats_model.convicted, 0)).label('convicted')
         ).filter(
             stats_model.date >= str(start_dt),
-            stats_model.date <= str(end_dt)
+            stats_model.date <= str(end_dt) + " 23:59:59"
         )
         if region != "ALL REGIONS": stats_query = stats_query.filter(stats_model.region == region)
         if station != "ALL STATIONS": stats_query = stats_query.filter(stats_model.station == station)
@@ -185,10 +195,10 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
         story_query = db.query(
             stories_model.region,
             stories_model.station,
-            func.count(stories_model.id).label('story_count')
+            func.count(stories_model.sn).label('story_count')
         ).filter(
             stories_model.date >= str(start_dt),
-            stories_model.date <= str(end_dt)
+            stories_model.date <= str(end_dt) + " 23:59:59"
         )
         if region != "ALL REGIONS": story_query = story_query.filter(stories_model.region == region)
         if station != "ALL STATIONS": story_query = story_query.filter(stories_model.station == station)
@@ -201,17 +211,22 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             story_regional[reg] = story_regional.get(reg, 0) + count
             grand_stories += count
 
+    for reg in region_order:
+        if reg not in crime_regional: crime_regional[reg] = {}
+        if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+        if reg not in story_regional: story_regional[reg] = 0
+
     return {
         "crimeRegional": crime_regional,
         "crimeGeneral": crime_general,
-        "sortedCrimeRegions": sort_regions(list(crime_regional.keys())),
+        "sortedCrimeRegions": region_order,
         "grandCrimeCases": grand_crime_cases,
         "grandCrimeSuspects": grand_crime_suspects,
         "opsRegional": ops_regional,
         "opsGeneral": ops_general,
-        "sortedOpsRegions": sort_regions(list(ops_regional.keys())),
+        "sortedOpsRegions": region_order,
         "storyRegional": story_regional,
-        "sortedStoryRegions": sort_regions(list(story_regional.keys())),
+        "sortedStoryRegions": region_order,
         "grandStories": grand_stories
     }
 
@@ -228,144 +243,14 @@ def get_consolidated_ledger(
     try:
         today = date.today()
         default_start = today - timedelta(days=30)
-        
-        # Keep dates as pure YYYY-MM-DD strings for lightning-fast database matching
-        start_str = start_date if start_date else str(default_start)
-        end_str = end_date if end_date else str(today)
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
+        except ValueError:
+            start_dt = default_start
+            end_dt = today
 
-        crime_model = get_model_safe('CrimeIncident', 'Crime_Incident', 'Crime_Reports', 'CrimeReports', 'reports')
-        stats_model = get_model_safe('OperationalStats', 'Operational_Stats', 'Operational_Statistics', 'operational_stats', 'stats')
-        stories_model = get_model_safe('SuccessStories', 'Success_Stories', 'stories')
-        agric_model = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary')
-
-        region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
-        def sort_regions(regions):
-            return sorted(regions, key=lambda x: region_order.index(x) if x in region_order else 999)
-
-        crime_regional, crime_general = {}, {}
-        grand_crime_cases, grand_crime_suspects = 0, 0
-
-        # --- CRIMES ---
-        if crime_model:
-            query = db.query(
-                crime_model.region,
-                crime_model.station,
-                crime_model.offence,
-                func.count(crime_model.id).label('cases'),
-                func.sum(func.coalesce(crime_model.suspects, 0)).label('suspects')
-            ).filter(
-                crime_model.date >= start_str,
-                crime_model.date <= end_str + " 23:59:59" # Captures full day even with timestamps
-            )
-            if region != "ALL REGIONS": query = query.filter(crime_model.region == region)
-            if station != "ALL STATIONS": query = query.filter(crime_model.station == station)
-
-            for row in query.group_by(crime_model.region, crime_model.station, crime_model.offence).all():
-                stn = clean_str(row.station)
-                reg = get_official_region_for_station(stn, row.region)
-                off = clean_str(row.offence) or 'UNSPECIFIED INCIDENT'
-                cases = int(row.cases or 0)
-                suspects = int(row.suspects or 0)
-
-                if reg not in crime_regional: crime_regional[reg] = {}
-                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-                crime_regional[reg][off]["cases"] += cases
-                crime_regional[reg][off]["suspects"] += suspects
-
-                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-                crime_general[off]["cases"] += cases
-                crime_general[off]["suspects"] += suspects
-
-                grand_crime_cases += cases
-                grand_crime_suspects += suspects
-
-        # --- AGRICULTURAL ---
-        if agric_model:
-            ag_query = db.query(
-                agric_model.region,
-                agric_model.station,
-                agric_model.agric_crime_report,
-                func.sum(func.coalesce(agric_model.number_count, 0)).label('total_count')
-            ).filter(
-                agric_model.date >= start_str,
-                agric_model.date <= end_str + " 23:59:59"
-            )
-            if region != "ALL REGIONS": ag_query = ag_query.filter(agric_model.region == region)
-            if station != "ALL STATIONS": ag_query = ag_query.filter(agric_model.station == station)
-
-            for row in ag_query.group_by(agric_model.region, agric_model.station, agric_model.agric_crime_report).all():
-                stn = clean_str(row.station)
-                reg = get_official_region_for_station(stn, row.region)
-                off = (row.agric_crime_report or 'AGRICULTURAL THEFT').upper()
-                count = int(row.total_count or 0)
-
-                if reg not in crime_regional: crime_regional[reg] = {}
-                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-                crime_regional[reg][off]["cases"] += count
-
-                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-                crime_general[off]["cases"] += count
-                grand_crime_cases += count
-
-        # --- OPS STATS ---
-        ops_regional = {}
-        ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
-
-        if stats_model:
-            stats_rows = db.query(stats_model).all()
-            for row in stats_rows:
-                # Parse database date safely regardless of string format
-                r_date_str = str(row.date).split()[0] # handles timestamps if present
-                try:
-                    # Try parsing YYYY-MM-DD or DD/MM/YYYY
-                    if '-' in r_date_str:
-                        r_dt = datetime.strptime(r_date_str, "%Y-%m-%d").date()
-                    else:
-                        r_dt = datetime.strptime(r_date_str, "%d/%m/%Y").date()
-                except ValueError:
-                    continue
-
-                if not (start_dt <= r_dt <= end_dt):
-                    continue
-
-                stn = clean_str(row.station)
-                reg = get_official_region_for_station(stn, row.region)
-
-                if region != "ALL REGIONS" and reg != region:
-                    continue
-                if station != "ALL STATIONS" and not is_station_equivalent(stn, station):
-                    continue
-
-                if reg not in ops_regional: 
-                    ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-                    
-                for key in ops_general.keys():
-                    val = int(getattr(row, key, 0) or 0)
-                    ops_regional[reg][key] += val
-                    ops_general[key] += val
-
-        # --- STORIES ---
-        story_regional = {}
-        grand_stories = 0
-
-        if stories_model:
-            story_query = db.query(
-                stories_model.region,
-                stories_model.station,
-                func.count(stories_model.id).label('story_count')
-            ).filter(
-                stories_model.date >= start_str,
-                stories_model.date <= end_str + " 23:59:59"
-            )
-            if region != "ALL REGIONS": story_query = story_query.filter(stories_model.region == region)
-            if station != "ALL STATIONS": story_query = story_query.filter(stories_model.station == station)
-
-            for row in story_query.group_by(stories_model.region, stories_model.station).all():
-                stn = clean_str(row.station)
-                reg = get_official_region_for_station(stn, row.region)
-                count = int(row.story_count or 0)
-                story_regional[reg] = story_regional.get(reg, 0) + count
-                grand_stories += count
+        data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station)
 
         record_neon_activity(
             logs_db=logs_db,
@@ -373,25 +258,10 @@ def get_consolidated_ledger(
             action_type="VIEW",
             module="CONSOLIDATED_LEDGER",
             target_id="MASTER_SUMMARY",
-            changes_summary=f"{current_user.fnum} {current_user.rank} compiled consolidated ledger ({start_str} to {end_str})."
+            changes_summary=f"{current_user.fnum} {current_user.rank} compiled consolidated ledger ({start_dt} to {end_dt})."
         )
 
-        return {
-            "status": "success",
-            "data": {
-                "crimeRegional": crime_regional,
-                "crimeGeneral": crime_general,
-                "sortedCrimeRegions": sort_regions(list(crime_regional.keys())),
-                "grandCrimeCases": grand_crime_cases,
-                "grandCrimeSuspects": grand_crime_suspects,
-                "opsRegional": ops_regional,
-                "opsGeneral": ops_general,
-                "sortedOpsRegions": sort_regions(list(ops_regional.keys())),
-                "storyRegional": story_regional,
-                "sortedStoryRegions": sort_regions(list(story_regional.keys())),
-                "grandStories": grand_stories
-            }
-        }
+        return {"status": "success", "data": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated Ledger Data Fetch Failed: {str(e)}")
 
@@ -407,7 +277,7 @@ def export_consolidated_ledger(
 ):
     try:
         today = date.today()
-        default_start = today - timedelta(days=6)
+        default_start = today - timedelta(days=30)
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
             end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
@@ -435,12 +305,6 @@ def export_consolidated_ledger(
             top=Side(style='thin', color='A6A6A6'),
             bottom=Side(style='thin', color='A6A6A6')
         )
-        double_bottom_border = Border(
-            left=Side(style='thin', color='A6A6A6'),
-            right=Side(style='thin', color='A6A6A6'),
-            top=Side(style='thin', color='A6A6A6'),
-            double=True
-        )
 
         row_idx = 1
 
@@ -464,30 +328,37 @@ def export_consolidated_ledger(
         romans = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv']
         for reg in data["sortedCrimeRegions"]:
             offences = list(data["crimeRegional"][reg].keys())
-            reg_start_row = row_idx
             reg_cases, reg_suspects = 0, 0
 
-            for idx, off in enumerate(offences):
-                item = data["crimeRegional"][reg][off]
-                reg_cases += item["cases"]
-                reg_suspects += item["suspects"]
-
-                ws.cell(row=row_idx, column=1, value=reg if idx == 0 else "").border = thin_border
-                ws.cell(row=row_idx, column=2, value=f"{romans[idx]}." if idx < len(romans) else f"{idx+1}.").alignment = Alignment(horizontal="center")
-                ws.cell(row=row_idx, column=2).border = thin_border
-                
-                c_off = ws.cell(row=row_idx, column=3, value=off)
-                c_off.alignment = Alignment(horizontal="left")
-                c_off.border = thin_border
-
-                c_cases = ws.cell(row=row_idx, column=4, value=item["cases"])
-                c_cases.alignment = Alignment(horizontal="center")
-                c_cases.border = thin_border
-
-                c_susp = ws.cell(row=row_idx, column=5, value=item["suspects"])
-                c_susp.alignment = Alignment(horizontal="center")
-                c_susp.border = thin_border
+            if not offences:
+                ws.cell(row=row_idx, column=1, value=reg).border = thin_border
+                ws.cell(row=row_idx, column=2, value="-").border = thin_border
+                ws.cell(row=row_idx, column=3, value="NO RECORDS").border = thin_border
+                ws.cell(row=row_idx, column=4, value=0).border = thin_border
+                ws.cell(row=row_idx, column=5, value=0).border = thin_border
                 row_idx += 1
+            else:
+                for idx, off in enumerate(offences):
+                    item = data["crimeRegional"][reg][off]
+                    reg_cases += item["cases"]
+                    reg_suspects += item["suspects"]
+
+                    ws.cell(row=row_idx, column=1, value=reg if idx == 0 else "").border = thin_border
+                    ws.cell(row=row_idx, column=2, value=f"{romans[idx]}." if idx < len(romans) else f"{idx+1}.").alignment = Alignment(horizontal="center")
+                    ws.cell(row=row_idx, column=2).border = thin_border
+                    
+                    c_off = ws.cell(row=row_idx, column=3, value=off)
+                    c_off.alignment = Alignment(horizontal="left")
+                    c_off.border = thin_border
+
+                    c_cases = ws.cell(row=row_idx, column=4, value=item["cases"])
+                    c_cases.alignment = Alignment(horizontal="center")
+                    c_cases.border = thin_border
+
+                    c_susp = ws.cell(row=row_idx, column=5, value=item["suspects"])
+                    c_susp.alignment = Alignment(horizontal="center")
+                    c_susp.border = thin_border
+                    row_idx += 1
 
             # Subtotal row
             ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=3)
@@ -509,23 +380,23 @@ def export_consolidated_ledger(
             row_idx += 2
 
         # --- SECTION 2: GENERAL CRIME & AGGREGATE SUMMARY ---
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=4)
+        cell = ws.cell(row=row_idx, column=1, value="GENERAL CRIME & AGRICULTURAL PRODUCE SUMMARY")
+        cell.fill = PatternFill(start_color="C6E0B4", end_color="C6E0B4", fill_type="solid")
+        cell.font = Font(bold=True, size=11)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        row_idx += 1
+
+        headers_s2 = ["NO", "OFFENCES / AGRICULTURAL THEFTS", "TOTAL CASES / QTY", "SUSPECTS IN CUSTODY"]
+        for col_num, h in enumerate(headers_s2, 1):
+            c = ws.cell(row=row_idx, column=col_num, value=h)
+            c.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+            c.font = Font(bold=True, size=10)
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = thin_border
+        row_idx += 1
+
         if data["crimeGeneral"]:
-            ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=4)
-            cell = ws.cell(row=row_idx, column=1, value="GENERAL CRIME & AGRICULTURAL PRODUCE SUMMARY")
-            cell.fill = PatternFill(start_color="C6E0B4", end_color="C6E0B4", fill_type="solid")
-            cell.font = Font(bold=True, size=11)
-            cell.alignment = Alignment(horizontal="center", vertical="center")
-            row_idx += 1
-
-            headers_s2 = ["NO", "OFFENCES / AGRICULTURAL THEFTS", "TOTAL CASES / QTY", "SUSPECTS IN CUSTODY"]
-            for col_num, h in enumerate(headers_s2, 1):
-                c = ws.cell(row=row_idx, column=col_num, value=h)
-                c.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-                c.font = Font(bold=True, size=10)
-                c.alignment = Alignment(horizontal="center", vertical="center")
-                c.border = thin_border
-            row_idx += 1
-
             for idx, (off, item) in enumerate(data["crimeGeneral"].items(), 1):
                 ws.cell(row=row_idx, column=1, value=idx).alignment = Alignment(horizontal="center")
                 ws.cell(row=row_idx, column=1).border = thin_border
@@ -535,24 +406,30 @@ def export_consolidated_ledger(
                 ws.cell(row=row_idx, column=4, value=item["suspects"]).alignment = Alignment(horizontal="center")
                 ws.cell(row=row_idx, column=4).border = thin_border
                 row_idx += 1
+        else:
+            ws.cell(row=row_idx, column=1, value=1).border = thin_border
+            ws.cell(row=row_idx, column=2, value="NO GENERAL CRIMES RECORDED").border = thin_border
+            ws.cell(row=row_idx, column=3, value=0).border = thin_border
+            ws.cell(row=row_idx, column=4, value=0).border = thin_border
+            row_idx += 1
 
-            # Grand Total
-            ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=2)
-            gt_lbl = ws.cell(row=row_idx, column=1, value="GRAND TOTAL")
-            gt_lbl.font = Font(bold=True)
-            for c_i in range(1, 3): ws.cell(row=row_idx, column=c_i).border = thin_border
+        # Grand Total
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=2)
+        gt_lbl = ws.cell(row=row_idx, column=1, value="GRAND TOTAL")
+        gt_lbl.font = Font(bold=True)
+        for c_i in range(1, 3): ws.cell(row=row_idx, column=c_i).border = thin_border
 
-            gt_c = ws.cell(row=row_idx, column=3, value=data["grandCrimeCases"])
-            gt_c.font = Font(bold=True)
-            gt_c.alignment = Alignment(horizontal="center")
-            gt_c.border = thin_border
+        gt_c = ws.cell(row=row_idx, column=3, value=data["grandCrimeCases"])
+        gt_c.font = Font(bold=True)
+        gt_c.alignment = Alignment(horizontal="center")
+        gt_c.border = thin_border
 
-            gt_s = ws.cell(row=row_idx, column=4, value=data["grandCrimeSuspects"])
-            gt_s.font = Font(bold=True)
-            gt_s.alignment = Alignment(horizontal="center")
-            gt_s.border = thin_border
-            for c_i in range(1, 5): ws.cell(row=row_idx, column=c_i).fill = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
-            row_idx += 2
+        gt_s = ws.cell(row=row_idx, column=4, value=data["grandCrimeSuspects"])
+        gt_s.font = Font(bold=True)
+        gt_s.alignment = Alignment(horizontal="center")
+        gt_s.border = thin_border
+        for c_i in range(1, 5): ws.cell(row=row_idx, column=c_i).fill = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
+        row_idx += 2
 
         # --- SECTION 3: DISRUPTIVE OPERATIONS ---
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=9)
@@ -618,18 +495,17 @@ def export_consolidated_ledger(
             ws.cell(row=row_idx, column=3).border = thin_border
             row_idx += 1
 
-        if data["sortedStoryRegions"]:
-            ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=2)
-            st_lbl = ws.cell(row=row_idx, column=1, value="GRAND TOTAL MILESTONES")
-            st_lbl.font = Font(bold=True)
-            st_lbl.alignment = Alignment(horizontal="right")
-            for c_i in range(1, 3): ws.cell(row=row_idx, column=c_i).border = thin_border
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=2)
+        st_lbl = ws.cell(row=row_idx, column=1, value="GRAND TOTAL MILESTONES")
+        st_lbl.font = Font(bold=True)
+        st_lbl.alignment = Alignment(horizontal="right")
+        for c_i in range(1, 3): ws.cell(row=row_idx, column=c_i).border = thin_border
 
-            st_v = ws.cell(row=row_idx, column=3, value=data["grandStories"])
-            st_v.font = Font(bold=True)
-            st_v.alignment = Alignment(horizontal="center")
-            st_v.border = thin_border
-            for c_i in range(1, 4): ws.cell(row=row_idx, column=c_i).fill = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
+        st_v = ws.cell(row=row_idx, column=3, value=data["grandStories"])
+        st_v.font = Font(bold=True)
+        st_v.alignment = Alignment(horizontal="center")
+        st_v.border = thin_border
+        for c_i in range(1, 4): ws.cell(row=row_idx, column=c_i).fill = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
 
         # Auto-fit column widths
         for col in ws.columns:
