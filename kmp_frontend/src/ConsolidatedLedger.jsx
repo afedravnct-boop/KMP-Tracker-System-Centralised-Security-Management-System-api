@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, Filter, X } from 'lucide-react';
+import { authFetch } from './api';
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
