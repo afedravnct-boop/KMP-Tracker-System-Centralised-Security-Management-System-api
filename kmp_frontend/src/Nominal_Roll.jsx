@@ -1295,12 +1295,23 @@ const availableAnalyticsFilterOptions = useMemo(() => {
                     <h3 className="font-extrabold text-base text-indigo-900 flex items-center"><PieChart className="mr-2 w-4 h-4"/> ({analyticsFilteredDataset.length} Officers Shown)</h3>
                     <div className="flex flex-wrap items-center gap-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
                         <label className="text-[10px] font-bold text-indigo-800 uppercase">Categorize By:</label>
-                        <select value={metricCategory} onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer">
-                            <option value="RANK">Rank Breakdown</option>
-                            <option value="UNIT">Unit / Station Breakdown</option>
-                            <option value="STATUS">📋 Personnel Status (Deployable / Non-Deployable)</option>
-                            <option value="SEX">Sex Distribution</option>
-                        </select>
+                        {/* ANALYTICS CATEGORIZATION DROPDOWN */}
+<select 
+  value={metricCategory} 
+  onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} 
+  className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer"
+>
+    <option value="RANK">Rank Breakdown</option>
+    <option value="UNIT">Unit / Station Breakdown</option>
+    <option value="STATUS">📋 Personnel Status (Deployable / Non-Deployable)</option>
+    <option value="SEX">Sex Distribution</option>
+    <option value="DISTRICT">Home District Breakdown</option>
+    <option value="BANK">Bank Branch Breakdown</option>
+    <option value="TRIBE">Tribe Breakdown</option>
+    <option value="EDUCATION">Education Level Breakdown</option>
+    <option value="AGE">Age Demographics Breakdown</option>
+    <option value="SECTION">Directorate / Section Breakdown (External Units)</option>
+</select>
 
                         <label className="text-[10px] font-bold text-indigo-800 uppercase ml-2">Filter Value:</label>
                         <select value={analyticsMetricFilterValue} onChange={e => setAnalyticsMetricFilterValue(e.target.value)} className="border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-700 outline-none bg-white cursor-pointer max-w-[160px]">
