@@ -312,28 +312,30 @@ def get_consolidated_ledger(
         ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
 
         if stats_model:
-            stats_query = db.query(
-                stats_model.region,
-                stats_model.station,
-                func.sum(func.coalesce(stats_model.arrested, 0)).label('arrested'),
-                func.sum(func.coalesce(stats_model.given_bond, 0)).label('given_bond'),
-                func.sum(func.coalesce(stats_model.cautioned, 0)).label('cautioned'),
-                func.sum(func.coalesce(stats_model.pending_court, 0)).label('pending_court'),
-                func.sum(func.coalesce(stats_model.taken_to_court, 0)).label('taken_to_court'),
-                func.sum(func.coalesce(stats_model.released, 0)).label('released'),
-                func.sum(func.coalesce(stats_model.remanded, 0)).label('remanded'),
-                func.sum(func.coalesce(stats_model.convicted, 0)).label('convicted')
-            ).filter(
-                stats_model.date >= start_str,
-                stats_model.date <= end_str + " 23:59:59"
-            )
-            if region != "ALL REGIONS": stats_query = stats_query.filter(stats_model.region == region)
-            if station != "ALL STATIONS": stats_query = stats_query.filter(stats_model.station == station)
+            stats_rows = db.query(stats_model).all()
+            for row in stats_rows:
+                # Parse database date safely regardless of string format
+                r_date_str = str(row.date).split()[0] # handles timestamps if present
+                try:
+                    # Try parsing YYYY-MM-DD or DD/MM/YYYY
+                    if '-' in r_date_str:
+                        r_dt = datetime.strptime(r_date_str, "%Y-%m-%d").date()
+                    else:
+                        r_dt = datetime.strptime(r_date_str, "%d/%m/%Y").date()
+                except ValueError:
+                    continue
 
-            for row in stats_query.group_by(stats_model.region, stats_model.station).all():
+                if not (start_dt <= r_dt <= end_dt):
+                    continue
+
                 stn = clean_str(row.station)
                 reg = get_official_region_for_station(stn, row.region)
-                
+
+                if region != "ALL REGIONS" and reg != region:
+                    continue
+                if station != "ALL STATIONS" and not is_station_equivalent(stn, station):
+                    continue
+
                 if reg not in ops_regional: 
                     ops_regional[reg] = {k: 0 for k in ops_general.keys()}
                     
