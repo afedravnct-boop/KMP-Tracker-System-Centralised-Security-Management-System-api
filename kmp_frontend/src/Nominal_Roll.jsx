@@ -263,16 +263,25 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   }, [Nominal_Rolls, filterRegion]);
 
   const availablePostsList = useMemo(() => {
-    const list = new Set();
-    (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).forEach(n => {
-      if (n.station) {
-        const cleaned = cleanStr(n.station);
-        const parsed = parseStationHierarchy(cleaned);
-        if (parsed.post) list.add(parsed.post);
+  const list = new Set();
+  const activeStn = cleanStr(filterStation);
+
+  (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).forEach(n => {
+    if (n.station) {
+      const cleaned = cleanStr(n.station);
+      const parsed = parseStationHierarchy(cleaned);
+      
+      // If a specific station is selected, only pull posts belonging to it
+      if (activeStn === 'ALL STATIONS' || isStationEquivalent(parsed.station, activeStn) || cleaned.includes(activeStn)) {
+        if (parsed.post) {
+          list.add(parsed.post);
+        }
       }
-    });
-    return Array.from(list).sort();
-  }, [Nominal_Rolls]);
+    }
+  });
+
+  return Array.from(list).sort();
+}, [Nominal_Rolls, filterStation]);
 
   const populateUpdateForm = (data) => {
     setFormData({
@@ -495,86 +504,49 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   };
 
   const filteredRolls = useMemo(() => {
-    const list = (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
-      const statusStr = cleanStr(n.status);
-      if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
+  const list = (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
+    const statusStr = cleanStr(n.status);
+    if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
 
-      const stn = cleanStr(n.station);
-      const reg = getOfficialRegionForStation(stn, cleanStr(n.region));
-      const parsedStn = parseStationHierarchy(stn);
+    const stn = cleanStr(n.station);
+    const reg = cleanStr(n.region);
+    const parsedStn = parseStationHierarchy(stn);
 
-      const selRegion = cleanStr(filterRegion);
-      const selStation = cleanStr(filterStation);
-      const selPost = cleanStr(filterPost);
+    const selRegion = cleanStr(filterRegion);
+    const selStation = cleanStr(filterStation);
+    const selPost = cleanStr(filterPost);
 
-      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
+    if (selRegion && selRegion !== 'ALL REGIONS' && !reg.includes(selRegion)) return false;
+    
+    if (selStation && selStation !== 'ALL STATIONS') {
+      // 🟢 Matches parent station or division equivalents including embedded posts
+      const matchesStation = isStationEquivalent(parsedStn.station, selStation) || 
+                             isStationEquivalent(parsedStn.division, selStation) || 
+                             stn.includes(selStation);
+      if (!matchesStation) return false;
+    }
+
+    if (selPost && selPost !== 'ALL POSTS') {
+      if (!isStationEquivalent(parsedStn.post, selPost)) return false;
+    }
+
+    if (searchTerm.trim()) {
+      const query = searchTerm.trim().toLowerCase();
+      const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
+      const name = cleanStr(n.name).toLowerCase();
+      const rank = cleanStr(n.rank).toLowerCase();
+      const ipps = cleanStr(n.ipps).toLowerCase();
+      const nin = cleanStr(n.nin).toLowerCase();
       
-      if (selStation && selStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(parsedStn.station, selStation) && !isStationEquivalent(stn, selStation)) return false;
+      if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !nin.includes(query)) {
+        return false;
       }
+    }
+    return true;
+  });
 
-      if (selPost && selPost !== 'ALL POSTS') {
-        if (!isStationEquivalent(parsedStn.post, selPost)) return false;
-      }
-
-      if (searchTerm.trim()) {
-        const query = searchTerm.trim().toLowerCase();
-        const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
-        const name = cleanStr(n.name).toLowerCase();
-        const rank = cleanStr(n.rank).toLowerCase();
-        const ipps = cleanStr(n.ipps).toLowerCase();
-        const station = cleanStr(n.station).toLowerCase();
-        const nin = cleanStr(n.nin).toLowerCase();
-        
-        if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !station.includes(query) && !nin.includes(query)) {
-          return false;
-        }
-      }
-      return true;
-    });
-
-    return list;
-  }, [Nominal_Rolls, filterRegion, filterStation, filterPost, searchTerm]);
-
-  const filteredNominal_Roll_archives = useMemo(() => {
-    if (!Array.isArray(Nominal_Roll_archives)) return [];
-
-    return Nominal_Roll_archives.filter(n => {
-      const stn = cleanStr(n.station);
-      const reg = getOfficialRegionForStation(stn, cleanStr(n.region));
-      const parsedStn = parseStationHierarchy(stn);
-
-      const selRegion = cleanStr(filterRegion);
-      const selStation = cleanStr(filterStation);
-      const selPost = cleanStr(filterPost);
-
-      if (selRegion && selRegion !== 'ALL REGIONS' && reg !== selRegion) return false;
-      
-      if (selStation && selStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(parsedStn.station, selStation) && !isStationEquivalent(stn, selStation)) return false;
-      }
-
-      if (selPost && selPost !== 'ALL POSTS') {
-        if (!isStationEquivalent(parsedStn.post, selPost)) return false;
-      }
-
-      if (searchTerm.trim()) {
-        const query = searchTerm.trim().toLowerCase();
-        const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
-        const name = cleanStr(n.name).toLowerCase();
-        const rank = cleanStr(n.rank).toLowerCase();
-        const ipps = cleanStr(n.ipps).toLowerCase();
-        const station = cleanStr(n.station).toLowerCase();
-        const nin = cleanStr(n.nin).toLowerCase();
-        const reason = cleanStr(n.archive_reason).toLowerCase();
-        
-        if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !station.includes(query) && !nin.includes(query) && !reason.includes(query)) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [Nominal_Roll_archives, filterRegion, filterStation, filterPost, searchTerm]);
+  return list;
+}, [Nominal_Rolls, filterRegion, filterStation, filterPost, searchTerm]);
 
   const currentRollDataset = useMemo(() => {
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
@@ -1287,126 +1259,122 @@ const availableAnalyticsFilterOptions = useMemo(() => {
 
           {/* ANALYTICS BREAKDOWN OR TABLE LEDGER VIEW */}
           {showAnalytics ? (
-            <ExpandableTableCard title={viewMode === 'archive' ? 'Archived Roll Analytics' : 'Active Roll Analytics'}>
-              {(expanded) => (
-                <div className={`bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 p-5 flex flex-col space-y-4 ${expanded ? 'h-full flex-1' : ''}`}>
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 dark:border-slate-800 pb-3 gap-3 shrink-0">
-                    <h3 className="font-extrabold text-base text-indigo-900 dark:text-indigo-300 flex items-center">
-                      <PieChart className="mr-2 w-4 h-4"/> Viewing: {analyticsFilteredDataset.length} Officers Matching [{metricCategory} : {analyticsMetricFilterValue}]
-                    </h3>
-                    <div className="flex flex-wrap items-center gap-2 bg-indigo-50 dark:bg-slate-800 p-2 rounded-lg border border-indigo-100 dark:border-slate-700">
-                        <label className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 uppercase">Categorize By:</label>
-                        <select 
-                          value={metricCategory} 
-                          onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} 
-                          className="border border-indigo-300 dark:border-slate-600 rounded p-1 text-xs font-bold text-indigo-700 dark:text-indigo-200 outline-none bg-white dark:bg-slate-900 cursor-pointer"
+            <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col h-[650px]">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 dark:border-slate-800 pb-3 gap-3 shrink-0">
+                <h3 className="font-extrabold text-sm sm:text-base text-indigo-900 dark:text-indigo-300 flex items-center">
+                  <PieChart className="mr-2 w-4 h-4 shrink-0"/> Viewing: {analyticsFilteredDataset.length} Officers Matching [{metricCategory} : {analyticsMetricFilterValue}]
+                </h3>
+                <div className="flex flex-wrap items-center gap-2 bg-indigo-50 dark:bg-slate-800 p-2 rounded-lg border border-indigo-100 dark:border-slate-700">
+                    <label className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 uppercase">Categorize By:</label>
+                    <select 
+                      value={metricCategory} 
+                      onChange={e => { setMetricCategory(e.target.value); setAnalyticsMetricFilterValue('ALL'); }} 
+                      className="border border-indigo-300 dark:border-slate-600 rounded p-1 text-xs font-bold text-indigo-700 dark:text-indigo-200 outline-none bg-white dark:bg-slate-900 cursor-pointer"
+                    >
+                        <option value="RANK">Rank Breakdown</option>
+                        <option value="UNIT">Unit / Station Breakdown</option>
+                        <option value="STATUS">📋 Personnel Status (Deployable / Non-Deployable)</option>
+                        <option value="SEX">Sex Distribution</option>
+                        <option value="AGE">Age Demographics</option>
+                        <option value="POSITION">Position / Title Substring</option>
+                        <option value="SECTION">Directorate / Section Breakdown</option>
+                    </select>
+
+                    <label className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 uppercase ml-2">Filter View:</label>
+                    <select 
+                      value={analyticsMetricFilterValue} 
+                      onChange={e => setAnalyticsMetricFilterValue(e.target.value)} 
+                      className="border border-indigo-300 dark:border-slate-600 rounded p-1 text-xs font-bold text-indigo-700 dark:text-indigo-200 outline-none bg-white dark:bg-slate-900 cursor-pointer max-w-[180px]"
+                    >
+                        <option value="ALL">ALL ({metricCategory})</option>
+                        {availableAnalyticsFilterOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+
+                    {canEditRecords && (
+                      <button
+                          type="button"
+                          onClick={handleExecuteAnalyticsExport}
+                          className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer ml-2 shrink-0"
                         >
-                            <option value="RANK">Rank Breakdown</option>
-                            <option value="UNIT">Unit / Station Breakdown</option>
-                            <option value="STATUS">📋 Personnel Status (Deployable / Non-Deployable)</option>
-                            <option value="SEX">Sex Distribution</option>
-                            <option value="AGE">Age Demographics</option>
-                            <option value="POSITION">Position / Title Substring</option>
-                            <option value="SECTION">Directorate / Section Breakdown</option>
-                        </select>
-
-                        <label className="text-[10px] font-bold text-indigo-800 dark:text-indigo-300 uppercase ml-2">Filter View:</label>
-                        <select 
-                          value={analyticsMetricFilterValue} 
-                          onChange={e => setAnalyticsMetricFilterValue(e.target.value)} 
-                          className="border border-indigo-300 dark:border-slate-600 rounded p-1 text-xs font-bold text-indigo-700 dark:text-indigo-200 outline-none bg-white dark:bg-slate-900 cursor-pointer max-w-[180px]"
-                        >
-                            <option value="ALL">ALL ({metricCategory})</option>
-                            {availableAnalyticsFilterOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-
-                        {/* 🟢 Secure Download Trigger honoring export privileges */}
-                        {canEditRecords && (
-                          <button
-                              type="button"
-                              onClick={handleExecuteAnalyticsExport}
-                              className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer ml-2"
-                            >
-                              <Download className="w-3.5 h-3.5 mr-1" /> Download Filtered Ledger
-                          </button>
-                        )}
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar border border-gray-200 dark:border-slate-800 rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 text-xs">
-                        <thead className="bg-indigo-50 dark:bg-slate-950 sticky top-0 z-10 shadow-xs">
-                            <tr>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">S/No</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">F/NO</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Rank</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Name</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Sex</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Position</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">DOB</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">DOE</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">D.O. Post</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">D.O. Pro</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Contact</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Educ Level</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">IPPS</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">TIN</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">NIN</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Home Dist</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Tribe</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Acc No</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Bank Branch</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Station</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">District</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Region</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Section</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Dir</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Status</th>
-                                <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap">Last Updated By</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-100 dark:divide-slate-800">
-                            {analyticsFilteredDataset.map((n, idx) => (
-                                <tr 
-                                  key={n.sn || n.fnum} 
-                                  onClick={() => { setAnalyticsSelectedOfficer(n); setShowAnalyticsDossier(true); }} 
-                                  className={`${getRowStatusColorClass(n.status)} hover:bg-indigo-50/50 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
-                                >
-                                    <td className="px-3 py-2 whitespace-nowrap font-bold">{idx + 1}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700 dark:text-blue-400">{cleanStr(n.fnum || n.f_num)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap font-bold text-slate-800 dark:text-slate-200">{cleanStr(n.rank)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap uppercase font-medium text-slate-800 dark:text-slate-200">{cleanStr(n.name)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.sex)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-gray-700 dark:text-slate-300">{cleanStr(n.position)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.dob || ''}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.doe || ''}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.do_post || n.dopost || n.dop || ''}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.do_pro || n.dopro || ''}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.contact)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.educ_level || n.educlevel)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap font-mono text-slate-700 dark:text-slate-300">{cleanStr(n.ipps)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.tin)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.nin)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.home_dist || n.homedist)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.tribe)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.acc_no || n.accno)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.bank_branch || n.bankbranch)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700 dark:text-blue-400">{cleanStr(n.station)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.district)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.region)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.section)}</td>
-                                    <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[130px] truncate" title={cleanStr(n.dir)}>{cleanStr(n.dir)}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap font-bold text-green-700 dark:text-green-400">{cleanStr(n.status) || 'ACTIVE'}</td>
-                                    <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.last_updated_by || ''}</td>
-                                </tr>
-                            ))}
-                            {analyticsFilteredDataset.length === 0 && <tr><td colSpan="26" className="text-center p-6 text-xs text-gray-500 dark:text-slate-400 font-medium">No personnel records match this specific filter.</td></tr>}
-                        </tbody>
-                    </table>
-                  </div>
+                          <Download className="w-3.5 h-3.5 mr-1" /> Download Filtered Ledger
+                      </button>
+                    )}
                 </div>
-              )}
-            </ExpandableTableCard>
+              </div>
+
+              {/* 🟢 Independent Scrollable Container (Both Vertical & Horizontal) */}
+              <div className="flex-1 overflow-auto custom-scrollbar border border-gray-200 dark:border-slate-800 rounded-lg mt-3 relative">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 text-xs">
+                    <thead className="bg-indigo-50 dark:bg-slate-950 sticky top-0 z-20 shadow-xs">
+                        <tr>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">S/No</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">F/NO</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Rank</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Name</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Sex</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Position</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">DOB</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">DOE</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">D.O. Post</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">D.O. Pro</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Contact</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Educ Level</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">IPPS</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">TIN</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">NIN</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Home Dist</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Tribe</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Acc No</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Bank Branch</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Station</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">District</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Region</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Section</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Dir</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Status</th>
+                            <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Last Updated By</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-100 dark:divide-slate-800">
+                        {analyticsFilteredDataset.map((n, idx) => (
+                            <tr 
+                              key={n.sn || n.fnum} 
+                              onClick={() => { setAnalyticsSelectedOfficer(n); setShowAnalyticsDossier(true); }} 
+                              className={`${getRowStatusColorClass(n.status)} hover:bg-indigo-50/50 dark:hover:bg-slate-800 transition-colors cursor-pointer`}
+                            >
+                                <td className="px-3 py-2 whitespace-nowrap font-bold">{idx + 1}</td>
+                                <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700 dark:text-blue-400">{cleanStr(n.fnum || n.f_num)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap font-bold text-slate-800 dark:text-slate-200">{cleanStr(n.rank)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap uppercase font-medium text-slate-800 dark:text-slate-200">{cleanStr(n.name)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.sex)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-gray-700 dark:text-slate-300">{cleanStr(n.position)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.dob || ''}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.doe || ''}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.do_post || n.dopost || n.dop || ''}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.do_pro || n.dopro || ''}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.contact)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.educ_level || n.educlevel)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap font-mono text-slate-700 dark:text-slate-300">{cleanStr(n.ipps)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.tin)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.nin)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.home_dist || n.homedist)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.tribe)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.acc_no || n.accno)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.bank_branch || n.bankbranch)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700 dark:text-blue-400">{cleanStr(n.station)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.district)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.region)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.section)}</td>
+                                <td className="px-3 py-2 text-slate-700 dark:text-slate-300 max-w-[130px] truncate" title={cleanStr(n.dir)}>{cleanStr(n.dir)}</td>
+                                <td className="px-3 py-2 whitespace-nowrap font-bold text-green-700 dark:text-green-400">{cleanStr(n.status) || 'ACTIVE'}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-slate-400">{n.last_updated_by || ''}</td>
+                            </tr>
+                        ))}
+                        {analyticsFilteredDataset.length === 0 && <tr><td colSpan="26" className="text-center p-6 text-xs text-gray-500 dark:text-slate-400 font-medium">No personnel records match this specific filter.</td></tr>}
+                    </tbody>
+                </table>
+              </div>
+            </div>
           ) : (
             <ExpandableTableCard title={viewMode === 'archive' ? "Archived Personnel Ledger" : "Active Nominal Roll Ledger"}>
               {(expanded) => (

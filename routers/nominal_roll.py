@@ -435,7 +435,6 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
     user_role = (current_user.role or "").upper()
-    user_pos_str = (current_user.position or "").upper()
     user_region = normalize_region_name(current_user.region)
     user_station = normalize_station_name(current_user.station)
     
@@ -446,52 +445,25 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     
     is_absolute_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
-        "KMP COMMANDER" in user_pos_str or
-        "DEPUTY KMP COMMANDER" in user_pos_str or
-        "KMP ADMIN" in user_pos_str or
         perms.get("view_global_roster") is True or
         perms.get("global_observer") is True
     )
 
-    is_kmp_system_manager = (
-        user_role == "SYSTEM_MANAGER" and
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos_str
-    )
+    is_regional_command = user_role in ["RPC", "DEPUTY_RPC", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"]
 
-    is_kmp_specialist = (
-        user_role == "ASSISTANT_SYSTEM_MANAGER" and
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos_str
-    )
-
-    is_regional_command = (
-        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
-        not is_kmp_system_manager and
-        not is_kmp_specialist
-    )
-
-    if is_absolute_global or is_kmp_system_manager:
+    if is_absolute_global:
         return query
-    elif is_kmp_specialist:
-        specs = []
-        if "CID" in user_pos_str: specs.append("CID")
-        if "CI" in user_pos_str or "CRIME INT" in user_pos_str: specs.append("CI")
-        if "TRAFFIC" in user_pos_str: specs.append("TRAFFIC")
-        if specs:
-            conds = []
-            for spec in specs:
-                conds.extend([
-                    func.upper(Model.section).ilike(f"%{spec}%"), 
-                    func.upper(Model.dir).ilike(f"%{spec}%"),
-                    func.upper(Model.position).ilike(f"%{spec}%")
-                ])
-            return query.filter(or_(*conds))
-        return query.filter(Model.id == -1)
     elif is_regional_command:
         return query.filter(func.upper(Model.region) == user_region)
-    elif user_station and (perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True):
-        return query.filter(func.upper(Model.station) == user_station)
+    elif user_station:
+        # 🟢 Station Admin Scope: Matches exact station, parent division, or sub-station/post entries
+        station_pattern = f"%{user_station}%"
+        return query.filter(
+            or_(
+                func.upper(Model.station) == user_station,
+                func.upper(Model.station).ilike(station_pattern)
+            )
+        )
     return query.filter(Model.id == -1)
 
 @router.get("/nominal-roll")
