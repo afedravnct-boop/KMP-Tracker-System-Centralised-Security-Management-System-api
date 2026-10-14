@@ -1820,18 +1820,18 @@ def export_filtered_nominal_roll(
                     if r_rank != f_val: continue
                 elif f_type == "UNIT":
                     if r_stn != f_val: continue
-                elif f_type == "EDUCATION":
-                    r_educ = normalize_education_level(getattr(r, 'educ_level', getattr(r, 'educlevel', '')))
-                    if r_educ != f_val: continue
-                elif f_type == "DISTRICT":
-                    r_dist = clean_str(getattr(r, 'home_dist', getattr(r, 'homedist', getattr(r, 'district', ''))))
-                    if r_dist != f_val: continue
-                elif f_type == "TRIBE":
-                    r_tribe = clean_str(getattr(r, 'tribe', ''))
-                    if r_tribe != f_val: continue
+                elif f_type == "STATUS":
+                    r_status = normalize_personnel_status(getattr(r, 'status', ''))
+                    if r_status != f_val: continue
                 elif f_type == "SEX":
                     r_sex = clean_str(getattr(r, 'sex', ''))
                     if r_sex != f_val: continue
+                elif f_type == "AGE":
+                    r_age = calculate_age_bracket(getattr(r, 'dob', None))
+                    if r_age != f_val: continue
+                elif f_type == "SECTION":
+                    r_sec = normalize_section_unit(getattr(r, 'position', '') or getattr(r, 'section', ''))
+                    if r_sec != f_val: continue
 
             filtered_rows.append({
                 "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
@@ -1842,24 +1842,9 @@ def export_filtered_nominal_roll(
                 "Contact": getattr(r, 'contact', ''),
                 "IPPS": getattr(r, 'ipps', ''),
                 "NIN": getattr(r, 'nin', ''),
-                "TIN": getattr(r, 'tin', ''),
-                "DOB": getattr(r, 'dob', ''),
-                "DOE": getattr(r, 'doe', ''),
-                "Date of Post": getattr(r, 'do_post', getattr(r, 'dopost', '')),
-                "Date of Promotion": getattr(r, 'do_pro', getattr(r, 'dopro', '')),
-                "Education Level": getattr(r, 'educ_level', getattr(r, 'educlevel', '')),
-                "Home District": getattr(r, 'home_dist', getattr(r, 'homedist', '')),
-                "Tribe": getattr(r, 'tribe', ''),
-                "Bank Branch": getattr(r, 'bank_branch', getattr(r, 'bankbranch', '')),
-                "Account Number": getattr(r, 'acc_no', getattr(r, 'accno', '')),
-                "Section": getattr(r, 'section', ''),
-                "Directorate": getattr(r, 'dir', ''),
                 "Station": r_stn,
-                "Police Post": parsed_stn['post'] if parsed_stn['post'] else "N/A",
-                "District": getattr(r, 'district', ''),
                 "Region": r_reg,
-                "Status": getattr(r, 'status', 'ACTIVE'),
-                "Last Updated By": getattr(r, 'last_updated_by', '')
+                "Status": getattr(r, 'status', 'ACTIVE')
             })
 
         wb = openpyxl.Workbook()
@@ -1870,127 +1855,19 @@ def export_filtered_nominal_roll(
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         
-        officer_name = (current_user.name or "UNKNOWN").strip().upper()
         officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
-        officer_rank = (current_user.rank or "").strip().upper()
-        officer_station = normalize_station_name(current_user.station or "HQ")
-        timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
-
-        wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
-        wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
-        wb.properties.title = "Official Law Enforcement Restricted Filtered Nominal List Export"
-        wb.properties.subject = f"Filtered Nominal List Extract — Downloaded by {officer_fnum} ({officer_station}) at {timestamp_str}"
-        wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
-
-        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
-        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell_font = Font(name="Calibri", size=10)
-        thin_border = Border(
-            left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
-            top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
-        )
-
-        ws.merge_cells("A1:AA1")
-        banner_cell = ws.cell(row=1, column=1)
-        banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
-        banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
-        banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
-        banner_cell.alignment = Alignment(horizontal="center", vertical="center")
-        ws.row_dimensions[1].height = 22
-
-        ws.cell(row=2, column=1, value=f"UGANDA POLICE FORCE - FILTERED NOMINAL LIST EXPORT ({f_type}: {f_val})").font = Font(bold=True, size=11)
-        ws.cell(row=3, column=1, value=f"Station / Unit: {station_clean} | Region: {region_clean}").font = Font(size=10)
-        ws.row_dimensions[2].height = 18
-        ws.row_dimensions[3].height = 18
-
-        headers = [
-            "SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", 
-            "IPPS", "NIN", "TIN", "DOB", "DOE", "Date of Post", "Date of Promotion", 
-            "Education Level", "Home District", "Tribe", "Bank Branch", "Account Number", 
-            "Section", "Directorate", "Station", "Police Post", "District", "Region", "Status", "Last Updated By"
-        ]
-        ws.row_dimensions[5].height = 26
-        for col_idx, header_text in enumerate(headers, 1):
-            cell = ws.cell(row=5, column=col_idx, value=header_text)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_align
-            cell.border = thin_border
-
-        for idx, row in enumerate(filtered_rows):
-            row_data = [
-                idx + 1,
-                row["Force Number"],
-                row["Rank"],
-                row["Name"],
-                row["Sex"],
-                row["Position"],
-                row["Contact"],
-                row["IPPS"],
-                row["NIN"],
-                row["TIN"],
-                str(row["DOB"]) if row["DOB"] else "",
-                str(row["DOE"]) if row["DOE"] else "",
-                str(row["Date of Post"]) if row["Date of Post"] else "",
-                str(row["Date of Promotion"]) if row["Date of Promotion"] else "",
-                row["Education Level"],
-                row["Home District"],
-                row["Tribe"],
-                row["Bank Branch"],
-                row["Account Number"],
-                row["Section"],
-                row["Directorate"],
-                row["Station"],
-                row["Police Post"],
-                row["District"],
-                row["Region"],
-                row["Status"],
-                row["Last Updated By"]
-            ]
-            ws.append(row_data)
-            current_row = idx + 6
-            ws.row_dimensions[current_row].height = 22
-
-            for col_idx in range(1, len(row_data) + 1):
-                cell = ws.cell(row=current_row, column=col_idx)
-                cell.font = cell_font
-                cell.border = thin_border
-                if col_idx in [1, 2, 3, 5, 8, 9, 10, 11, 12, 13, 14, 22, 23, 24, 25, 26]:
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                else:
-                    cell.alignment = Alignment(horizontal="left", vertical="center")
-
-        for col in ws.columns:
-            col_letter = col[0].column_letter
-            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
-
-        excel_stream = io.BytesIO()
-        wb.save(excel_stream)
-        excel_stream.seek(0)
-
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
-        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
-        excel_filename = f"{fnum_clean}_Filtered_List_{f_type}_{f_val.replace(' ', '_')}_{eat_time.strftime('%Y%m%d')}.xlsx"
+        excel_filename = f"{officer_fnum}_Filtered_List_{f_type}_{eat_time.strftime('%Y%m%d')}.xlsx"
         zip_filename = f"SECURE_FILTERED_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            zf.writestr(excel_filename, excel_stream.getvalue())
+            excel_buffer = io.BytesIO()
+            wb.save(excel_buffer)
+            zf.writestr(excel_filename, excel_buffer.getvalue())
 
         zip_stream.seek(0)
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="EXPORT",
-            module="NOMINAL_ROLL_EXPORT",
-            target_id="FILTERED_LEDGER_EXPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely generated AES-256 encrypted archive for filtered nominal list ({f_type} = {f_val}, {len(filtered_rows)} records)."
-        )
-
         return StreamingResponse(
             zip_stream,
             media_type="application/zip",
