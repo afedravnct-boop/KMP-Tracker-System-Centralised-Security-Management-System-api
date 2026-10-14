@@ -4,6 +4,7 @@ import os
 import math
 import re
 import json
+import base64
 from datetime import datetime, date
 from typing import Optional, List, Union
 from urllib.parse import unquote
@@ -27,6 +28,10 @@ from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
+
+# ====================================================================
+# HIERARCHICAL RANK & COMMAND RESPONSIBILITY WEIGHT ENGINE
+# ====================================================================
 
 RANK_SENIORITY = {
     "IGP": 1, "DIGP": 2, "AIGP": 3, "SCP": 4, "CP": 5, "ACP": 6,
@@ -53,9 +58,9 @@ def clean_str(val) -> str:
 def normalize_region_name(region_str) -> str:
     if not region_str: return "KMP HEADQUARTERS"
     r = clean_str(region_str)
-    if r in ["KMPN", "KMP/N", "KMP NORTH", "KMP NORTH HQ", "KMP NORTH HEADQUARTERS"]: return "KMP NORTH"
-    if r in ["KMPS", "KMP/S", "KMP SOUTH", "KMP SOUTH HQ", "KMP SOUTH HEADQUARTERS"]: return "KMP SOUTH"
-    if r in ["KMPE", "KMP/E", "KMP EAST", "KMP EAST HQ", "KMP EAST HEADQUARTERS"]: return "KMP EAST"
+    if r in ["KMPN", "KMP/N", "KMP NORTH"]: return "KMP NORTH"
+    if r in ["KMPS", "KMP/S", "KMP SOUTH"]: return "KMP SOUTH"
+    if r in ["KMPE", "KMP/E", "KMP EAST"]: return "KMP EAST"
     if r in ["KMP HQ", "KMP HEADQUARTERS"]: return "KMP HEADQUARTERS"
     if r in ["POLICE HQ", "POLICE HEADQUARTERS", "NAGURU"]: return "POLICE HEADQUARTERS"
     return r
@@ -63,10 +68,9 @@ def normalize_region_name(region_str) -> str:
 def normalize_station_name(station_str) -> str:
     if not station_str: return "UNKNOWN"
     val = clean_str(station_str)
-    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"]:
+    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION"]:
         return "OLD KAMPALA"
-    val = val.replace(" POLICE STATION", "").replace(" POL STN", "").replace(" P/STN", "").replace(" P/STATION", "").replace(" P/S", "").replace(" PS", "").replace(" DIVISION", "")
-    val = val.replace(" POLICE POST", "").replace(" P/P", "").replace(" P.P", "")
+    val = val.replace(" POLICE STATION", "").replace(" POL STN", "").replace(" P/STN", "").replace(" DIVISION", "")
     if val.endswith(" P") and len(val) > 2:  
         val = val[:-2].strip()
     return val
@@ -86,30 +90,57 @@ def normalize_section_unit(pos_str) -> str:
     if any(k in val for k in ["COUNTER", "TERRORISM", " C.T.", "CT "]) or val == "CT": return "COUNTER-TERRORISM"
     if any(k in val for k in ["TRAFFIC", "TRAFF", "TRAF", "T&RSA", "TRAS", "TRSA", "TRAFFIC&RS", "TRAFFIC & RS"]): return "TRAFFIC & RS"
     if any(k in val for k in ["CFPU", "CPC", "FAMILY", "CLO", "GBV", "GENDER"]): return "CFPU / GENDER"
-    if any(k in val for k in ["LOGISTIC", "LOGS", "L&E", "DRV", "DRIVING", "FLEET", "CONSTRUCTION", "LOG & ENG", "LOG AND ENG", "LOGS&ENG"]): return "LOGISTICS & ENGINEERING"
+    if any(k in val for k in ["LOGISTIC", "LOGS", "L&E", "DRV", "DRIVING", "FLEET", "CONSTRUCTION", "LOG & ENG"]): return "LOGISTICS & ENGINEERING"
     if any(k in val for k in ["SOCO", "FORENSIC"]): return "FORENSIC / SOCO"
     if any(k in val for k in ["PRO", "MEDIA", "PUBLIC RELATIONS"]): return "PRO / MEDIA"
-    if any(k in val for k in ["ICT", "CCTV", "COMM", "SIGNALLER", "COMMUNICATOR", "COMM/SIGN"]): return "ICT & COMMUNICATIONS"
+    if any(k in val for k in ["ICT", "CCTV", "COMM", "SIGNALLER", "COMMUNICATOR"]): return "ICT & COMMUNICATIONS"
     if any(k in val for k in ["FIRE", "F&RS", "RESCUE"]): return "FIRE & RESCUE"
     if any(k in val for k in ["GD", "G.D", "G/D", "OPERATIONS", "OPS"]): return "OPERATIONS / GD"
     return val
 
-def calculate_age_bracket(dob_val) -> str:
-    if not dob_val:
-        return "UNKNOWN / UNRECORDED"
+def get_station_priority_weight(station, region) -> int:
+    stn = clean_str(station)
+    reg = clean_str(region)
+    if 'KMP HEADQUARTERS' in stn or 'KMP HEADQUARTERS' in reg or stn == 'HQ':
+        return 0
+    if 'HEADQUARTERS' in stn or 'RPC' in stn:
+        return 1
+    return 2
+
+def get_command_weight(officer) -> int:
     try:
-        birth_date = dob_val if isinstance(dob_val, date) else parse_safe_date(dob_val)
-        if not birth_date:
-            return "UNKNOWN / UNRECORDED"
-        current_year = datetime.now().year
-        age = current_year - birth_date.year
-        if 18 <= age <= 29: return "18-29 YEARS"
-        if 30 <= age <= 39: return "30-39 YEARS"
-        if 40 <= age <= 49: return "40-49 YEARS"
-        if age >= 50: return "50+ YEARS"
-        return "UNKNOWN / UNRECORDED"
+        pos = clean_str(getattr(officer, 'position', ''))
+        if 'KMP COMMANDER' in pos or (any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER', 'CDR']) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
+            return 1
+        if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
+            return 2
+        if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'KMP ADMIN OFFICER' in pos:
+            return 3
+        if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
+            return 1
+        if 'DEPUTY RPC' in pos or 'DEP RPC' in pos or 'D/RPC' in pos:
+            return 2
+        if 'DPC' in pos or 'DIVISION COMMANDER' in pos or 'DIV COMDR' in pos:
+            return 4
+        if 'DEPUTY DPC' in pos or 'DEP DPC' in pos:
+            return 5
+        if (any(k in pos for k in ['COM', 'COMD', 'COMDR', 'COMMANDER', 'CDR'])) and not ('DEP' in pos or 'DEPUTY' in pos):
+            return 5
+        if 'DEP' in pos or 'DEPUTY' in pos:
+            return 6
+        if 'OC STATION' in pos or 'OC DIV' in pos or ('OC' in pos and not ('CID' in pos or 'CI' in pos)):
+            return 7
+        if 'OC CID' in pos or 'HEAD CID' in pos:
+            return 8
+        if 'OC CI' in pos or 'CRIME INTELLIGENCE' in pos:
+            return 9
+        if 'OC POST' in pos or 'O/C POST' in pos or 'IC POST' in pos:
+            return 10
+        if '2I/C' in pos or 'DEPUTY OC' in pos or 'I/C' in pos:
+            return 11
     except Exception:
-        return "UNKNOWN / UNRECORDED"
+        pass
+    return 50
 
 def get_rank_weight(rank_str: str) -> int:
     if not rank_str: return 99
@@ -118,7 +149,8 @@ def get_rank_weight(rank_str: str) -> int:
         if 'SGT' in r or 'SERGEANT' in r: r = 'SGT'
         elif 'CPL' in r or 'CORPORAL' in r: r = 'CPL'
         else: r = 'PC'
-    if r == 'DC' or r.startswith('D/C'): r = 'PC'
+    if r == 'DC' or r.startswith('D/C'):
+        r = 'PC'
     elif r.startswith('D/') or r.startswith('D-') or r.startswith('D '):
         r = r.replace('D/', '').replace('D-', '').replace('D ', '').strip()
         if r == 'C': r = 'PC'
@@ -132,10 +164,11 @@ def hierarchical_sort_key(officer):
         r_name = getOfficialRegionForStation(stn, reg)
         reg_pri = REGION_SORT_PRIORITY.get(r_name, 50)
         rank_w = get_rank_weight(getattr(officer, 'rank', ''))
+        cmd = get_command_weight(officer)
         fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
-        return (reg_pri, rank_w, fnum)
+        return (reg_pri, rank_w, cmd, fnum)
     except Exception:
-        return (50, 99, '')
+        return (50, 99, 50, '')
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
@@ -385,6 +418,7 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
     user_role = (current_user.role or "").upper()
+    user_pos_str = (current_user.position or "").upper()
     user_region = normalize_region_name(current_user.region)
     user_station = normalize_station_name(current_user.station)
     
@@ -395,25 +429,59 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     
     is_absolute_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        "KMP COMMANDER" in user_pos_str or
+        "DEPUTY KMP COMMANDER" in user_pos_str or
+        "KMP ADMIN" in user_pos_str or
         perms.get("view_global_roster") is True or
         perms.get("global_observer") is True
     )
 
-    if is_absolute_global:
+    is_kmp_system_manager = (
+        user_role == "SYSTEM_MANAGER" and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos_str
+    )
+
+    is_kmp_specialist = (
+        user_role == "ASSISTANT_SYSTEM_MANAGER" and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos_str
+    )
+
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
+        not is_kmp_system_manager and
+        not is_kmp_specialist
+    )
+
+    if is_absolute_global or is_kmp_system_manager:
         return query
-    elif user_region in ["KMP NORTH", "KMP SOUTH", "KMP EAST", "KMP HEADQUARTERS"]:
+    elif is_kmp_specialist:
+        specs = []
+        if "CID" in user_pos_str: specs.append("CID")
+        if "CI" in user_pos_str or "CRIME INT" in user_pos_str: specs.append("CI")
+        if "TRAFFIC" in user_pos_str: specs.append("TRAFFIC")
+        if specs:
+            conds = []
+            for spec in specs:
+                conds.extend([
+                    func.upper(Model.section).ilike(f"%{spec}%"), 
+                    func.upper(Model.dir).ilike(f"%{spec}%"),
+                    func.upper(Model.position).ilike(f"%{spec}%")
+                ])
+            return query.filter(or_(*conds))
+        return query.filter(Model.id == -1)
+    elif is_regional_command:
         return query.filter(func.upper(Model.region) == user_region)
-    elif user_station:
+    elif user_station and (perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True):
         return query.filter(func.upper(Model.station) == user_station)
-    return query
+    return query.filter(Model.id == -1)
 
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(
     search: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None),
     category_filter: Optional[str] = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -456,7 +524,6 @@ def get_Nominal_Rolls(
         r_dict['region'] = normalize_region_name(r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
-        r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
             continue
@@ -483,7 +550,6 @@ def get_Nominal_Rolls(
         r_dict['region'] = normalize_region_name(r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
-        r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
             continue
@@ -498,16 +564,7 @@ def get_Nominal_Rolls(
         clean_results.append(r_dict)
         sequence_counter += 1
 
-    # Server-side pagination slicing to prevent browser freezing
-    start_idx = (page - 1) * limit
-    paginated_results = clean_results[start_idx : start_idx + limit]
-
-    return {
-        "total": len(clean_results),
-        "page": page,
-        "limit": limit,
-        "data": paginated_results
-    }
+    return clean_results
 
 @router.post("/nominal-roll/bulk-upload")
 @router.post("/nominal-roll/upload")
