@@ -4,7 +4,6 @@ import os
 import math
 import re
 import json
-import base64
 from datetime import datetime, date
 from typing import Optional, List, Union
 from urllib.parse import unquote
@@ -28,10 +27,6 @@ from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Nominal Roll & HR"])
-
-# ====================================================================
-# HIERARCHICAL RANK & COMMAND RESPONSIBILITY WEIGHT ENGINE
-# ====================================================================
 
 RANK_SENIORITY = {
     "IGP": 1, "DIGP": 2, "AIGP": 3, "SCP": 4, "CP": 5, "ACP": 6,
@@ -116,50 +111,6 @@ def calculate_age_bracket(dob_val) -> str:
     except Exception:
         return "UNKNOWN / UNRECORDED"
 
-def get_station_priority_weight(station, region) -> int:
-    stn = clean_str(station)
-    reg = clean_str(region)
-    if 'KMP HEADQUARTERS' in stn or 'KMP HEADQUARTERS' in reg or stn == 'HQ':
-        return 0
-    if 'HEADQUARTERS' in stn or 'RPC' in stn:
-        return 1
-    return 2
-
-def get_command_weight(officer) -> int:
-    try:
-        pos = clean_str(getattr(officer, 'position', ''))
-        if 'KMP COMMANDER' in pos or (any(k in pos for k in ['COMD', 'COMDR', 'COM', 'COMMANDER', 'CDR']) and 'KMP' in pos and not ('DEP' in pos or 'DEPUTY' in pos)):
-            return 1
-        if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
-            return 2
-        if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'KMP ADMIN OFFICER' in pos:
-            return 3
-        if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
-            return 1
-        if 'DEPUTY RPC' in pos or 'DEP RPC' in pos or 'D/RPC' in pos:
-            return 2
-        if 'DPC' in pos or 'DIVISION COMMANDER' in pos or 'DIV COMDR' in pos:
-            return 4
-        if 'DEPUTY DPC' in pos or 'DEP DPC' in pos:
-            return 5
-        if (any(k in pos for k in ['COM', 'COMD', 'COMDR', 'COMMANDER', 'CDR'])) and not ('DEP' in pos or 'DEPUTY' in pos):
-            return 5
-        if 'DEP' in pos or 'DEPUTY' in pos:
-            return 6
-        if 'OC STATION' in pos or 'OC DIV' in pos or ('OC' in pos and not ('CID' in pos or 'CI' in pos)):
-            return 7
-        if 'OC CID' in pos or 'HEAD CID' in pos:
-            return 8
-        if 'OC CI' in pos or 'CRIME INTELLIGENCE' in pos:
-            return 9
-        if 'OC POST' in pos or 'O/C POST' in pos or 'IC POST' in pos:
-            return 10
-        if '2I/C' in pos or 'DEPUTY OC' in pos or 'I/C' in pos:
-            return 11
-    except Exception:
-        pass
-    return 50
-
 def get_rank_weight(rank_str: str) -> int:
     if not rank_str: return 99
     r = clean_str(rank_str)
@@ -167,8 +118,7 @@ def get_rank_weight(rank_str: str) -> int:
         if 'SGT' in r or 'SERGEANT' in r: r = 'SGT'
         elif 'CPL' in r or 'CORPORAL' in r: r = 'CPL'
         else: r = 'PC'
-    if r == 'DC' or r.startswith('D/C'):
-        r = 'PC'
+    if r == 'DC' or r.startswith('D/C'): r = 'PC'
     elif r.startswith('D/') or r.startswith('D-') or r.startswith('D '):
         r = r.replace('D/', '').replace('D-', '').replace('D ', '').strip()
         if r == 'C': r = 'PC'
@@ -182,11 +132,10 @@ def hierarchical_sort_key(officer):
         r_name = getOfficialRegionForStation(stn, reg)
         reg_pri = REGION_SORT_PRIORITY.get(r_name, 50)
         rank_w = get_rank_weight(getattr(officer, 'rank', ''))
-        cmd = get_command_weight(officer)
         fnum = clean_str(getattr(officer, 'f_num', getattr(officer, 'fnum', '')))
-        return (reg_pri, rank_w, cmd, fnum)
+        return (reg_pri, rank_w, fnum)
     except Exception:
-        return (50, 99, 50, '')
+        return (50, 99, '')
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
@@ -436,7 +385,6 @@ def auto_infer_geography(station_name, current_region=None, current_district=Non
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
     user_role = (current_user.role or "").upper()
-    user_pos_str = (current_user.position or "").upper()
     user_region = normalize_region_name(current_user.region)
     user_station = normalize_station_name(current_user.station)
     
@@ -447,59 +395,25 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     
     is_absolute_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
-        "KMP COMMANDER" in user_pos_str or
-        "DEPUTY KMP COMMANDER" in user_pos_str or
-        "KMP ADMIN" in user_pos_str or
         perms.get("view_global_roster") is True or
         perms.get("global_observer") is True
     )
 
-    is_kmp_system_manager = (
-        user_role == "SYSTEM_MANAGER" and
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos_str
-    )
-
-    is_kmp_specialist = (
-        user_role == "ASSISTANT_SYSTEM_MANAGER" and
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos_str
-    )
-
-    is_regional_command = (
-        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] and
-        not is_kmp_system_manager and
-        not is_kmp_specialist
-    )
-
-    if is_absolute_global or is_kmp_system_manager:
+    if is_absolute_global:
         return query
-    elif is_kmp_specialist:
-        specs = []
-        if "CID" in user_pos_str: specs.append("CID")
-        if "CI" in user_pos_str or "CRIME INT" in user_pos_str: specs.append("CI")
-        if "TRAFFIC" in user_pos_str: specs.append("TRAFFIC")
-        if specs:
-            conds = []
-            for spec in specs:
-                conds.extend([
-                    func.upper(Model.section).ilike(f"%{spec}%"), 
-                    func.upper(Model.dir).ilike(f"%{spec}%"),
-                    func.upper(Model.position).ilike(f"%{spec}%")
-                ])
-            return query.filter(or_(*conds))
-        return query.filter(Model.id == -1)
-    elif is_regional_command:
+    elif user_region in ["KMP NORTH", "KMP SOUTH", "KMP EAST", "KMP HEADQUARTERS"]:
         return query.filter(func.upper(Model.region) == user_region)
-    elif user_station and (perms.get("view_nominal_roll", False) or perms.get("acc_hr", False) or current_user.is_approved is True):
+    elif user_station:
         return query.filter(func.upper(Model.station) == user_station)
-    return query.filter(Model.id == -1)
+    return query
 
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(
     search: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None),
     category_filter: Optional[str] = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=100, ge=1, le=1000),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -584,7 +498,16 @@ def get_Nominal_Rolls(
         clean_results.append(r_dict)
         sequence_counter += 1
 
-    return clean_results
+    # Server-side pagination slicing to prevent browser freezing
+    start_idx = (page - 1) * limit
+    paginated_results = clean_results[start_idx : start_idx + limit]
+
+    return {
+        "total": len(clean_results),
+        "page": page,
+        "limit": limit,
+        "data": paginated_results
+    }
 
 @router.post("/nominal-roll/bulk-upload")
 @router.post("/nominal-roll/upload")
