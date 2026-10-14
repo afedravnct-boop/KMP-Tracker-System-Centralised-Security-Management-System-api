@@ -503,50 +503,91 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
+  // 🟢 1. Active Roll Lightweight Client Filtering
   const filteredRolls = useMemo(() => {
-  const list = (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
-    const statusStr = cleanStr(n.status);
-    if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
+    const list = (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
+      const statusStr = cleanStr(n.status);
+      if (statusStr === 'ARCHIVED' || n.is_archived === true) return false;
 
-    const stn = cleanStr(n.station);
-    const reg = cleanStr(n.region);
-    const parsedStn = parseStationHierarchy(stn);
+      const stn = cleanStr(n.station);
+      const reg = cleanStr(n.region);
+      const parsedStn = parseStationHierarchy(stn);
 
-    const selRegion = cleanStr(filterRegion);
-    const selStation = cleanStr(filterStation);
-    const selPost = cleanStr(filterPost);
+      const selRegion = cleanStr(filterRegion);
+      const selStation = cleanStr(filterStation);
+      const selPost = cleanStr(filterPost);
 
-    if (selRegion && selRegion !== 'ALL REGIONS' && !reg.includes(selRegion)) return false;
-    
-    if (selStation && selStation !== 'ALL STATIONS') {
-      // 🟢 Matches parent station or division equivalents including embedded posts
-      const matchesStation = isStationEquivalent(parsedStn.station, selStation) || 
-                             isStationEquivalent(parsedStn.division, selStation) || 
-                             stn.includes(selStation);
-      if (!matchesStation) return false;
-    }
-
-    if (selPost && selPost !== 'ALL POSTS') {
-      if (!isStationEquivalent(parsedStn.post, selPost)) return false;
-    }
-
-    if (searchTerm.trim()) {
-      const query = searchTerm.trim().toLowerCase();
-      const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
-      const name = cleanStr(n.name).toLowerCase();
-      const rank = cleanStr(n.rank).toLowerCase();
-      const ipps = cleanStr(n.ipps).toLowerCase();
-      const nin = cleanStr(n.nin).toLowerCase();
+      if (selRegion && selRegion !== 'ALL REGIONS' && !reg.includes(selRegion)) return false;
       
-      if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !nin.includes(query)) {
-        return false;
+      if (selStation && selStation !== 'ALL STATIONS') {
+        const matchesStation = isStationEquivalent(parsedStn.station, selStation) || 
+                               isStationEquivalent(parsedStn.division, selStation) || 
+                               stn.includes(selStation);
+        if (!matchesStation) return false;
       }
-    }
-    return true;
-  });
 
-  return list;
-}, [Nominal_Rolls, filterRegion, filterStation, filterPost, searchTerm]);
+      if (selPost && selPost !== 'ALL POSTS') {
+        if (!isStationEquivalent(parsedStn.post, selPost)) return false;
+      }
+
+      if (searchTerm.trim()) {
+        const query = searchTerm.trim().toLowerCase();
+        const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
+        const name = cleanStr(n.name).toLowerCase();
+        const rank = cleanStr(n.rank).toLowerCase();
+        const ipps = cleanStr(n.ipps).toLowerCase();
+        const nin = cleanStr(n.nin).toLowerCase();
+        
+        if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !ipps.includes(query) && !nin.includes(query)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    return list;
+  }, [Nominal_Rolls, filterRegion, filterStation, filterPost, searchTerm]);
+
+  // 🟢 2. Archived Roll Lightweight Client Filtering (Resolves the ReferenceError)
+  const filteredNominal_Roll_archives = useMemo(() => {
+    if (!Array.isArray(Nominal_Roll_archives)) return [];
+
+    return Nominal_Roll_archives.filter(n => {
+      const stn = cleanStr(n.station);
+      const reg = cleanStr(n.region);
+      const parsedStn = parseStationHierarchy(stn);
+
+      const selRegion = cleanStr(filterRegion);
+      const selStation = cleanStr(filterStation);
+      const selPost = cleanStr(filterPost);
+
+      if (selRegion && selRegion !== 'ALL REGIONS' && !reg.includes(selRegion)) return false;
+      
+      if (selStation && selStation !== 'ALL STATIONS') {
+        const matchesStation = isStationEquivalent(parsedStn.station, selStation) || 
+                               isStationEquivalent(parsedStn.division, selStation) || 
+                               stn.includes(selStation);
+        if (!matchesStation) return false;
+      }
+
+      if (selPost && selPost !== 'ALL POSTS') {
+        if (!isStationEquivalent(parsedStn.post, selPost)) return false;
+      }
+
+      if (searchTerm.trim()) {
+        const query = searchTerm.trim().toLowerCase();
+        const fnum = cleanStr(n.f_num || n.fnum).toLowerCase();
+        const name = cleanStr(n.name).toLowerCase();
+        const rank = cleanStr(n.rank).toLowerCase();
+        const reason = cleanStr(n.archive_reason).toLowerCase();
+        
+        if (!fnum.includes(query) && !name.includes(query) && !rank.includes(query) && !reason.includes(query)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [Nominal_Roll_archives, filterRegion, filterStation, filterPost, searchTerm]);
 
   const currentRollDataset = useMemo(() => {
     return viewMode === 'archive' ? filteredNominal_Roll_archives : filteredRolls;
@@ -582,38 +623,38 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   });
 }, [currentRollDataset, metricCategory, analyticsMetricFilterValue]);
 
-const availableAnalyticsFilterOptions = useMemo(() => {
-  const setVals = new Set();
-  const dataset = Array.isArray(currentRollDataset) ? currentRollDataset : [];
-  
-  for (let i = 0; i < dataset.length; i++) {
-    const n = dataset[i];
-    if (metricCategory === 'RANK') {
-      let r = cleanStr(n.rank);
-      if (r.includes('DRV')) r = 'PC';
-      if (r) setVals.add(r);
-    } else if (metricCategory === 'UNIT') {
-      const parsed = parseStationHierarchy(n.station);
-      if (parsed.division && parsed.division !== 'UNASSIGNED') setVals.add(parsed.division);
-    } else if (metricCategory === 'STATUS') {
-      // 🟢 Matches the backend normalize_personnel_status return strings exactly
-      setVals.add('ACTIVE (DEPLOYABLE)');
-      setVals.add('NON-DEPLOYABLE (HEALTH/LEAVE)');
-    } else if (metricCategory === 'SEX') {
-      setVals.add('MALE');
-      setVals.add('FEMALE');
-    } else if (metricCategory === 'AGE') {
-      setVals.add(n.age_bracket || 'UNKNOWN / UNRECORDED');
-    } else if (metricCategory === 'POSITION') {
-      const pos = cleanStr(n.position);
-      if (pos) setVals.add(pos);
-    } else if (metricCategory === 'SECTION') {
-      const sec = cleanStr(n.normalized_section || n.section || n.dir);
-      if (sec) setVals.add(sec);
+// 🟢 Unified Category Filter & Subfilter Options for BOTH Active & Archive Datasets
+  const availableAnalyticsFilterOptions = useMemo(() => {
+    const setVals = new Set();
+    // Dynamically points to either active or archive dataset based on viewMode
+    const dataset = Array.isArray(currentRollDataset) ? currentRollDataset : [];
+    
+    for (let i = 0; i < dataset.length; i++) {
+      const n = dataset[i];
+      if (metricCategory === 'RANK') {
+        const r = cleanStr(n.rank);
+        if (r) setVals.add(r);
+      } else if (metricCategory === 'UNIT') {
+        const parsed = parseStationHierarchy(n.station);
+        if (parsed.division && parsed.division !== 'UNASSIGNED') setVals.add(parsed.division);
+      } else if (metricCategory === 'STATUS') {
+        setVals.add('ACTIVE (DEPLOYABLE)');
+        setVals.add('NON-DEPLOYABLE (HEALTH/LEAVE)');
+      } else if (metricCategory === 'SEX') {
+        setVals.add('MALE');
+        setVals.add('FEMALE');
+      } else if (metricCategory === 'AGE') {
+        setVals.add(n.age_bracket || 'UNKNOWN / UNRECORDED');
+      } else if (metricCategory === 'POSITION') {
+        const pos = cleanStr(n.position);
+        if (pos) setVals.add(pos);
+      } else if (metricCategory === 'SECTION') {
+        const sec = cleanStr(n.normalized_section || n.section || n.dir);
+        if (sec) setVals.add(sec);
+      }
     }
-  }
-  return Array.from(setVals).sort();
-}, [currentRollDataset, metricCategory]);
+    return Array.from(setVals).sort();
+  }, [currentRollDataset, metricCategory]);
 
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
