@@ -1,8 +1,7 @@
-# routers/consolidated_ledger.py
 import io
 import json
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Union
 from urllib.parse import unquote
 
@@ -76,10 +75,16 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region or 'KMP GENERAL'
 
+def get_model_safe(*names):
+    for name in names:
+        if hasattr(models, name):
+            return getattr(models, name)
+    return None
+
 @router.get("/reports/consolidated-ledger")
 def get_consolidated_ledger(
-    start_date: str = Query(...),
-    end_date: str = Query(...),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
     region: Optional[str] = Query("ALL REGIONS"),
     station: Optional[str] = Query("ALL STATIONS"),
     db: Session = Depends(get_db),
@@ -87,23 +92,55 @@ def get_consolidated_ledger(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        crime_model = getattr(models, 'CrimeIncident', getattr(models, 'Crime_Incident', None))
-        stats_model = getattr(models, 'OperationalStats', getattr(models, 'Operational_Stats', None))
-        stories_model = getattr(models, 'SuccessStories', getattr(models, 'Success_Stories', None))
-        agric_model = getattr(models, 'AgricSummary', getattr(models, 'Agric_Summary', None))
+        crime_model = get_model_safe('CrimeIncident', 'Crime_Incident', 'Crime_Reports', 'CrimeReports', 'reports')
+        stats_model = get_model_safe('OperationalStats', 'Operational_Stats', 'Operational_Statistics', 'operational_stats', 'stats')
+        stories_model = get_model_safe('SuccessStories', 'Success_Stories', 'stories')
+        
+        # 🟢 Corrected to exactly match your models.py
+        agric_model = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary')
 
-        # 🟢 Apply date filtering at the database query level rather than pulling everything into memory
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+        today = date.today()
+        default_start = today - timedelta(days=6)
+        
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
+        except ValueError:
+            start_dt = default_start
 
-        crimes = db.query(crime_model).filter(crime_model.date >= start_dt, crime_model.date <= end_dt).all() if crime_model else []
-        statistics = db.query(stats_model).filter(stats_model.date >= start_dt, stats_model.date <= end_dt).all() if stats_model else []
-        stories = db.query(stories_model).filter(stories_model.date >= start_dt, stories_model.date <= end_dt).all() if stories_model else []
-        agric = db.query(agric_model).filter(agric_model.date >= start_dt, agric_model.date <= end_dt).all() if agric_model else []
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
+        except ValueError:
+            end_dt = today
+
+        # Standard Crimes
+        if crime_model and hasattr(crime_model, 'date'):
+            crimes = db.query(crime_model).filter(crime_model.date >= str(start_dt), crime_model.date <= str(end_dt)).all()
+        else:
+            crimes = db.query(crime_model).all() if crime_model else []
+
+        # Operational Statistics
+        if stats_model and hasattr(stats_model, 'date'):
+            statistics = db.query(stats_model).filter(stats_model.date >= str(start_dt), stats_model.date <= str(end_dt)).all()
+        else:
+            statistics = db.query(stats_model).all() if stats_model else []
+
+        # Success Stories
+        if stories_model and hasattr(stories_model, 'date'):
+            stories = db.query(stories_model).filter(stories_model.date >= str(start_dt), stories_model.date <= str(end_dt)).all()
+        else:
+            stories = db.query(stories_model).all() if stories_model else []
+
+        # Agricultural Crimes
+        if agric_model and hasattr(agric_model, 'date'):
+            agric = db.query(agric_model).filter(agric_model.date >= str(start_dt), agric_model.date <= str(end_dt)).all()
+        else:
+            agric = db.query(agric_model).all() if agric_model else []
 
         def serialize_list(items):
             result = []
             for item in items:
+                if not item:
+                    continue
                 d = item.__dict__.copy()
                 d.pop("_sa_instance_state", None)
                 for k, v in d.items():
@@ -111,6 +148,15 @@ def get_consolidated_ledger(
                         d[k] = v.isoformat()
                 result.append(d)
             return result
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="CONSOLIDATED_LEDGER",
+            target_id="MASTER_SUMMARY",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} compiled consolidated ledger ({start_dt} to {end_dt})."
+        )
 
         return {
             "status": "success",

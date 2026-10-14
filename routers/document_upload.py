@@ -84,7 +84,6 @@ def get_document_archive(
         ArchiveModel = get_doc_archive_model()
         query = db.query(ArchiveModel)
 
-        # 🟢 Apply search filtering if search term provided
         if search:
             term = f"%{search.strip().upper()}%"
             search_conds = []
@@ -141,7 +140,6 @@ def get_document_archive(
                     "station": station
                 })
 
-        # 🟢 Precision forensic check: Log search query vs regular archive view
         if search:
             summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched document archive for query: \"{search}\" (Returned {len(results)} matches)."
         else:
@@ -241,7 +239,6 @@ async def upload_word_report(
             db.add(new_archive)
             db.flush()
 
-            # 🟢 Record precise forensic REGISTER activity into NeonDB branch
             record_neon_activity(
                 logs_db=logs_db,
                 fnum=current_user.fnum,
@@ -295,7 +292,6 @@ def download_archive_file(
     
     doc_record = None
     
-    # STRICT TABLE ROUTING
     if category == 'templates' and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
     elif category == 'general_doc' and GeneralDocModel:
@@ -373,8 +369,8 @@ def download_archive_file(
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         <v:shape id="VerticalStamp" type="#_x0000_t136" 
-                                 style="position:absolute;left:0;text-align:center;margin-left:-265pt;margin-top:0pt;width:600pt;height:12pt;rotation:270;z-index:-251657216;mso-position-horizontal:absolute;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
-                                 fillcolor="#8B0000" stroked="f">
+                                style="position:absolute;left:0;text-align:center;margin-left:-265pt;margin-top:0pt;width:600pt;height:12pt;rotation:270;z-index:-251657216;mso-position-horizontal:absolute;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
+                                fillcolor="#8B0000" stroked="f">
                             <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
@@ -456,7 +452,6 @@ def download_archive_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 Record precise forensic UPDATE/DOWNLOAD activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -580,7 +575,6 @@ def delete_archive_file(
         db.delete(doc_record)
         db.commit()
 
-        # 🟢 Record precise forensic DELETE activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
