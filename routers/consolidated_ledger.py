@@ -228,18 +228,142 @@ def get_consolidated_ledger(
     try:
         today = date.today()
         default_start = today - timedelta(days=30)
-        try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
-        except ValueError:
-            start_dt = default_start
-            end_dt = today
-
-        # Direct call to fetch aggregated data from NeonDB
-        data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station)
         
-        # Debug print to your Render terminal to verify NeonDB results
-        print(f"DEBUG: Consolidated Ledger fetched from NeonDB -> Crimes: {sum(len(v) for v in data['crimeRegional'].values())}, Ops: {len(data['opsRegional'])}")
+        # Keep dates as pure YYYY-MM-DD strings for lightning-fast database matching
+        start_str = start_date if start_date else str(default_start)
+        end_str = end_date if end_date else str(today)
+
+        crime_model = get_model_safe('CrimeIncident', 'Crime_Incident', 'Crime_Reports', 'CrimeReports', 'reports')
+        stats_model = get_model_safe('OperationalStats', 'Operational_Stats', 'Operational_Statistics', 'operational_stats', 'stats')
+        stories_model = get_model_safe('SuccessStories', 'Success_Stories', 'stories')
+        agric_model = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary')
+
+        region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+        def sort_regions(regions):
+            return sorted(regions, key=lambda x: region_order.index(x) if x in region_order else 999)
+
+        crime_regional, crime_general = {}, {}
+        grand_crime_cases, grand_crime_suspects = 0, 0
+
+        # --- CRIMES ---
+        if crime_model:
+            query = db.query(
+                crime_model.region,
+                crime_model.station,
+                crime_model.offence,
+                func.count(crime_model.id).label('cases'),
+                func.sum(func.coalesce(crime_model.suspects, 0)).label('suspects')
+            ).filter(
+                crime_model.date >= start_str,
+                crime_model.date <= end_str + " 23:59:59" # Captures full day even with timestamps
+            )
+            if region != "ALL REGIONS": query = query.filter(crime_model.region == region)
+            if station != "ALL STATIONS": query = query.filter(crime_model.station == station)
+
+            for row in query.group_by(crime_model.region, crime_model.station, crime_model.offence).all():
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+                off = clean_str(row.offence) or 'UNSPECIFIED INCIDENT'
+                cases = int(row.cases or 0)
+                suspects = int(row.suspects or 0)
+
+                if reg not in crime_regional: crime_regional[reg] = {}
+                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+                crime_regional[reg][off]["cases"] += cases
+                crime_regional[reg][off]["suspects"] += suspects
+
+                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                crime_general[off]["cases"] += cases
+                crime_general[off]["suspects"] += suspects
+
+                grand_crime_cases += cases
+                grand_crime_suspects += suspects
+
+        # --- AGRICULTURAL ---
+        if agric_model:
+            ag_query = db.query(
+                agric_model.region,
+                agric_model.station,
+                agric_model.agric_crime_report,
+                func.sum(func.coalesce(agric_model.number_count, 0)).label('total_count')
+            ).filter(
+                agric_model.date >= start_str,
+                agric_model.date <= end_str + " 23:59:59"
+            )
+            if region != "ALL REGIONS": ag_query = ag_query.filter(agric_model.region == region)
+            if station != "ALL STATIONS": ag_query = ag_query.filter(agric_model.station == station)
+
+            for row in ag_query.group_by(agric_model.region, agric_model.station, agric_model.agric_crime_report).all():
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+                off = (row.agric_crime_report or 'AGRICULTURAL THEFT').upper()
+                count = int(row.total_count or 0)
+
+                if reg not in crime_regional: crime_regional[reg] = {}
+                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+                crime_regional[reg][off]["cases"] += count
+
+                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                crime_general[off]["cases"] += count
+                grand_crime_cases += count
+
+        # --- OPS STATS ---
+        ops_regional = {}
+        ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
+
+        if stats_model:
+            stats_query = db.query(
+                stats_model.region,
+                stats_model.station,
+                func.sum(func.coalesce(stats_model.arrested, 0)).label('arrested'),
+                func.sum(func.coalesce(stats_model.given_bond, 0)).label('given_bond'),
+                func.sum(func.coalesce(stats_model.cautioned, 0)).label('cautioned'),
+                func.sum(func.coalesce(stats_model.pending_court, 0)).label('pending_court'),
+                func.sum(func.coalesce(stats_model.taken_to_court, 0)).label('taken_to_court'),
+                func.sum(func.coalesce(stats_model.released, 0)).label('released'),
+                func.sum(func.coalesce(stats_model.remanded, 0)).label('remanded'),
+                func.sum(func.coalesce(stats_model.convicted, 0)).label('convicted')
+            ).filter(
+                stats_model.date >= start_str,
+                stats_model.date <= end_str + " 23:59:59"
+            )
+            if region != "ALL REGIONS": stats_query = stats_query.filter(stats_model.region == region)
+            if station != "ALL STATIONS": stats_query = stats_query.filter(stats_model.station == station)
+
+            for row in stats_query.group_by(stats_model.region, stats_model.station).all():
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+                
+                if reg not in ops_regional: 
+                    ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+                    
+                for key in ops_general.keys():
+                    val = int(getattr(row, key, 0) or 0)
+                    ops_regional[reg][key] += val
+                    ops_general[key] += val
+
+        # --- STORIES ---
+        story_regional = {}
+        grand_stories = 0
+
+        if stories_model:
+            story_query = db.query(
+                stories_model.region,
+                stories_model.station,
+                func.count(stories_model.id).label('story_count')
+            ).filter(
+                stories_model.date >= start_str,
+                stories_model.date <= end_str + " 23:59:59"
+            )
+            if region != "ALL REGIONS": story_query = story_query.filter(stories_model.region == region)
+            if station != "ALL STATIONS": story_query = story_query.filter(stories_model.station == station)
+
+            for row in story_query.group_by(stories_model.region, stories_model.station).all():
+                stn = clean_str(row.station)
+                reg = get_official_region_for_station(stn, row.region)
+                count = int(row.story_count or 0)
+                story_regional[reg] = story_regional.get(reg, 0) + count
+                grand_stories += count
 
         record_neon_activity(
             logs_db=logs_db,
@@ -247,12 +371,26 @@ def get_consolidated_ledger(
             action_type="VIEW",
             module="CONSOLIDATED_LEDGER",
             target_id="MASTER_SUMMARY",
-            changes_summary=f"{current_user.fnum} {current_user.rank} compiled consolidated ledger ({start_dt} to {end_dt})."
+            changes_summary=f"{current_user.fnum} {current_user.rank} compiled consolidated ledger ({start_str} to {end_str})."
         )
 
-        return {"status": "success", "data": data}
+        return {
+            "status": "success",
+            "data": {
+                "crimeRegional": crime_regional,
+                "crimeGeneral": crime_general,
+                "sortedCrimeRegions": sort_regions(list(crime_regional.keys())),
+                "grandCrimeCases": grand_crime_cases,
+                "grandCrimeSuspects": grand_crime_suspects,
+                "opsRegional": ops_regional,
+                "opsGeneral": ops_general,
+                "sortedOpsRegions": sort_regions(list(ops_regional.keys())),
+                "storyRegional": story_regional,
+                "sortedStoryRegions": sort_regions(list(story_regional.keys())),
+                "grandStories": grand_stories
+            }
+        }
     except Exception as e:
-        print(f"ERROR in get_consolidated_ledger: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Consolidated Ledger Data Fetch Failed: {str(e)}")
 
 @router.get("/reports/consolidated-ledger/export")
