@@ -585,20 +585,22 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   return currentRollDataset.filter(n => {
     if (metricCategory === 'RANK') {
-      const r = cleanStr(n.rank);
+      let r = cleanStr(n.rank);
+      if (r.includes('DRV')) r = 'PC';
       return r === analyticsMetricFilterValue;
     } else if (metricCategory === 'UNIT') {
       const parsed = parseStationHierarchy(n.station);
       return (parsed.division || parsed.station) === analyticsMetricFilterValue;
     } else if (metricCategory === 'STATUS') {
+      // Evaluates against the backend normalized status property
       const normStatus = n.normalized_status || cleanStr(n.status);
       return normStatus === analyticsMetricFilterValue;
-    } else if (metricCategory === 'AGE') {
-      return (n.age_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
     } else if (metricCategory === 'SEX') {
       const sexStr = cleanStr(n.sex);
       const isFemale = sexStr === 'F' || sexStr === 'FEMALE';
       return analyticsMetricFilterValue === 'FEMALE' ? isFemale : !isFemale;
+    } else if (metricCategory === 'AGE') {
+      return (n.age_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
     } else if (metricCategory === 'POSITION') {
       return cleanStr(n.position).includes(analyticsMetricFilterValue);
     } else if (metricCategory === 'SECTION') {
@@ -615,22 +617,21 @@ const availableAnalyticsFilterOptions = useMemo(() => {
   for (let i = 0; i < dataset.length; i++) {
     const n = dataset[i];
     if (metricCategory === 'RANK') {
-      const r = cleanStr(n.rank);
-      if (r) setVals.add(r); // Extracts all unique ranks directly from the nominal roll column
+      let r = cleanStr(n.rank);
+      if (r.includes('DRV')) r = 'PC';
+      if (r) setVals.add(r);
     } else if (metricCategory === 'UNIT') {
       const parsed = parseStationHierarchy(n.station);
       if (parsed.division && parsed.division !== 'UNASSIGNED') setVals.add(parsed.division);
     } else if (metricCategory === 'STATUS') {
+      // 🟢 Matches the backend normalize_personnel_status return strings exactly
       setVals.add('ACTIVE (DEPLOYABLE)');
-      setVals.add('COURSE / STUDY');
-      setVals.add('LEAVE / SICK / MATERNITY');
-      setVals.add('DISCIPLINARY / SEPARATION');
-      setVals.add('MISSION');
-    } else if (metricCategory === 'AGE') {
-      setVals.add(n.age_bracket || 'UNKNOWN / UNRECORDED');
+      setVals.add('NON-DEPLOYABLE (HEALTH/LEAVE)');
     } else if (metricCategory === 'SEX') {
       setVals.add('MALE');
       setVals.add('FEMALE');
+    } else if (metricCategory === 'AGE') {
+      setVals.add(n.age_bracket || 'UNKNOWN / UNRECORDED');
     } else if (metricCategory === 'POSITION') {
       const pos = cleanStr(n.position);
       if (pos) setVals.add(pos);
