@@ -81,40 +81,40 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region: str, station: str):
-    # Bind directly to your exact models from models.py
-    crime_model = getattr(models, 'Crime_Reports', None)
-    stats_model = getattr(models, 'Operational_Statistics', None)
-    stories_model = getattr(models, 'Success_Stories', None)
-    agric_model = getattr(models, 'Agricultural_Crime_Summary', None)
-
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
-    def sort_regions(regions):
-        return sorted(regions, key=lambda x: region_order.index(x) if x in region_order else 999)
+    start_str = str(start_dt)
+    end_str = str(end_dt) + " 23:59:59"
 
     crime_regional, crime_general = {}, {}
     grand_crime_cases, grand_crime_suspects = 0, 0
+    ops_regional = {}
+    ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
+    story_regional = {}
+    grand_stories = 0
 
-    if crime_model:
-        query = db.query(
-            crime_model.region,
-            crime_model.station,
-            crime_model.offence,
-            func.count(crime_model.id).label('cases'),
-            func.sum(func.coalesce(crime_model.suspects, 0)).label('suspects')
-        ).filter(
-            crime_model.date >= str(start_dt),
-            crime_model.date <= str(end_dt) + " 23:59:59"
-        )
-        if region != "ALL REGIONS": query = query.filter(crime_model.region == region)
-        if station != "ALL STATIONS": query = query.filter(crime_model.station == station)
+    # --- 1. DIRECT SQL: CRIME REPORTS ---
+    try:
+        crime_sql = """
+            SELECT region, station, offence, COUNT(id) as cases, SUM(COALESCE(suspects, 0)) as suspects
+            FROM crime_reports
+            WHERE date >= :start AND date <= :end
+        """
+        params = {"start": start_str, "end": end_str}
+        if region != "ALL REGIONS":
+            crime_sql += " AND region = :reg"
+            params["reg"] = region
+        if station != "ALL STATIONS":
+            crime_sql += " AND station = :stn"
+            params["stn"] = station
+        crime_sql += " GROUP BY region, station, offence"
 
-        crime_rows = query.group_by(crime_model.region, crime_model.station, crime_model.offence).all()
+        crime_rows = db.execute(text(crime_sql), params).fetchall()
         for row in crime_rows:
-            stn = clean_str(row.station)
-            reg = get_official_region_for_station(stn, row.region)
-            off = clean_str(row.offence) or 'UNSPECIFIED INCIDENT'
-            cases = int(row.cases or 0)
-            suspects = int(row.suspects or 0)
+            stn = clean_str(row[1])
+            reg = get_official_region_for_station(stn, row[0])
+            off = clean_str(row[2]) or 'UNSPECIFIED INCIDENT'
+            cases = int(row[3] or 0)
+            suspects = int(row[4] or 0)
 
             if reg not in crime_regional: crime_regional[reg] = {}
             if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
@@ -127,26 +127,31 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
 
             grand_crime_cases += cases
             grand_crime_suspects += suspects
+    except Exception as e:
+        print(f"Direct SQL crime_reports error: {e}")
 
-    if agric_model:
-        ag_query = db.query(
-            agric_model.region,
-            agric_model.station,
-            agric_model.agric_crime_report,
-            func.sum(func.coalesce(agric_model.number_count, 0)).label('total_count')
-        ).filter(
-            agric_model.date >= str(start_dt),
-            agric_model.date <= str(end_dt) + " 23:59:59"
-        )
-        if region != "ALL REGIONS": ag_query = ag_query.filter(agric_model.region == region)
-        if station != "ALL STATIONS": ag_query = ag_query.filter(agric_model.station == station)
+    # --- 2. DIRECT SQL: AGRICULTURAL CRIMES ---
+    try:
+        ag_sql = """
+            SELECT region, station, agric_crime_report, SUM(COALESCE(number_count, 0)) as total_count
+            FROM agricultural_crime_summary
+            WHERE date >= :start AND date <= :end
+        """
+        params = {"start": start_str, "end": end_str}
+        if region != "ALL REGIONS":
+            ag_sql += " AND region = :reg"
+            params["reg"] = region
+        if station != "ALL STATIONS":
+            ag_sql += " AND station = :stn"
+            params["stn"] = station
+        ag_sql += " GROUP BY region, station, agric_crime_report"
 
-        ag_rows = ag_query.group_by(agric_model.region, agric_model.station, agric_model.agric_crime_report).all()
+        ag_rows = db.execute(text(ag_sql), params).fetchall()
         for row in ag_rows:
-            stn = clean_str(row.station)
-            reg = get_official_region_for_station(stn, row.region)
-            off = (row.agric_crime_report or 'AGRICULTURAL THEFT').upper()
-            count = int(row.total_count or 0)
+            stn = clean_str(row[1])
+            reg = get_official_region_for_station(stn, row[0])
+            off = str(row[2] or 'AGRICULTURAL THEFT').upper()
+            count = int(row[3] or 0)
 
             if reg not in crime_regional: crime_regional[reg] = {}
             if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
@@ -155,63 +160,72 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
             crime_general[off]["cases"] += count
             grand_crime_cases += count
+    except Exception as e:
+        print(f"Direct SQL agric error: {e}")
 
-    ops_regional = {}
-    ops_general = {k: 0 for k in ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']}
+    # --- 3. DIRECT SQL: OPERATIONAL STATISTICS ---
+    try:
+        stats_sql = """
+            SELECT region, station, 
+                   SUM(COALESCE(arrested, 0)), SUM(COALESCE(given_bond, 0)), 
+                   SUM(COALESCE(cautioned, 0)), SUM(COALESCE(pending_court, 0)), 
+                   SUM(COALESCE(taken_to_court, 0)), SUM(COALESCE(released, 0)), 
+                   SUM(COALESCE(remanded, 0)), SUM(COALESCE(convicted, 0))
+            FROM operational_statistics
+            WHERE date >= :start AND date <= :end
+        """
+        params = {"start": start_str, "end": end_str}
+        if region != "ALL REGIONS":
+            stats_sql += " AND region = :reg"
+            params["reg"] = region
+        if station != "ALL STATIONS":
+            stats_sql += " AND station = :stn"
+            params["stn"] = station
+        stats_sql += " GROUP BY region, station"
 
-    if stats_model:
-        stats_query = db.query(
-            stats_model.region,
-            stats_model.station,
-            func.sum(func.coalesce(stats_model.arrested, 0)).label('arrested'),
-            func.sum(func.coalesce(stats_model.given_bond, 0)).label('given_bond'),
-            func.sum(func.coalesce(stats_model.cautioned, 0)).label('cautioned'),
-            func.sum(func.coalesce(stats_model.pending_court, 0)).label('pending_court'),
-            func.sum(func.coalesce(stats_model.taken_to_court, 0)).label('taken_to_court'),
-            func.sum(func.coalesce(stats_model.released, 0)).label('released'),
-            func.sum(func.coalesce(stats_model.remanded, 0)).label('remanded'),
-            func.sum(func.coalesce(stats_model.convicted, 0)).label('convicted')
-        ).filter(
-            stats_model.date >= str(start_dt),
-            stats_model.date <= str(end_dt) + " 23:59:59"
-        )
-        if region != "ALL REGIONS": stats_query = stats_query.filter(stats_model.region == region)
-        if station != "ALL STATIONS": stats_query = stats_query.filter(stats_model.station == station)
-
-        stats_rows = stats_query.group_by(stats_model.region, stats_model.station).all()
+        stats_rows = db.execute(text(stats_sql), params).fetchall()
         for row in stats_rows:
-            stn = clean_str(row.station)
-            reg = get_official_region_for_station(stn, row.region)
-            if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-            for key in ops_general.keys():
-                val = int(getattr(row, key, 0) or 0)
+            stn = clean_str(row[1])
+            reg = get_official_region_for_station(stn, row[0])
+            if reg not in ops_regional: 
+                ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+            
+            vals = [row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]]
+            keys = list(ops_general.keys())
+            for idx, key in enumerate(keys):
+                val = int(vals[idx] or 0)
                 ops_regional[reg][key] += val
                 ops_general[key] += val
+    except Exception as e:
+        print(f"Direct SQL stats error: {e}")
 
-    story_regional = {}
-    grand_stories = 0
+    # --- 4. DIRECT SQL: SUCCESS STORIES ---
+    try:
+        story_sql = """
+            SELECT region, station, COUNT(sn) as story_count
+            FROM success_stories
+            WHERE date >= :start AND date <= :end
+        """
+        params = {"start": start_str, "end": end_str}
+        if region != "ALL REGIONS":
+            story_sql += " AND region = :reg"
+            params["reg"] = region
+        if station != "ALL STATIONS":
+            story_sql += " AND station = :stn"
+            params["stn"] = station
+        story_sql += " GROUP BY region, station"
 
-    if stories_model:
-        # Success_Stories uses 'sn' as its primary key instead of 'id'
-        story_query = db.query(
-            stories_model.region,
-            stories_model.station,
-            func.count(stories_model.sn).label('story_count')
-        ).filter(
-            stories_model.date >= str(start_dt),
-            stories_model.date <= str(end_dt) + " 23:59:59"
-        )
-        if region != "ALL REGIONS": story_query = story_query.filter(stories_model.region == region)
-        if station != "ALL STATIONS": story_query = story_query.filter(stories_model.station == station)
-
-        story_rows = story_query.group_by(stories_model.region, stories_model.station).all()
+        story_rows = db.execute(text(story_sql), params).fetchall()
         for row in story_rows:
-            stn = clean_str(row.station)
-            reg = get_official_region_for_station(stn, row.region)
-            count = int(row.story_count or 0)
+            stn = clean_str(row[1])
+            reg = get_official_region_for_station(stn, row[0])
+            count = int(row[2] or 0)
             story_regional[reg] = story_regional.get(reg, 0) + count
             grand_stories += count
+    except Exception as e:
+        print(f"Direct SQL stories error: {e}")
 
+    # Ensure standard regions always exist as shells
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
