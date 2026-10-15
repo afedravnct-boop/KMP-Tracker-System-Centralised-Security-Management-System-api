@@ -80,10 +80,16 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
+def get_model_safe(*names):
+    for name in names:
+        if hasattr(models, name):
+            return getattr(models, name)
+    return None
+
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     start_str = str(start_dt)
-    end_str = str(end_dt) + " 23:59:59"
+    end_str = str(end_dt)
 
     crime_regional, crime_general = {}, {}
     crime_regional_totals = {}
@@ -100,98 +106,91 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # --- 1. CRIME REPORTS ---
+    # --- 1. CRIME REPORTS (Safe SQLAlchemy ORM) ---
     try:
-        crime_sql = """
-            SELECT region, station, COALESCE(NULLIF(TRIM(offence), ''), NULLIF(TRIM(category), ''), 'UNSPECIFIED') as offence_col, 
-                   COUNT(id) as cases, SUM(COALESCE(suspects, 0)) as suspects
-            FROM crime_reports
-            WHERE date >= :start AND date <= :end
-            GROUP BY region, station, offence_col
-        """
-        crime_rows = db.execute(text(crime_sql), {"start": start_str, "end": end_str}).fetchall()
-        for row in crime_rows:
-            stn = clean_str(row[1])
-            reg = fast_get_region(stn, row[0])
+        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
+        if CrimeModel:
+            crimes = db.query(CrimeModel).filter(
+                CrimeModel.date >= start_str,
+                CrimeModel.date <= end_str
+            ).all()
 
-            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            for r in crimes:
+                stn = clean_str(getattr(r, 'station', ''))
+                reg = fast_get_region(stn, getattr(r, 'region', ''))
 
-            off = clean_str(row[2])
-            cases = int(row[3] or 0)
-            suspects = int(row[4] or 0)
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-            if reg not in crime_regional: crime_regional[reg] = {}
-            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-            crime_regional[reg][off]["cases"] += cases
-            crime_regional[reg][off]["suspects"] += suspects
+                off = clean_str(getattr(r, 'offence', '') or getattr(r, 'category', '') or 'UNSPECIFIED')
+                if "LOCK-UP TOTAL" in off: continue
 
-            if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
-            crime_regional_totals[reg]["cases"] += cases
-            crime_regional_totals[reg]["suspects"] += suspects
+                suspects = int(getattr(r, 'suspects', 0) or 0)
 
-            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-            crime_general[off]["cases"] += cases
-            crime_general[off]["suspects"] += suspects
+                if reg not in crime_regional: crime_regional[reg] = {}
+                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+                crime_regional[reg][off]["cases"] += 1
+                crime_regional[reg][off]["suspects"] += suspects
 
-            grand_crime_cases += cases
-            grand_crime_suspects += suspects
+                if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
+                crime_regional_totals[reg]["cases"] += 1
+                crime_regional_totals[reg]["suspects"] += suspects
+
+                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                crime_general[off]["cases"] += 1
+                crime_general[off]["suspects"] += suspects
+
+                grand_crime_cases += 1
+                grand_crime_suspects += suspects
     except Exception as e:
-        print(f"CRITICAL ERROR in crime_reports query: {e}")
+        print(f"ERROR in crime reports: {e}")
 
-    # --- 2. OPERATIONAL STATISTICS ---
+    # --- 2. OPERATIONAL STATISTICS (Safe SQLAlchemy ORM) ---
     try:
-        stats_sql = """
-            SELECT region, station, 
-                   SUM(COALESCE(arrested, 0)), SUM(COALESCE(given_bond, 0)), 
-                   SUM(COALESCE(cautioned, 0)), SUM(COALESCE(pending_court, 0)), 
-                   SUM(COALESCE(taken_to_court, 0)), SUM(COALESCE(released, 0)), 
-                   SUM(COALESCE(remanded, 0)), SUM(COALESCE(convicted, 0))
-            FROM operational_statistics
-            WHERE date >= :start AND date <= :end
-            GROUP BY region, station
-        """
-        stats_rows = db.execute(text(stats_sql), {"start": start_str, "end": end_str}).fetchall()
-        for row in stats_rows:
-            stn = clean_str(row[1])
-            reg = fast_get_region(stn, row[0])
+        StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+        if StatsModel:
+            stats = db.query(StatsModel).filter(
+                StatsModel.date >= start_str,
+                StatsModel.date <= end_str
+            ).all()
 
-            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            for s in stats:
+                stn = clean_str(getattr(s, 'station', ''))
+                reg = fast_get_region(stn, getattr(s, 'region', ''))
 
-            if reg not in ops_regional: 
-                ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-            
-            vals = [row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9]]
-            keys = list(ops_general.keys())
-            for idx, key in enumerate(keys):
-                val = int(vals[idx] or 0)
-                ops_regional[reg][key] += val
-                ops_general[key] += val
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+                if reg not in ops_regional: 
+                    ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+                
+                for key in ops_general.keys():
+                    val = int(getattr(s, key, 0) or 0)
+                    ops_regional[reg][key] += val
+                    ops_general[key] += val
     except Exception as e:
-        print(f"CRITICAL ERROR in operational_statistics query: {e}")
+        print(f"ERROR in operational stats: {e}")
 
-    # --- 3. SUCCESS STORIES ---
+    # --- 3. SUCCESS STORIES (Safe SQLAlchemy ORM) ---
     try:
-        story_sql = """
-            SELECT region, station, COUNT(sn) as story_count
-            FROM success_stories
-            WHERE date >= :start AND date <= :end
-            GROUP BY region, station
-        """
-        story_rows = db.execute(text(story_sql), {"start": start_str, "end": end_str}).fetchall()
-        for row in story_rows:
-            stn = clean_str(row[1])
-            reg = fast_get_region(stn, row[0])
+        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
+        if StoryModel:
+            stories = db.query(StoryModel).filter(
+                StoryModel.date >= start_str,
+                StoryModel.date <= end_str
+            ).all()
 
-            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            for st in stories:
+                stn = clean_str(getattr(st, 'station', ''))
+                reg = fast_get_region(stn, getattr(st, 'region', ''))
 
-            count = int(row[2] or 0)
-            story_regional[reg] = story_regional.get(reg, 0) + count
-            grand_stories += count
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+                story_regional[reg] = story_regional.get(reg, 0) + 1
+                grand_stories += 1
     except Exception as e:
-        print(f"CRITICAL ERROR in success_stories query: {e}")
+        print(f"ERROR in success stories: {e}")
 
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
