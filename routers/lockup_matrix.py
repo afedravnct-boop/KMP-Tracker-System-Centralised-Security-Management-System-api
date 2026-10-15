@@ -17,9 +17,9 @@ from routers.activity_logger import record_neon_activity
 router = APIRouter(prefix="/api/v1", tags=["Lockup Matrix & Operations"])
 
 REGIONAL_HIERARCHY = {
-    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
@@ -85,7 +85,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         except Exception: perms = {}
 
     is_absolute_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "KMP COMMANDER" in user_pos or
         "DEPUTY KMP COMMANDER" in user_pos or
         "KMP ADMIN" in user_pos or
@@ -443,7 +443,7 @@ def update_suspect_register_entry(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/suspect-register/export")
-def export_suspect_register_csv(
+def export_suspect_register_secure(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
@@ -475,39 +475,73 @@ def export_suspect_register_csv(
     pk_col = getattr(SuspectRegModel, 'id', getattr(SuspectRegModel, 'sn', None))
     records = query.order_by(pk_col.desc()).all() if pk_col else query.all()
 
-    stream = io.StringIO()
-    writer = csv.writer(stream)
-    writer.writerow([
-        "ID", "Name", "Sex", "Age", "Tribe", "Nationality", "Residence", 
-        "Contact", "Next of Kin", "Reason for Detention", "Reference", 
-        "Date In", "Date Out", "Status", "Station", "Region", "Entered By"
-    ])
-
+    data_rows = []
     for r in records:
-        writer.writerow([
-            getattr(r, 'id', getattr(r, 'sn', '')),
-            getattr(r, 'name', ''),
-            getattr(r, 'sex', ''),
-            getattr(r, 'age', ''),
-            getattr(r, 'tribe', ''),
-            getattr(r, 'nationality', ''),
-            getattr(r, 'residence', ''),
-            getattr(r, 'contact', ''),
-            getattr(r, 'next_of_kin', ''),
-            getattr(r, 'reason_for_detention', ''),
-            getattr(r, 'reference', ''),
-            getattr(r, 'date_in', ''),
-            getattr(r, 'date_out', ''),
-            getattr(r, 'status', ''),
-            getattr(r, 'station', ''),
-            getattr(r, 'region', ''),
-            getattr(r, 'entered_by', '')
-        ])
+        data_rows.append({
+            "ID": getattr(r, 'id', getattr(r, 'sn', '')),
+            "Name": getattr(r, 'name', ''),
+            "Sex": getattr(r, 'sex', ''),
+            "Age": getattr(r, 'age', ''),
+            "Tribe": getattr(r, 'tribe', ''),
+            "Nationality": getattr(r, 'nationality', ''),
+            "Residence": getattr(r, 'residence', ''),
+            "Contact": getattr(r, 'contact', ''),
+            "Next of Kin": getattr(r, 'next_of_kin', ''),
+            "Reason for Detention": getattr(r, 'reason_for_detention', ''),
+            "Reference": getattr(r, 'reference', ''),
+            "Date In": getattr(r, 'date_in', ''),
+            "Date Out": getattr(r, 'date_out', ''),
+            "Status": getattr(r, 'status', ''),
+            "Station": getattr(r, 'station', ''),
+            "Region": getattr(r, 'region', ''),
+            "Entered By": getattr(r, 'entered_by', '')
+        })
 
-    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
+    df = pd.DataFrame(data_rows) if data_rows else pd.DataFrame(columns=["ID", "Name", "Sex", "Age", "Tribe", "Nationality", "Residence", "Contact", "Next of Kin", "Reason for Detention", "Reference", "Date In", "Date Out", "Status", "Station", "Region", "Entered By"])
+
+    # Create Excel workbook with Dual-Sheet Architecture & Officer Metadata Properties
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name="Print Copy", index=False)
+        df.to_excel(writer, sheet_name="Full NeonDB Copy", index=False)
+        
+        # 🟢 Embed downloading officer's metadata directly into workbook document properties
+        workbook = writer.book
+        workbook.properties.creator = f"{current_user.fnum} - {current_user.rank} {current_user.name}".strip()
+        workbook.properties.lastModifiedBy = f"KMP-CSDMS Audit Engine (F/No: {current_user.fnum})"
+        workbook.properties.title = "KMP Secure Suspect Register Export"
+        workbook.properties.subject = f"Restricted Law Enforcement Extract for Region: {current_user.region}"
+        workbook.properties.category = "RESTRICTED / LAW ENFORCEMENT"
+        workbook.properties.description = f"Generated via KMP-CSDMS Centralised Security System. Cryptographic Trace ID: {current_user.fnum}"
+
+    excel_buffer.seek(0)
+
+    # Package into secure ZIP archive keyed to Officer's Force Number
+    officer_fnum = str(current_user.fnum).strip()
     timestamp = datetime.now().strftime("%Y-%m-%d")
-    response.headers["Content-Disposition"] = f"attachment; filename=KMP_SUSPECT_REGISTER_{timestamp}.csv"
-    return response
+    zip_filename = f"KMP_SUSPECT_REGISTER_EXPORT_{timestamp}.zip"
+    
+    temp_dir = tempfile.gettempdir()
+    zip_path = os.path.join(temp_dir, zip_filename)
+    excel_filename = f"KMP_Suspect_Register_{timestamp}.xlsx"
+
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(excel_filename, excel_buffer.getvalue())
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="EXPORT",
+        module="SUSPECT_REGISTER",
+        target_id="BULK_EXPORT",
+        changes_summary=f"Officer {current_user.fnum} {current_user.rank} {current_user.name} securely exported encrypted Suspect Register archive with embedded document properties."
+    )
+
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=zip_filename
+    )
 
 # ==========================================
 # 3. OPS STATISTICS

@@ -1,10 +1,15 @@
-// src/components/SuccessStories.jsx
+// src/SuccessStories.jsx
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { PlusCircle, Edit, AlertTriangle, CheckCircle, Image, X, Filter, FileText, ChevronDown, ChevronUp, Shield, Sprout, Search, HardDrive, Loader2 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { authFetch, hasValidSession } from './api';
-import { stripHtmlTags } from './App';
+
+// 🟢 Local helper to prevent circular dependency with App.jsx
+const stripHtmlTags = (str) => {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/<[^>]*>?/gm, '');
+};
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -102,7 +107,7 @@ const autoCapitalize = (text) => {
   });
 };
 
-const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase, isReadOnlyObserver }) => {
+export function SuccessStories({ currentUser, canViewGlobal = false, stories, setStories, setSidebarOpen, reports, setSelectedCase, isReadOnlyObserver }) {
   const [serverStories, setServerStories] = useState([]);
   const [isFetchingStories, setIsFetchingStories] = useState(false);
   
@@ -256,19 +261,16 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       const storyStn = stripHtmlTags(story.station || '').trim().toUpperCase();
       const storyReg = getOfficialRegionForStation(storyStn, story.region).toUpperCase();
 
-      // Enforce role-based boundaries for non-global users
       if (!canViewGlobalActive) {
         const belongsToUserRegion = storyReg === userRegClean || 
                                     (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(st => isStationEquivalent(st, storyStn)));
         if (!belongsToUserRegion) return false;
       }
 
-      // Enforce active region filter
       if (filterRegion && filterRegion !== 'ALL REGIONS') {
         if (storyReg !== filterRegion.toUpperCase()) return false;
       }
 
-      // Enforce active station filter
       if (filterStation && filterStation !== 'ALL STATIONS') {
         if (!isStationEquivalent(storyStn, filterStation)) return false;
       }
@@ -417,7 +419,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       if (isDuplicate) return setNotification("Error: This exact success story has already been logged.");
 
       const exactNextSN = (serverStories && serverStories.length > 0) ? Math.max(...serverStories.map(s => s.sn || s.id || 0)) + 1 : 1;
-      const newStory = { ...submissionData, sn: exactNextSN, last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})` };
+      const newStory = { ...submissionData, sn: exactNextSN, last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})` };
       delete newStory.updateText;
       
       try {
@@ -448,7 +450,7 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
         ? `${submissionData.narrative}<br/><br/><strong>[UPDATE ${new Date().toISOString().slice(0,16).replace('T', ' ')}]:</strong><br/>${submissionData.updateText}` 
         : submissionData.narrative;
         
-      const updatedRecord = { ...submissionData, narrative: updatedNarrative, last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})` };
+      const updatedRecord = { ...submissionData, narrative: updatedNarrative, last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})` };
       delete updatedRecord.updateText;
 
       try {
@@ -901,6 +903,6 @@ const SuccessStories = ({ currentUser, canViewGlobal = false, stories, setStorie
       )}
     </div>
   );
-};
+}
 
-export default CrimeIncidentRegistry;
+export default SuccessStories;

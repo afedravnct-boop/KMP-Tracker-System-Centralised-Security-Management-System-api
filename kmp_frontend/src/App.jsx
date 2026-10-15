@@ -3092,7 +3092,7 @@ const App = () => {
           />
         );
 
-      case 'success':  
+      case 'SuccessStories':  
         return checkClearance(currentUser, 'acc_stories', true) ? (
           <SuccessStories 
             currentUser={currentUser} 

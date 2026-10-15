@@ -1,12 +1,16 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+// src/CrimeIncidentRegistry.jsx
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import {  
   Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import LockupMatrixLedger from './LockupMatrixLedger';
-import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
+
+export const stripHtmlTags = (str) => {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/<[^>]*>?/gm, '');
+};
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -97,7 +101,8 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) => {
+// 🟢 Hoisted function declaration + dual export prevents Temporal Dead Zone (TDZ) ReferenceErrors in Vite/Rollup
+export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) {
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
    
@@ -332,12 +337,10 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       const repStn = stripHtmlTags(report.station || '').trim().toUpperCase();
       const repReg = getOfficialRegionForStation(repStn, report.region);
 
-      // Enforce region filter
       if (filterRegion && filterRegion !== 'ALL REGIONS') {
         if (repReg !== filterRegion.toUpperCase()) return false;
       }
 
-      // Enforce station filter
       if (filterStation && filterStation !== 'ALL STATIONS') {
         if (!isStationEquivalent(repStn, filterStation)) return false;
       }
@@ -345,8 +348,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       return true;
     }).sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
   }, [serverReports, filterRegion, filterStation]);
-
-  const isStationSpecific = filterStation && filterStation !== 'ALL STATIONS';
 
   const availableUpdateCases = useMemo(() => {
     return finalFilteredReports.filter(r => {
@@ -529,7 +530,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       detention_1day: 0,
       detention_2days: 0,
       detention_3days_over: 0,
-      last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`
+      last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`
     };
 
     try {
@@ -599,7 +600,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         narrative: plainNarrative, 
         status: stripHtmlTags(formData.status), 
         suspects: formData.suspectDetails.length, 
-        last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`, 
+        last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`, 
         suspectDetails: formData.suspectDetails,
         daily_lock_up: 0 
       };
@@ -637,7 +638,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         category: formData.category || 'GENERAL CRIMES',
         status: formData.status,
         suspects: formData.suspectDetails.length,
-        last_updated_by: `${stripHtmlTags(currentUser.name)} (${stripHtmlTags(currentUser.fnum)})`, 
+        last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`, 
         daily_lock_up: 0
       };
        
@@ -967,7 +968,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Station *</label>
                     <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalActive || isRegionalCommand) || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
-                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : (canViewGlobalActive || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser.station}>{stripHtmlTags(currentUser.station)}</option>}
+                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : (canViewGlobalActive || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
                     </select>
                   </div>
                 </div>
@@ -1175,6 +1176,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                   ) : finalFilteredReports.map((report, index) => {
                     const rRegion = getOfficialRegionForStation(report.station, report.region);
                     const isAgriMatch = (report.category || '').toUpperCase() === 'AGRIC_CRIME';
+                    const statusClean = stripHtmlTags(report.status || '');
 
                     return (
                       <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
@@ -1196,18 +1198,18 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-red-600 dark:text-red-400 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
                         <td className="px-3.5 py-3 whitespace-normal break-words align-top">
                           <span className={`px-2 py-0.5 inline-flex text-[9px] font-bold rounded-full ${
-                            report.status.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900' : ''
+                            statusClean.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900' : ''
                           } ${
-                            report.status.includes('COURT') ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-900' : ''
+                            statusClean.includes('COURT') ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-900' : ''
                           } ${
-                            report.status.includes('BAIL') ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-900' : ''
+                            statusClean.includes('BAIL') ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-900' : ''
                           } ${
-                            report.status.includes('ACQUITTED') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : ''
+                            statusClean.includes('ACQUITTED') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : ''
                           } ${
-                            report.status.includes('CLOSED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border border-green-200 dark:border-green-900' : ''
+                            statusClean.includes('CLOSED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border border-green-200 dark:border-green-900' : ''
                           } ${
-                            report.status.includes('ADR') ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 border border-orange-200 dark:border-orange-900' : ''
-                          }`}>{stripHtmlTags(report.status)}</span>
+                            statusClean.includes('ADR') ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 border border-orange-200 dark:border-orange-900' : ''
+                          }`}>{statusClean}</span>
                         </td>
                       </tr>
                     );
@@ -1221,13 +1223,15 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       </div>
 
       {showLockupMatrixModal && (
-        <LockupMatrixLedger 
-          lockupEntries={lockupData} 
-          allTimeLockupTotal={null} 
-          onClose={() => setShowLockupMatrixModal(false)} 
-          selectedRegion={filterRegion}
-          selectedStation={filterStation}
-        />
+        <Suspense fallback={null}>
+          <LockupMatrixLedger 
+            lockupEntries={lockupData} 
+            allTimeLockupTotal={null} 
+            onClose={() => setShowLockupMatrixModal(false)} 
+            selectedRegion={filterRegion}
+            selectedStation={filterStation}
+          />
+        </Suspense>
       )}
 
       {selectedCase && (
@@ -1314,6 +1318,6 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       )}
     </div>  
   );
-};
+}
 
 export default CrimeIncidentRegistry;
