@@ -106,7 +106,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # --- 1. CRIME REPORTS (Safe SQLAlchemy ORM) ---
+    # --- 1. CRIME REPORTS & AGRICULTURAL CRIMES (Mapped explicitly to Crime_Reports model) ---
     try:
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
         if CrimeModel:
@@ -122,7 +122,15 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
                 if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
                 if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-                off = clean_str(getattr(r, 'offence', '') or getattr(r, 'category', '') or 'UNSPECIFIED')
+                category = clean_str(getattr(r, 'category', 'GENERAL CRIMES'))
+                offence = clean_str(getattr(r, 'offence', 'UNSPECIFIED INCIDENT'))
+                
+                # Distinguish standard offences vs agricultural security reports
+                if category == 'AGRIC_CRIME':
+                    off = f"AGRIC: {offence}"
+                else:
+                    off = offence
+
                 if "LOCK-UP TOTAL" in off: continue
 
                 suspects = int(getattr(r, 'suspects', 0) or 0)
@@ -143,9 +151,9 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
                 grand_crime_cases += 1
                 grand_crime_suspects += suspects
     except Exception as e:
-        print(f"ERROR in crime reports: {e}")
+        print(f"ERROR in crime reports fetch: {e}")
 
-    # --- 2. OPERATIONAL STATISTICS (Safe SQLAlchemy ORM) ---
+    # --- 2. OPERATIONAL STATISTICS ---
     try:
         StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
         if StatsModel:
@@ -169,9 +177,9 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
                     ops_regional[reg][key] += val
                     ops_general[key] += val
     except Exception as e:
-        print(f"ERROR in operational stats: {e}")
+        print(f"ERROR in operational stats fetch: {e}")
 
-    # --- 3. SUCCESS STORIES (Safe SQLAlchemy ORM) ---
+    # --- 3. SUCCESS STORIES ---
     try:
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         if StoryModel:
@@ -190,7 +198,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
                 story_regional[reg] = story_regional.get(reg, 0) + 1
                 grand_stories += 1
     except Exception as e:
-        print(f"ERROR in success stories: {e}")
+        print(f"ERROR in success stories fetch: {e}")
 
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
