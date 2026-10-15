@@ -12,7 +12,7 @@ import pyzipper
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_
+from sqlalchemy import func, or_, and_, text
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -114,8 +114,8 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             stn = clean_str(row[1])
             reg = fast_get_region(stn, row[0])
 
-            if filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
             off = clean_str(row[2])
             cases = int(row[3] or 0)
@@ -156,8 +156,8 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             stn = clean_str(row[1])
             reg = fast_get_region(stn, row[0])
 
-            if filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
             if reg not in ops_regional: 
                 ops_regional[reg] = {k: 0 for k in ops_general.keys()}
@@ -184,8 +184,8 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             stn = clean_str(row[1])
             reg = fast_get_region(stn, row[0])
 
-            if filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
             count = int(row[2] or 0)
             story_regional[reg] = story_regional.get(reg, 0) + count
@@ -226,7 +226,7 @@ def get_consolidated_ledger(
 ):
     try:
         today = date.today()
-        default_start = today - timedelta(days=30)
+        default_start = today - timedelta(days=6)
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
             end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
@@ -261,7 +261,7 @@ def export_consolidated_ledger(
 ):
     try:
         today = date.today()
-        default_start = today - timedelta(days=30)
+        default_start = today - timedelta(days=6)
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
             end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
@@ -271,13 +271,11 @@ def export_consolidated_ledger(
 
         data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station)
 
-        # Build Excel Workbook
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Consolidated Ledger"
         ws.views.sheetView[0].showGridLines = True
 
-        # Forensic Metadata Stamping
         wb.properties.creator = f"{current_user.rank} {current_user.name} (FNUM: {current_user.fnum})"
         wb.properties.title = "KMP Consolidated Master Ledger"
         wb.properties.subject = f"Jurisdiction: {region} / {station} ({start_dt} to {end_dt})"
@@ -344,7 +342,6 @@ def export_consolidated_ledger(
                     c_susp.border = thin_border
                     row_idx += 1
 
-            # Subtotal row
             ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=3)
             sub_lbl = ws.cell(row=row_idx, column=1, value="SUB-TOTAL")
             sub_lbl.alignment = Alignment(horizontal="left", indent=2)
@@ -397,7 +394,6 @@ def export_consolidated_ledger(
             ws.cell(row=row_idx, column=4, value=0).border = thin_border
             row_idx += 1
 
-        # Grand Total
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=2)
         gt_lbl = ws.cell(row=row_idx, column=1, value="GRAND TOTAL")
         gt_lbl.font = Font(bold=True)
@@ -442,7 +438,6 @@ def export_consolidated_ledger(
                 c.border = thin_border
             row_idx += 1
 
-        # General Ops Summary Row
         ws.cell(row=row_idx, column=1, value="SELECTED JURISDICTION").font = Font(bold=True)
         ws.cell(row=row_idx, column=1).border = thin_border
         gen_vals = [data["opsGeneral"]["arrested"], data["opsGeneral"]["given_bond"], data["opsGeneral"]["cautioned"], data["opsGeneral"]["pending_court"], data["opsGeneral"]["taken_to_court"], data["opsGeneral"]["released"], data["opsGeneral"]["remanded"], data["opsGeneral"]["convicted"]]
@@ -491,7 +486,6 @@ def export_consolidated_ledger(
         st_v.border = thin_border
         for c_i in range(1, 4): ws.cell(row=row_idx, column=c_i).fill = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
 
-        # Auto-fit column widths
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = openpyxl.utils.get_column_letter(col[0].column)
@@ -501,7 +495,6 @@ def export_consolidated_ledger(
         wb.save(excel_buffer)
         excel_buffer.seek(0)
 
-        # AES-256 ZIP Encryption using User's Force Number
         password_str = str(current_user.fnum).strip()
         zip_buffer = io.BytesIO()
 
