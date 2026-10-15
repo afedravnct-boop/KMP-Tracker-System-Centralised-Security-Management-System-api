@@ -84,7 +84,6 @@ def get_document_archive(
         ArchiveModel = get_doc_archive_model()
         query = db.query(ArchiveModel)
 
-        # 🟢 Apply search filtering if search term provided
         if search:
             term = f"%{search.strip().upper()}%"
             search_conds = []
@@ -141,7 +140,6 @@ def get_document_archive(
                     "station": station
                 })
 
-        # 🟢 Precision forensic check: Log search query vs regular archive view
         if search:
             summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched document archive for query: \"{search}\" (Returned {len(results)} matches)."
         else:
@@ -241,7 +239,6 @@ async def upload_word_report(
             db.add(new_archive)
             db.flush()
 
-            # 🟢 Record precise forensic REGISTER activity into NeonDB branch
             record_neon_activity(
                 logs_db=logs_db,
                 fnum=current_user.fnum,
@@ -275,6 +272,7 @@ async def upload_word_report(
     except Exception as e:
         db.rollback()
         logs_db.rollback()
+        print(f"Fetch error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
 
@@ -295,7 +293,6 @@ def download_archive_file(
     
     doc_record = None
     
-    # STRICT TABLE ROUTING
     if category == 'templates' and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
     elif category == 'general_doc' and GeneralDocModel:
@@ -364,7 +361,6 @@ def download_archive_file(
                 header_p = header.paragraphs[0]
             
             try:
-                # 🟢 Anchored strictly to the extreme left page edge
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -396,13 +392,12 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # 🟢 Inserted exactly at X = 15pt from left edge, spanning vertically upwards
                     page.insert_text(
                         pymupdf.Point(15, rect.height - 50),
                         vertical_stamp_text,
                         fontsize=7,
                         fontname="courier-bold",
-                        color=(0.545, 0, 0), # Deep dark red / maroon
+                        color=(0.545, 0, 0), 
                         rotate=90,
                         overlay=True
                     )
@@ -456,33 +451,12 @@ def download_archive_file(
                 output_stream.write(raw_bytes)
                 content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
-        elif file_extension == 'pdf':
-            try:
-                pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
-                for page in pdf_doc:
-                    rect = page.rect
-                    page.insert_text(
-                        pymupdf.Point(25, rect.height - 50),
-                        vertical_stamp_text,
-                        fontsize=7,
-                        fontname="courier-bold",
-                        color=(0.545, 0, 0),
-                        rotate=90 
-                    )
-                stamped_pdf_bytes = pdf_doc.tobytes()
-                output_stream = io.BytesIO(stamped_pdf_bytes)
-                content_type = "application/pdf"
-            except Exception:
-                output_stream.write(raw_bytes)
-                content_type = "application/pdf"
-
         else:
             output_stream.write(raw_bytes)
 
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 Record precise forensic UPDATE/DOWNLOAD activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -606,7 +580,6 @@ def delete_archive_file(
         db.delete(doc_record)
         db.commit()
 
-        # 🟢 Record precise forensic DELETE activity into NeonDB branch
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,

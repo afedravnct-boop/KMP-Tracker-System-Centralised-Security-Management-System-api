@@ -1,3 +1,4 @@
+// src/components/WordReportUpload.jsx
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {  
   UploadCloud, FileText, Download, CheckCircle, AlertTriangle,  
@@ -199,8 +200,6 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
     
-    const mobileSafeWindow = window.open('about:blank', '_blank');
-
     try {
       let endpoint = `/api/v1/reports/download/${docId}?stamp=true&return_url=true&category=${categoryKey}`;
       
@@ -222,28 +221,10 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       
       if (!s3Url) throw new Error("Pre-signed S3 URL missing from backend response.");
 
-      const lowerName = (docName || '').toLowerCase();
-      
-      if (categoryKey === 'templates' || isTemplate) {
-        if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-          mobileSafeWindow.location.href = s3Url;
-        } else {
-          const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
-          mobileSafeWindow.location.href = googleViewerUrl;
-        }
-      } 
-      else {
-        if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
-          mobileSafeWindow.location.href = s3Url;
-        } else if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) {
-          mobileSafeWindow.location.href = s3Url;
-        } else {
-          const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
-          mobileSafeWindow.location.href = googleViewerUrl;
-        }
-      }
+      // 🟢 Open watermarked document securely in a new browser tab for live viewing
+      window.open(s3Url, '_blank');
+
     } catch (err) {
-      if (mobileSafeWindow) mobileSafeWindow.close();
       alert(`Reader Error: ${err.message}`);
     } finally {
       setActionLoading(null);
@@ -421,7 +402,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
             <form onSubmit={handleUpload} className="max-w-3xl space-y-4">
               <div className="bg-sky-50 dark:bg-slate-950 p-1.5 rounded-xl border border-sky-200 dark:border-sky-900/50 flex flex-col sm:flex-row gap-1 shadow-inner">
                 <button type="button" onClick={() => setActiveCategory('weekly_report')} className={`flex-1 py-2.5 px-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${activeCategory === 'weekly_report' ? 'bg-sky-600 text-white shadow-md ring-2 ring-sky-400/30' : 'text-slate-600 dark:text-slate-400 hover:bg-sky-100 dark:hover:bg-slate-800'}`}>Weekly Reports</button>
-                <button type="button" onClick={() => setActiveCategory('general_doc')} className={`flex-1 py-2.5 px-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${activeCategory === 'general_doc' ? 'bg-sky-800 text-white shadow-md ring-2 ring-sky-400/30' : 'text-slate-600 dark:text-slate-400 hover:bg-sky-100 dark:hover:bg-slate-800'}`}>General Docs / Statements</button>
+                <button type="button" onClick={() => setActiveCategory('general_doc')} className={`flex-1 py-2.5 px-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${activeCategory === 'general_doc' ? 'bg-sky-900 text-white shadow-md ring-2 ring-sky-400/30' : 'text-slate-600 dark:text-slate-400 hover:bg-sky-100 dark:hover:bg-slate-800'}`}>General Docs / Statements</button>
                 <button type="button" onClick={() => setActiveCategory('templates')} className={`flex-1 py-2.5 px-3 text-xs font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${activeCategory === 'templates' ? 'bg-amber-600 text-white shadow-md ring-2 ring-amber-400/30' : 'text-slate-600 dark:text-slate-400 hover:bg-sky-100 dark:hover:bg-slate-800'}`}>Command Templates</button>
               </div>
 
