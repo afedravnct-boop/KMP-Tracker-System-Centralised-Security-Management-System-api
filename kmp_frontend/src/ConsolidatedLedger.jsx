@@ -23,10 +23,25 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
-  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false); // NEW STATE
+  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [ledgerData, setLedgerData] = useState(null);
 
-  // ... (Role classification logic remains the same) ...
+  const userRoleClean = cleanStr(currentUser?.role);
+  const userPosClean = cleanStr(currentUser?.position);
+  const userRegClean = cleanStr(currentUser?.region);
+
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
 
   // Progressive Fetching Engine
   useEffect(() => {
@@ -35,7 +50,6 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
     const fetchLedgerData = async () => {
       setLoading(true);
       try {
-        // 1. FAST INITIAL STREAM: Fetch only the last 48 hours of the selected range to render immediately
         const recentStart = new Date(endDate);
         recentStart.setDate(recentStart.getDate() - 1);
         const recentStartStr = recentStart.toISOString().split('T')[0];
@@ -46,17 +60,16 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
           if (fastRes.ok && isMounted) {
             const fastResult = await fastRes.json();
             setLedgerData(fastResult.data);
-            setLoading(false); // Remove main spinner, recent data is now on screen!
-            setIsBackgroundSyncing(true); // Show background sync indicator
+            setLoading(false);
+            setIsBackgroundSyncing(true);
           }
         }
 
-        // 2. BACKGROUND FULL FETCH: Fetch the entire requested historical range silently
         const fullUrl = `/api/v1/reports/consolidated-ledger?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
         const fullRes = await authFetch(fullUrl);
         if (fullRes.ok && isMounted) {
           const fullResult = await fullRes.json();
-          setLedgerData(fullResult.data); // Silently swap in the full dataset
+          setLedgerData(fullResult.data);
         }
       } catch (error) {
         console.error("Failed to fetch ledger data:", error);
@@ -69,11 +82,9 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
     };
 
     fetchLedgerData();
-    
-    return () => { isMounted = false; }; // Cleanup prevents memory leaks on unmount
+    return () => { isMounted = false; };
   }, [startDate, endDate, filterRegion, filterStation]);
 
-  // Secure Encrypted Export Handler
   const handleExportLedger = async () => {
     try {
       setLoading(true);
@@ -111,7 +122,6 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
     return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }).toUpperCase();
   };
 
-  // Safe defaults if data is still loading
   const dataMapping = ledgerData || {
       crimeRegional: {}, crimeRegionalTotals: {}, crimeGeneral: {}, sortedCrimeRegions: [], grandCrimeCases: 0, grandCrimeSuspects: 0,
       opsRegional: {}, opsGeneral: { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 }, sortedOpsRegions: [],
@@ -183,7 +193,6 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
             <input type="date" value={endDate} disabled={loading} onChange={e => setEndDate(e.target.value)} className="text-sm font-bold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 outline-none disabled:opacity-50" />
           </div>
 
-          {/* 🟢 SECURE AES-256 EXPORT BUTTON */}
           <button 
             onClick={handleExportLedger} 
             disabled={loading}
@@ -197,7 +206,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
         </div>
       </div>
 
-      {/* SECTION 1: CRIME & AGRICULTURAL SUMMARY TABLES */}
+      {/* SECTION 1: CRIME SUMMARY */}
       <div className="space-y-6">
         <div className="bg-white dark:bg-slate-900 shadow-xl overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
           <table className="w-full text-sm border-collapse border-2 border-slate-400 dark:border-slate-700 bg-white dark:bg-slate-900">
@@ -217,11 +226,11 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
             </thead>
             <tbody className={loading ? 'opacity-50' : ''}>
               {dataMapping.sortedCrimeRegions.map(region => {
-                const offences = Object.keys(dataMapping.crimeRegional[region]);
-                
-                // Fetch pre-calculated totals from backend payload
+                const offences = Object.keys(dataMapping.crimeRegional[region] || {});
                 const regionTotals = dataMapping.crimeRegionalTotals[region] || { cases: 0, suspects: 0 };
                 
+                if (offences.length === 0) return null;
+
                 const rows = offences.map((off, idx) => {
                   const item = dataMapping.crimeRegional[region][off];
                   return (
@@ -246,14 +255,14 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                 );
                 return rows;
               })}
-              {(!loading && dataMapping.sortedCrimeRegions.length === 0) && (
+              {(!loading && Object.keys(dataMapping.crimeRegional).length === 0) && (
                 <tr><td colSpan="5" className="text-center py-6 text-gray-500 italic">No crimes or agricultural thefts registered in this period.</td></tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {dataMapping.sortedCrimeRegions.length > 0 && (
+        {Object.keys(dataMapping.crimeGeneral).length > 0 && (
           <div className="bg-white dark:bg-slate-900 shadow-xl overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
             <table className="w-full text-sm border-collapse border-2 border-slate-400 dark:border-slate-700 bg-white dark:bg-slate-900">
               <thead>
@@ -269,7 +278,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                   <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 w-40 uppercase text-xs leading-tight">SUSPECTS IN<br/>CUSTODY</th>
                 </tr>
               </thead>
-              <tbody className={loading ? 'opacity-50' : ''}>
+              <tbody>
                 {Object.keys(dataMapping.crimeGeneral).map((off, idx) => {
                   const item = dataMapping.crimeGeneral[off];
                   return (
@@ -316,9 +325,9 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                 <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CONVICTED</th>
               </tr>
             </thead>
-            <tbody className={loading ? 'opacity-50' : ''}>
+            <tbody>
               {dataMapping.sortedOpsRegions.map((region) => {
-                const item = dataMapping.opsRegional[region];
+                const item = dataMapping.opsRegional[region] || { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 };
                 return (
                   <tr key={`ops-${region}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                     <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-slate-900 dark:text-slate-100 text-xs">{region}</td>
@@ -333,50 +342,9 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                   </tr>
                 );
               })}
-              {(!loading && dataMapping.sortedOpsRegions.length === 0) && (
-                <tr><td colSpan="9" className="text-center py-6 text-gray-500 italic">No operational statistics recorded in this period.</td></tr>
-              )}
             </tbody>
           </table>
         </div>
-
-        {dataMapping.sortedOpsRegions.length > 0 && (
-          <div className="bg-white dark:bg-slate-900 shadow-xl overflow-hidden mt-8 rounded-xl border border-slate-200 dark:border-slate-800">
-            <table className="min-w-full text-sm border-collapse border-2 border-slate-400 dark:border-slate-700 bg-white dark:bg-slate-900">
-              <thead>
-                <tr className="bg-[#f8cbad] dark:bg-slate-800 border-2 border-slate-400 dark:border-slate-700">
-                  <th colSpan="9" className="p-3 text-center font-extrabold text-slate-900 dark:text-slate-100 tracking-wide border-2 border-slate-400 dark:border-slate-700 text-[13px]">
-                    GENERAL OPERATIONAL SUMMARY ({filterRegion})
-                  </th>
-                </tr>
-                <tr className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CATEGORY</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">TOTAL<br/>ARRESTED</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">GIVEN<br/>BOND</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CAUTIONED</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">PENDING<br/>COURT</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">TAKEN TO<br/>COURT</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">RELEASED</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">REMANDED</th>
-                  <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CONVICTED</th>
-                </tr>
-              </thead>
-              <tbody className={loading ? 'opacity-50' : ''}>
-                <tr className="bg-[#e2efda] dark:bg-slate-800 font-extrabold text-slate-900 dark:text-slate-100 border-2 border-slate-400 dark:border-slate-700">
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center uppercase tracking-wide text-xs">SELECTED JURISDICTION</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.arrested}</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.given_bond}</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.cautioned}</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.pending_court}</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.taken_to_court}</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.released}</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-red-700 dark:text-red-400">{dataMapping.opsGeneral.remanded}</td>
-                  <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-purple-700 dark:text-purple-400">{dataMapping.opsGeneral.convicted}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
       {/* SECTION 3: SUCCESS STORIES SUMMARY */}
@@ -395,26 +363,21 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                 <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-xs">TOTAL SUCCESS STORIES LOGGED</th>
               </tr>
             </thead>
-            <tbody className={loading ? 'opacity-50' : ''}>
-  {dataMapping.sortedStoryRegions.map((region, idx) => (
+            <tbody>
+              {dataMapping.sortedStoryRegions.map((region, idx) => (
                 <tr key={`story-${region}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-medium text-slate-600 dark:text-slate-400">{idx + 1}</td>
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-slate-900 dark:text-slate-100">{region}</td>
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-amber-600 dark:text-amber-400 text-base">{dataMapping.storyRegional[region]}</td>
                 </tr>
               ))}
-              {(!loading && dataMapping.sortedStoryRegions.length === 0) && (
-                <tr><td colSpan="3" className="text-center py-6 text-gray-500 italic">No success stories recorded in this period.</td></tr>
-              )}
             </tbody>
-            {dataMapping.sortedStoryRegions.length > 0 && (
-              <tfoot className="bg-[#ffd966] dark:bg-slate-800 font-extrabold text-slate-900 dark:text-slate-100 border-2 border-slate-400 dark:border-slate-700">
-                <tr>
-                  <td colSpan="2" className="px-3 py-3 border border-slate-400 dark:border-slate-700 text-right pr-6 uppercase tracking-wider text-sm">GRAND TOTAL MILESTONES</td>
-                  <td className="px-3 py-3 border border-slate-400 dark:border-slate-700 text-center text-lg">{dataMapping.grandStories}</td>
-                </tr>
-              </tfoot>
-            )}
+            <tfoot className="bg-[#ffd966] dark:bg-slate-800 font-extrabold text-slate-900 dark:text-slate-100 border-2 border-slate-400 dark:border-slate-700">
+              <tr>
+                <td colSpan="2" className="px-3 py-3 border border-slate-400 dark:border-slate-700 text-right pr-6 uppercase tracking-wider text-sm">GRAND TOTAL MILESTONES</td>
+                <td className="px-3 py-3 border border-slate-400 dark:border-slate-700 text-center text-lg">{dataMapping.grandStories}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>

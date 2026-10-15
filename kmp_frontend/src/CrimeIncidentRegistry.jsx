@@ -1,4 +1,3 @@
-// src/components/CrimeIncidentRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {  
   Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2
@@ -589,7 +588,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
         suspectDetails: formData.suspectDetails,
         daily_lock_up: 0 
       };
-            
+              
       try {
         const response = await authFetch(`/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload) });
         const resData = await response.json().catch(() => ({}));
@@ -605,13 +604,13 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
     } else if (operation === 'update') {
       if (!formData.sn) return setNotification("Error: Please select a case first.");
-            
+          
       const plainUpdateText = extractPlainText(formData.updateText || '').trim();
       let updatedNarrative = formData.narrative;
       if (plainUpdateText) {
           updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
       }
-            
+          
       const finalOffenceValue = formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence);
 
       const updatedRecord = { 
@@ -631,7 +630,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
       delete updatedRecord.ref_type; 
       delete updatedRecord.ref_number;
       delete updatedRecord.customOffence; 
-            
+          
       try {
         const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
         const resData = await response.json().catch(() => ({}));
@@ -699,7 +698,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
    
   return (
     <div className="p-4 max-w-[1600px] mx-auto space-y-4 relative z-10 font-sans">
-          
+        
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
@@ -864,7 +863,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
               <option value="LAST 180 DAYS">LAST 180 DAYS</option>
             </select>
         </div>
-            
+          
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
           <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800 dark:text-slate-100" />
           <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600 dark:text-amber-400" />
@@ -883,7 +882,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
             <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
               <h3 className="text-white font-semibold text-xs flex items-center"><Shield className="w-4 h-4 mr-1.5 text-blue-400" /> ⚙️ File Controls</h3>
             </div>
-                
+              
             <div className="p-4 space-y-4">
               <div className="flex space-x-1.5 bg-gray-100 dark:bg-slate-900 p-0.5 rounded-lg">
                 <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
@@ -1227,7 +1226,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
 
                       return (
                         <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
-                              
+                            
                           <div className="shrink-0">
                             {isValidPhoto ? ( 
                               <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
@@ -1238,7 +1237,7 @@ const CrimeIncidentRegistry = ({ currentUser, canViewGlobal = false, setReports,
                               </div> 
                             )}
                           </div>
-                              
+                            
                           <div className="flex-1 min-w-0 py-1">
                             <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
                             <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>

@@ -74,17 +74,6 @@ def parse_crime_incident_backend(offence_str: str, narrative_str: str):
         "parsedRecoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded"
     }
 
-def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
-    a = (stat_a or "").strip().upper()
-    b = (stat_b or "").strip().upper()
-    if not a or not b:
-        return False
-    if a == b:
-        return True
-    clean_a = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', a)
-    clean_b = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', b)
-    return clean_a == clean_b and len(clean_a) > 0
-
 def get_officer_signature(user):
     if not user:
         return "UNKNOWN COMMANDER"
@@ -219,7 +208,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
     return query.filter(text("1=0"))
 
 # ====================================================================
-# 1. RETRIEVE CRIME REPORTS
+# 1. RETRIEVE CRIME REPORTS (WITH RESTORED AGRI-CRIME FILTERING)
 # ====================================================================
 @router.get("/reports")
 def get_reports(
@@ -261,8 +250,14 @@ def get_reports(
         if hasattr(CrimeModel, 'offence'):
             query = query.filter(func.upper(CrimeModel.offence) == offence.upper())
             
+    # 🟢 Restored Agricultural Crime Filter Logic
     if agri_only and hasattr(CrimeModel, 'category'):
-        query = query.filter(func.upper(CrimeModel.category) == 'AGRIC_CRIME')
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'AGRIC_CRIME',
+                func.upper(CrimeModel.category) == 'AGRICULTURAL CRIMES'
+            )
+        )
         
     if start_date and hasattr(CrimeModel, 'date'):
         query = query.filter(CrimeModel.date >= start_date)
@@ -336,7 +331,7 @@ def get_reports(
     return result
 
 # ====================================================================
-# 1B. GET UNIQUE OFFENCES (LIGHTWEIGHT ENDPOINT)
+# 1B. GET UNIQUE OFFENCES
 # ====================================================================
 @router.get("/reports/offences")
 def get_unique_offences(
@@ -371,7 +366,7 @@ def get_unique_offences(
     return sorted(list(set(offences)))
 
 # ====================================================================
-# 1C. CRIME ANALYTICS (HEAVY-LIFTING AGGREGATION)
+# 1C. CRIME ANALYTICS
 # ====================================================================
 @router.get("/reports/analytics")
 def get_crime_analytics(
@@ -411,7 +406,12 @@ def get_crime_analytics(
             )
 
     if agri_only and hasattr(CrimeModel, 'category'):
-        query = query.filter(func.upper(CrimeModel.category) == 'AGRIC_CRIME')
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'AGRIC_CRIME',
+                func.upper(CrimeModel.category) == 'AGRICULTURAL CRIMES'
+            )
+        )
 
     if start_date and hasattr(CrimeModel, 'date'):
         query = query.filter(CrimeModel.date >= start_date)
@@ -425,7 +425,7 @@ def get_crime_analytics(
     return summary_data
 
 # ====================================================================
-# 1D. EXPORT CRIME REPORTS TO SECURE AES-256 ZIP (.XLSX + SUSPECT PHOTOS)
+# 1D. EXPORT CRIME REPORTS TO SECURE AES-256 ZIP
 # ====================================================================
 @router.get("/reports/export")
 def export_reports_excel(
@@ -467,7 +467,12 @@ def export_reports_excel(
             query = query.filter(func.upper(CrimeModel.offence) == offence.upper())
             
     if agri_only and hasattr(CrimeModel, 'category'):
-        query = query.filter(func.upper(CrimeModel.category) == 'AGRIC_CRIME')
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'AGRIC_CRIME',
+                func.upper(CrimeModel.category) == 'AGRICULTURAL CRIMES'
+            )
+        )
         
     if start_date and hasattr(CrimeModel, 'date'):
         query = query.filter(CrimeModel.date >= start_date)
@@ -489,13 +494,11 @@ def export_reports_excel(
     pk_col = getattr(CrimeModel, 'sn', getattr(CrimeModel, 'id', None))
     reports = query.order_by(pk_col.desc()).all() if pk_col else query.all()
 
-    # 1. Build Excel Workbook via openpyxl
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Crime Registry Ledger"
     ws.views.sheetView[0].showGridLines = True
 
-    # 2. Forensic Stamping in Document Properties
     officer_name = (current_user.name or "UNKNOWN").strip().upper()
     officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
     officer_rank = (current_user.rank or "").strip().upper()
@@ -538,7 +541,6 @@ def export_reports_excel(
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     total_records = len(reports)
 
-    # 🟢 Collect and bundle suspect photos alongside Excel generation
     suspect_photos_to_bundle = []
 
     for idx, r in enumerate(reports):
@@ -579,7 +581,6 @@ def export_reports_excel(
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="top")
 
-        # Track suspect photos for ZIP archiving
         for s_idx, s in enumerate(suspects_list):
             photo_url = getattr(s, 'photo_url', None)
             if photo_url:
@@ -598,7 +599,6 @@ def export_reports_excel(
     wb.save(excel_buffer)
     excel_buffer.seek(0)
 
-    # 3. Compress and Encrypt into AES-256 ZIP Archive (.xlsx + Suspect Photos)
     zip_buffer = io.BytesIO()
     with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
         zf.setpassword(officer_fnum.encode('utf-8'))
@@ -607,7 +607,6 @@ def export_reports_excel(
         excel_filename = f"KMP_REGISTRY_{file_label}_{timestamp}.xlsx"
         zf.writestr(excel_filename, excel_buffer.getvalue())
 
-        # 🟢 Embed Suspect Photos into ZIP Archive
         for photo_item in suspect_photos_to_bundle:
             url = photo_item["url"]
             target_filename = f"Suspect_Photos/{photo_item['filename']}"
