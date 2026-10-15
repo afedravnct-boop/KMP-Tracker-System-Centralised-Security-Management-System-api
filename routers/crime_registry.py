@@ -74,6 +74,17 @@ def parse_crime_incident_backend(offence_str: str, narrative_str: str):
         "parsedRecoveries": ", ".join(recoveries_list) if recoveries_list else "None recorded"
     }
 
+def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
+    a = (stat_a or "").strip().upper()
+    b = (stat_b or "").strip().upper()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    clean_a = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', a)
+    clean_b = re.sub(r'(\s+HEADQUARTERS|\s+HQ)$', '', b)
+    return clean_a == clean_b and len(clean_a) > 0
+
 def get_officer_signature(user):
     if not user:
         return "UNKNOWN COMMANDER"
@@ -250,7 +261,6 @@ def get_reports(
         if hasattr(CrimeModel, 'offence'):
             query = query.filter(func.upper(CrimeModel.offence) == offence.upper())
             
-    # 🟢 Restored Agricultural Crime Filter Logic
     if agri_only and hasattr(CrimeModel, 'category'):
         query = query.filter(
             or_(
@@ -692,18 +702,50 @@ def create_report(
         
         user_station = (current_user.station or "").strip().upper()
         user_region = (current_user.region or "").strip().upper()
-        is_hq_admin = current_user.role in ["SUPER_ADMIN", "ADMIN"] or "HEADQUARTERS" in user_station or "HEADQUARTERS" in user_region or "999" in (current_user.position or "").upper()
+        user_role = (current_user.role or "").strip().upper()
+        user_pos = (current_user.position or "").strip().upper()
+
+        perms = current_user.permissions or {}
+        if isinstance(perms, str):
+            try: perms = json.loads(perms)
+            except Exception: perms = {}
+
+        is_global_command = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+            "KMP COMMANDER" in user_pos or
+            "DEPUTY KMP COMMANDER" in user_pos or
+            user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
+
+        is_regional_commander = (
+            user_role in ["RPC", "DEPUTY_RPC", "DEPUTY COMMANDER"] or
+            "RPC" in user_pos or
+            "DEPUTY COMMANDER" in user_pos
+        )
+
+        target_station = (data.get("station") or "").strip().upper()
+        target_region = (data.get("region") or "").strip().upper()
+
+        stations_in_region = [s.upper() for s in REGIONAL_HIERARCHY.get(user_reg, [])]
+        station_belongs_to_regional_commander = is_regional_commander and (
+            target_station in stations_in_region or
+            any(is_station_equivalent(target_station, s) for s in stations_in_region)
+        )
+
+        can_override_station = is_global_command or station_belongs_to_regional_commander
 
         is_hq_general_total = data.pop('is_hq_general_total', False)
 
         if is_hq_general_total:
-            if not is_hq_admin:
+            if not is_global_command:
                 raise HTTPException(status_code=403, detail="Clearance Denied.")
             data["region"] = "KMP HEADQUARTERS"
             data["station"] = "HEADQUARTERS GENERAL TOTAL"
             data["offence"] = data.get("offence", "HQ GENERAL SUSPECT LOCK-UP TOTAL")
         else:
-            if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+            if not can_override_station:
                 data["region"] = current_user.region
                 data["station"] = current_user.station
 
@@ -783,7 +825,7 @@ def create_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
-# 4. UPDATE CRIME REPORT
+# 4. UPDATE CRIME REPORT (WITH RESTORED CATEGORY PERSISTENCE)
 # ====================================================================
 @router.put("/reports/{sn}")
 def update_report(
@@ -814,15 +856,51 @@ def update_report(
         data.pop('sn', None)
         data.pop('id', None)
         
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+        user_role = str(current_user.role or "").strip().upper()
+        user_pos = str(current_user.position or "").strip().upper()
+        user_reg = str(current_user.region or "").strip().upper()
+
+        perms = current_user.permissions or {}
+        if isinstance(perms, str):
+            try: perms = json.loads(perms)
+            except Exception: perms = {}
+
+        is_global_command = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+            "KMP COMMANDER" in user_pos or
+            "DEPUTY KMP COMMANDER" in user_pos or
+            user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+            perms.get("view_global_roster") is True or
+            perms.get("global_observer") is True
+        )
+
+        is_regional_commander = (
+            user_role in ["RPC", "DEPUTY_RPC", "DEPUTY COMMANDER"] or
+            "RPC" in user_pos or
+            "DEPUTY COMMANDER" in user_pos
+        )
+
+        target_station = (data.get("station") or "").strip().upper()
+        stations_in_region = [s.upper() for s in REGIONAL_HIERARCHY.get(user_reg, [])]
+        station_belongs_to_regional_commander = is_regional_commander and (
+            target_station in stations_in_region or
+            any(is_station_equivalent(target_station, s) for s in stations_in_region)
+        )
+
+        can_override_station = is_global_command or station_belongs_to_regional_commander
+
+        if not can_override_station:
             data.pop("region", None)
             data.pop("station", None)
 
-        if "category" not in data or not data["category"]:
-            data["category"] = getattr(existing_report, 'category', 'GENERAL CRIMES')
-        
+        # 🟢 Explicitly persist category updates (e.g. converting to/from agricultural crimes)
+        if "category" in data and data["category"]:
+            existing_report.category = str(data["category"]).strip().upper()
+        elif not getattr(existing_report, 'category', None):
+            existing_report.category = "GENERAL CRIMES"
+
         for key, value in data.items():
-            if hasattr(existing_report, key):
+            if key != 'category' and hasattr(existing_report, key):
                 setattr(existing_report, key, value)
                 
         if hasattr(existing_report, 'last_updated_by'):
