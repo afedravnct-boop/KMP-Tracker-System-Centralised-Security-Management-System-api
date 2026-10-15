@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, 
-  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award, Trash2, Clock, Send
+  Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award, Trash2, Clock, Send, History, Activity
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -214,6 +214,158 @@ const BriefingPreviewModal = ({ isOpen, onClose, onDispatch, isDispatching }) =>
   );
 };
 
+const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdatePermissions }) => {
+  if (!user) return null;
+
+  const userPerms = user.permissions || {};
+  const auditHistory = userPerms._audit_history || [];
+  const clearanceLocks = userPerms._clearance_locks || {};
+
+  const actorFnum = (currentUser?.fnum || "").trim().toUpperCase();
+  const isPrincipalSuperAdmin = actorFnum === "A/2408" || currentUser?.role === "SUPER_ADMIN";
+
+  const handleToggleBox = (permKey, currentVal) => {
+    const lockInfo = clearanceLocks[permKey];
+    if (lockInfo && lockInfo.revoked_by_fnum?.includes("A/2408") && !isPrincipalSuperAdmin) {
+      alert("Security Restriction: This clearance was revoked by Principal Super Admin A/2408. Only A/2408 can reinstate it.");
+      return;
+    }
+
+    // Pass the exact signature the parent table expects: (fnum, permissionKey, value)
+    if (onUpdatePermissions) {
+      onUpdatePermissions(user.fnum, permKey, !currentVal);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150 text-slate-900">
+        <div className="bg-slate-900 text-white p-4 px-6 flex justify-between items-center shrink-0">
+          <h3 className="font-extrabold text-xs uppercase tracking-wider flex items-center">
+            <Shield size={16} className="text-emerald-400 mr-2"/> Officer Clearance Dossier & Administrative Audit Trail
+          </h3>
+          <button onClick={onClose} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+        </div>
+
+        <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar flex-1 bg-slate-50 text-xs">
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="w-14 h-14 rounded-full bg-slate-100 border-2 border-emerald-500 overflow-hidden shrink-0 flex items-center justify-center shadow-sm">
+                {user.profile_photo_path ? (
+                  <img src={user.profile_photo_path} alt="Officer" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="font-black text-lg text-slate-600">{user.name?.charAt(0) || 'U'}</span>
+                )}
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-slate-900 uppercase">
+                  {user.fnum} {user.rank} {user.name}
+                </h4>
+                <p className="text-xs font-mono font-bold text-emerald-700">IPPS: {user.ipps || 'N/A'} {user.nin ? `| NIN: ${user.nin}` : ''}</p>
+                <p className="text-[11px] text-slate-500 uppercase font-semibold">{user.station} ({user.region})</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-extrabold rounded-lg text-[10px] uppercase">
+                {user.role || 'USER'}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <h4 className="font-extrabold text-slate-800 uppercase tracking-wider flex items-center text-xs border-b pb-2">
+              <Lock size={14} className="mr-1.5 text-blue-600"/> Granular Access Clearances Matrix
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-1">
+              {CLEARANCE_MATRIX_COLS.map((col) => {
+                const key = col.key;
+                const label = col.label;
+                const isChecked = userPerms[key] !== false ? (['SUPER_ADMIN', 'ADMIN'].includes(user.role) || Boolean(userPerms[key])) : false;
+                
+                const lockInfo = clearanceLocks[key];
+                const isLockedByApex = lockInfo && lockInfo.revoked_by_fnum?.includes("A/2408");
+
+                // Enforce the same disable rules used in the table
+                const isSelf = user.fnum === currentUser?.fnum;
+                const isObserverCol = key === 'global_observer';
+                const isOpenCol = key === 'global_open';
+                const isMutuallyDisabled = (isObserverCol && Boolean(userPerms.global_open)) || (isOpenCol && Boolean(userPerms.global_observer));
+                const isDisabled = isSelf || isMutuallyDisabled || (isOpenCol && !isPrincipalSuperAdmin);
+
+                return (
+                  <div 
+                    key={key} 
+                    onClick={() => { if (!isDisabled) handleToggleBox(key, isChecked); }}
+                    className={`p-3 rounded-xl border flex flex-col justify-between transition-all ${
+                      isDisabled 
+                        ? 'opacity-60 bg-slate-100 border-slate-200 cursor-not-allowed' 
+                        : 'cursor-pointer hover:border-slate-300'
+                    } ${
+                      isChecked && !isDisabled
+                        ? 'bg-emerald-50 border-emerald-300 shadow-xs' 
+                        : !isDisabled ? 'bg-slate-50 border-slate-200' : ''
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-black text-slate-700 leading-tight">{label}</span>
+                      <input 
+                        type="checkbox" 
+                        checked={isChecked} 
+                        disabled={isDisabled}
+                        onChange={() => {}} 
+                        className={`rounded text-emerald-600 h-3.5 w-3.5 ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer focus:ring-emerald-500'}`} 
+                      />
+                    </div>
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-[9px]">
+                      <span className={isChecked ? 'text-emerald-700 font-bold' : 'text-slate-400 font-medium'}>
+                        {isChecked ? 'GRANTED' : 'REVOKED'}
+                      </span>
+                      {isLockedByApex && <Lock size={10} className="text-red-600" title="Locked by A/2408" />}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
+            <h4 className="font-extrabold text-slate-800 uppercase tracking-wider flex items-center text-xs border-b pb-2">
+              <History size={14} className="mr-1.5 text-indigo-600"/> Administrative History & Audit Trail Timeline
+            </h4>
+            
+            <div className="space-y-2.5 max-h-60 overflow-y-auto custom-scrollbar pr-2">
+              {auditHistory.length === 0 ? (
+                <div className="text-center py-6 text-slate-400 italic">No historical audit events logged for this officer yet.</div>
+              ) : (
+                auditHistory.map((event, idx) => (
+                  <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-start justify-between">
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-slate-900 uppercase flex items-center">
+                        <Activity size={12} className="mr-1.5 text-blue-600" /> {event.action}
+                      </div>
+                      <div className="text-[11px] text-slate-600 font-medium">{event.details}</div>
+                      <div className="text-[9px] text-slate-400 font-mono">Actor FNum: {event.actor}</div>
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-1 rounded border border-slate-200 shrink-0">
+                      {event.timestamp}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
+          <button type="button" onClick={onClose} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer">
+            Close Dossier
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) => {
   const [activeTab, setActiveTab] = useState('approvals');
   const [matrixView, setMatrixView] = useState('ACTIVE');
@@ -230,6 +382,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
   const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [selectedPendingUser, setSelectedPendingUser] = useState(null);
+  const [selectedClearanceUser, setSelectedClearanceUser] = useState(null);
   const [selectedModRequest, setSelectedModRequest] = useState(null);
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
@@ -264,7 +417,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
   const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && !currentUser?.permissions?.global_open && !isSuperAdmin;
 
-  // 🟢 Master Override / Bypass Check (Supersedes signup and tier restrictions)
   const hasMasterOverride = useMemo(() => {
     const p = currentUser?.permissions || {};
     return isSuperAdmin || p.global_open === true || p.bypass_jurisdiction === true;
@@ -304,7 +456,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
   const canControlTargetUser = useCallback((targetUser) => {
     if (isReadOnlyObserver || !targetUser) return false;
-    if (hasMasterOverride) return true; // Master clearance overrides all signup and tier restrictions!
+    if (hasMasterOverride) return true; 
 
     const targetRole = (targetUser.role || '').toUpperCase();
     if (targetRole === 'SUPER_ADMIN' && !isSuperAdmin) return false; 
@@ -326,7 +478,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
   const handleManualBriefDispatch = async (briefType) => {
     if (isReadOnlyObserver || !canTriggerBriefs) {
-      alert("SECURITY RESTRICTION: Clearance denied. You do not have authorization to dispatch system-wide tactical briefings.");
+      alert("SECURITY RESTRICTION: Clearance denied.");
       return;
     }
     
@@ -423,7 +575,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
     try {
       let assignedRole = customAssignedRole;
       const pos = stripHtmlTags(userToApprove.position || '').toUpperCase();
-        
+      
       if (pos.includes('KMP COMMANDER') || pos.includes('DEPUTY KMP COMMANDER') || pos === 'KMP ADMIN OFFICER') assignedRole = 'ASSISTANT_SUPER_ADMIN';
       else if (pos.includes('RPC') && !pos.includes('DEPUTY')) assignedRole = 'SYSTEM_MANAGER';
       else if (pos.includes('DEPUTY RPC')) assignedRole = 'ASSISTANT_SYSTEM_MANAGER';
@@ -808,7 +960,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
   return (
     <div className="dark p-4 max-w-[1800px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300 text-slate-100">
-        
+      
       <div className="bg-slate-900 dark:bg-slate-950 text-white px-6 py-5 rounded-2xl shadow-lg border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
           <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 object-contain contrast-200 brightness-110 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
@@ -876,7 +1028,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
               </>
             ) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
           </select>
-            
+          
           <div className="relative flex items-center min-w-[240px]">
             <Search size={14} className="absolute left-3 text-slate-400 dark:text-slate-500" />
             <input 
@@ -1025,7 +1177,17 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
                       return (
                         <tr key={u.fnum} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          <td className="p-2.5 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate" title={formatOfficerHeader(u)}>{formatOfficerHeader(u)}</td>
+                          <td className="p-2.5 md:sticky md:left-0 z-10 bg-white dark:bg-slate-900 font-extrabold text-[11px] text-slate-900 dark:text-slate-100 w-[240px] min-w-[240px] truncate">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedClearanceUser(u)}
+                              className="text-left font-extrabold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1.5 cursor-pointer truncate w-full bg-transparent border-none p-0"
+                              title="Click to inspect officer clearance dossier"
+                            >
+                              <Eye size={12} className="shrink-0 text-blue-500" />
+                              <span className="truncate">{formatOfficerHeader(u)}</span>
+                            </button>
+                          </td>
                           <td className="p-2.5 text-center md:sticky md:left-[240px] z-10 bg-white dark:bg-slate-900 w-[120px] min-w-[120px]">
                             <select value={u.role || 'USER'} onChange={(e) => handleRoleTierChange(u.fnum, e.target.value)} disabled={isSelf || !canModifyThisUser || isReadOnlyObserver} className="border border-slate-300 dark:border-slate-700 rounded-md px-1.5 py-1 font-bold outline-none uppercase text-[10px] w-full truncate bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 disabled:opacity-50">
                               <option value="USER">USER</option>
@@ -1360,6 +1522,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
       {/* MODALS */}
       <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} handleRegrantAccess={handleRegrantAccess} handlePermanentDelete={handlePermanentDelete} isSuperAdmin={isSuperAdmin} canModifyUser={canControlTargetUser} isReadOnlyObserver={isReadOnlyObserver} />
+      <UserClearanceDossierModal 
+        user={allSystemUsers.find(u => u.fnum === selectedClearanceUser?.fnum) || selectedClearanceUser} 
+        onClose={() => setSelectedClearanceUser(null)} 
+        currentUser={currentUser} 
+        onUpdatePermissions={handleGranularPermissionChange} 
+      />
       <TransferDossierModal req={selectedModRequest} onClose={() => setSelectedModRequest(null)} handleReviewRequest={handleReviewRequest} isReadOnlyObserver={isReadOnlyObserver} />
       <LockdownMatrixModal isOpen={showLockdownModal} onClose={() => setShowLockdownModal(false)} activeLockdownSummary={activeLockdownSummary} lockdownData={lockdownData} handleToggleLockdown={handleToggleLockdown} lockdownRegionFilter={lockdownRegionFilter} setLockdownRegionFilter={setLockdownRegionFilter} />
       <RevocationModal prompt={revokePrompt} setPrompt={setRevokePrompt} executeRoleChange={() => {}} executePermissionChange={() => {}} />

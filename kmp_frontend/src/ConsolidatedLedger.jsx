@@ -387,7 +387,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
               </tr>
             </thead>
             <tbody className={loading ? 'opacity-50' : ''}>
-              {dataMapping.sortedStoryRegions.link ? null : dataMapping.sortedStoryRegions.map((region, idx) => (
+  {dataMapping.sortedStoryRegions.map((region, idx) => (
                 <tr key={`story-${region}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-medium text-slate-600 dark:text-slate-400">{idx + 1}</td>
                   <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-slate-900 dark:text-slate-100">{region}</td>

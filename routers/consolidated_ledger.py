@@ -80,7 +80,7 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
-def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region: str, station: str):
+def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     start_str = str(start_dt)
     end_str = str(end_dt) + " 23:59:59"
@@ -98,20 +98,17 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             SELECT region, station, offence, COUNT(id) as cases, SUM(COALESCE(suspects, 0)) as suspects
             FROM crime_reports
             WHERE date >= :start AND date <= :end
+            GROUP BY region, station, offence
         """
-        params = {"start": start_str, "end": end_str}
-        if region != "ALL REGIONS":
-            crime_sql += " AND region = :reg"
-            params["reg"] = region
-        if station != "ALL STATIONS":
-            crime_sql += " AND station = :stn"
-            params["stn"] = station
-        crime_sql += " GROUP BY region, station, offence"
-
-        crime_rows = db.execute(text(crime_sql), params).fetchall()
+        crime_rows = db.execute(text(crime_sql), {"start": start_str, "end": end_str}).fetchall()
         for row in crime_rows:
             stn = clean_str(row[1])
             reg = get_official_region_for_station(stn, row[0])
+
+            # Apply jurisdiction filters AFTER normalization
+            if filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
             off = clean_str(row[2]) or 'UNSPECIFIED INCIDENT'
             cases = int(row[3] or 0)
             suspects = int(row[4] or 0)
@@ -128,7 +125,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             grand_crime_cases += cases
             grand_crime_suspects += suspects
     except Exception as e:
-        print(f"Direct SQL crime_reports error: {e}")
+        print(f"CRITICAL ERROR in crime_reports query: {e}")
 
     # --- 2. DIRECT SQL: AGRICULTURAL CRIMES ---
     try:
@@ -136,20 +133,16 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             SELECT region, station, agric_crime_report, SUM(COALESCE(number_count, 0)) as total_count
             FROM agricultural_crime_summary
             WHERE date >= :start AND date <= :end
+            GROUP BY region, station, agric_crime_report
         """
-        params = {"start": start_str, "end": end_str}
-        if region != "ALL REGIONS":
-            ag_sql += " AND region = :reg"
-            params["reg"] = region
-        if station != "ALL STATIONS":
-            ag_sql += " AND station = :stn"
-            params["stn"] = station
-        ag_sql += " GROUP BY region, station, agric_crime_report"
-
-        ag_rows = db.execute(text(ag_sql), params).fetchall()
+        ag_rows = db.execute(text(ag_sql), {"start": start_str, "end": end_str}).fetchall()
         for row in ag_rows:
             stn = clean_str(row[1])
             reg = get_official_region_for_station(stn, row[0])
+
+            if filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
             off = str(row[2] or 'AGRICULTURAL THEFT').upper()
             count = int(row[3] or 0)
 
@@ -161,7 +154,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             crime_general[off]["cases"] += count
             grand_crime_cases += count
     except Exception as e:
-        print(f"Direct SQL agric error: {e}")
+        print(f"CRITICAL ERROR in agricultural_crime_summary query: {e}")
 
     # --- 3. DIRECT SQL: OPERATIONAL STATISTICS ---
     try:
@@ -173,20 +166,16 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
                    SUM(COALESCE(remanded, 0)), SUM(COALESCE(convicted, 0))
             FROM operational_statistics
             WHERE date >= :start AND date <= :end
+            GROUP BY region, station
         """
-        params = {"start": start_str, "end": end_str}
-        if region != "ALL REGIONS":
-            stats_sql += " AND region = :reg"
-            params["reg"] = region
-        if station != "ALL STATIONS":
-            stats_sql += " AND station = :stn"
-            params["stn"] = station
-        stats_sql += " GROUP BY region, station"
-
-        stats_rows = db.execute(text(stats_sql), params).fetchall()
+        stats_rows = db.execute(text(stats_sql), {"start": start_str, "end": end_str}).fetchall()
         for row in stats_rows:
             stn = clean_str(row[1])
             reg = get_official_region_for_station(stn, row[0])
+
+            if filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
             if reg not in ops_regional: 
                 ops_regional[reg] = {k: 0 for k in ops_general.keys()}
             
@@ -197,7 +186,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
                 ops_regional[reg][key] += val
                 ops_general[key] += val
     except Exception as e:
-        print(f"Direct SQL stats error: {e}")
+        print(f"CRITICAL ERROR in operational_statistics query: {e}")
 
     # --- 4. DIRECT SQL: SUCCESS STORIES ---
     try:
@@ -205,25 +194,21 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, region
             SELECT region, station, COUNT(sn) as story_count
             FROM success_stories
             WHERE date >= :start AND date <= :end
+            GROUP BY region, station
         """
-        params = {"start": start_str, "end": end_str}
-        if region != "ALL REGIONS":
-            story_sql += " AND region = :reg"
-            params["reg"] = region
-        if station != "ALL STATIONS":
-            story_sql += " AND station = :stn"
-            params["stn"] = station
-        story_sql += " GROUP BY region, station"
-
-        story_rows = db.execute(text(story_sql), params).fetchall()
+        story_rows = db.execute(text(story_sql), {"start": start_str, "end": end_str}).fetchall()
         for row in story_rows:
             stn = clean_str(row[1])
             reg = get_official_region_for_station(stn, row[0])
+
+            if filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
             count = int(row[2] or 0)
             story_regional[reg] = story_regional.get(reg, 0) + count
             grand_stories += count
     except Exception as e:
-        print(f"Direct SQL stories error: {e}")
+        print(f"CRITICAL ERROR in success_stories query: {e}")
 
     # Ensure standard regions always exist as shells
     for reg in region_order:
