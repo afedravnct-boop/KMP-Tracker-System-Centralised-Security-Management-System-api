@@ -334,12 +334,12 @@ def download_archive_file(
         command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
 
-        compact_payload = {"f": officer_fnum, "s": stamp_id}
+        compact_payload = {"fnum": officer_fnum, "signature": officer_signature, "rank": officer_rank, "station": current_user.station, "region": current_user.region, "timestamp": timestamp_eat, "stamp_id": stamp_id}
         encoded_token = base64.b64encode(json.dumps(compact_payload).encode('utf-8')).decode('utf-8')
-        keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
+        keywords_str = f"KMP_CSDMS_AUDIT_STAMP;TOKEN:{encoded_token}"[:250]
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
-        vertical_stamp_text = f"SECURE ACCESS BY: {officer_signature}  |  CLEARANCE: {current_user.role}  |  STAMP ID: {stamp_id}  |  TIMESTAMP: {timestamp_eat}"
+        vertical_stamp_text = f"RESTRICTED LAW ENFORCEMENT RECORD  |  ACCESS BY: {officer_signature}  |  STAMP ID: {stamp_id}  |  TIME: {timestamp_eat}"
 
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
@@ -361,6 +361,7 @@ def download_archive_file(
                 header_p = header.paragraphs[0]
             
             try:
+                # 🟢 Robust VML Left Margin Watermark for Word Documents
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -371,9 +372,9 @@ def download_archive_file(
                             <v:textpath on="t" fitshape="t"/>
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
-                        <v:shape id="LeftMarginStamp" type="#_x0000_t136" 
-                                style="position:absolute;left:0;text-align:center;margin-left:10pt;margin-top:50pt;width:15pt;height:650pt;rotation:270;z-index:251657216;mso-position-horizontal:absolute;mso-position-vertical:absolute;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                fillcolor="#8B0000" stroked="f">
+                        <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
+                                 style="position:absolute;left:0pt;top:0pt;width:12pt;height:600pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 fillcolor="#8B0000" stroked="f">
                             <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
@@ -468,7 +469,6 @@ def download_archive_file(
 
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
-            
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
@@ -476,7 +476,6 @@ def download_archive_file(
                 ContentType=content_type,
                 ServerSideEncryption="AES256"
             )
-            
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
                 Params={'Bucket': BUCKET_NAME, 'Key': temp_s3_key},
