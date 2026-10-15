@@ -1,3 +1,4 @@
+// src/components/Admin_Communication.jsx
 import React, { useState, useEffect } from 'react';
 import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, Shield, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight, Wrench, Search, Loader2 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
@@ -132,7 +133,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   ); 
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isInspectingGlitch, setIsInspectingGlitch] = useState(false); // 🟢 Freezes send button during AI inspection
+  const [isInspectingGlitch, setIsInspectingGlitch] = useState(false);
   const [isReplyingTo, setIsReplyingTo] = useState(false);
 
   const [filteredRecipientsList, setFilteredRecipientsList] = useState([]);
@@ -142,7 +143,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
   const [recipientSearchTerm, setRecipientSearchTerm] = useState('');
   const [isTechnicalGlitch, setIsTechnicalGlitch] = useState(false);
 
-  // Structured Diagnostic State for Glitch Alerts
   const [glitchCategory, setGlitchCategory] = useState('System showing zeros where data should exist');
   const [glitchPage, setGlitchPage] = useState('');
   const [glitchElement, setGlitchElement] = useState('');
@@ -206,7 +206,6 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
-  // 🟢 AI Telemetry Trigger for Technical Glitch Toggle
   const handleToggleTechnicalGlitch = async (isChecked) => {
     setIsTechnicalGlitch(isChecked);
     if (!isChecked) {
@@ -529,7 +528,8 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     else if (msg.target_audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) isIntendedRecipient = true;
     else if (msg.target_audience === 'RPC_ONLY' && (['RPC', 'ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role) || (currentUser?.position || '').toUpperCase().includes('RPC'))) isIntendedRecipient = true;
 
-    if (willExpand && !isSender && isIntendedRecipient) {
+    // 🟢 Fix: Acknowledge message if unread, and ensure local state permanently reflects acknowledged: true
+    if (willExpand && !isSender && (isUnreadCheck(msg) || !msg.acknowledged)) {
       try {
         const token = sessionStorage.getItem('kmp_authToken');
         const idsToAcknowledge = [msg.id];
@@ -554,8 +554,9 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
            });
         }
         
+        // 🟢 Robust Recursive State Updater
         const markAllReadRecursive = (item) => {
-           if (idsToAcknowledge.includes(item.id)) {
+           if (idsToAcknowledge.includes(item.id) || item.id === msg.id) {
               return { ...item, acknowledged: true, replies: (item.replies || []).map(markAllReadRecursive) };
            }
            return { ...item, replies: (item.replies || []).map(markAllReadRecursive) };
@@ -572,6 +573,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
         console.error("Automatic thread read-detection error:", err);
       }
     }
+  };
+
+  // Helper to check if a threaded message or any of its unread replies are unread
+  const isUnreadCheck = (msg) => {
+    if (!msg.acknowledged && msg.sender_fnum !== currentUser?.fnum) return true;
+    if (msg.replies && msg.replies.some(r => !r.acknowledged && r.sender_fnum !== currentUser?.fnum)) return true;
+    return false;
   };
 
   const handleMarkAllAsRead = async () => {
@@ -1003,7 +1011,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                                             currentList.push(u.fnum);
                                           } else {
                                             const index = currentList.indexOf(u.fnum);
-                                          if (index > -1) currentList.splice(index, 1);
+                                            if (index > -1) currentList.splice(index, 1);
                                           }
                                           setFormData({ ...formData, targetFnum: currentList });
                                         }}
@@ -1195,7 +1203,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                     .map((msg) => {
                       const isExpanded = expandedMsgs[msg.id];
                       const isSender = msg.sender_fnum === currentUser?.fnum;
-                      const isUnread = !msg.acknowledged && !isSender;
+                      const isUnread = isUnreadCheck(msg);
 
                       return (
                         <div key={msg.id} className={`border rounded-xl transition-all overflow-hidden ${

@@ -809,11 +809,23 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
     read_comm_ids = {r[0] for r in read_records} 
      
     has_unread = False
+    user_created_at = getattr(current_user, 'created_at', None)
 
     for c_id, c_sender, c_created, c_audience, c_target_fnum in comms:
         if c_id in read_comm_ids:
             continue
-            
+        
+        # Ignore messages created before the user account was initialized/transferred
+        if user_created_at and c_created and isinstance(c_created, datetime):
+            msg_dt = c_created.replace(tzinfo=None) if c_created.tzinfo else c_created
+            usr_dt = user_created_at.replace(tzinfo=None) if user_created_at.tzinfo else user_created_at
+            if msg_dt < usr_dt:
+                continue
+
+        # Ignore messages sent by the user themselves
+        if (c_sender or "").strip().upper() == clean_user_fnum:
+            continue
+          
         has_unread = True
         break
 

@@ -1,19 +1,107 @@
-# routers/admin_users.py
+import os
 from urllib.parse import unquote
 from typing import Optional, Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, BackgroundTasks
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_
 from datetime import datetime, timedelta
 import pytz
 import json
 
-from app import models
+from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
+
+from app import models, database
 from app.database import get_db, get_logs_db
 from auth import get_current_user  
 from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin Users"])
+
+# Configure Mail (pulling from environment variables)
+conf = ConnectionConfig(
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
+    MAIL_FROM=os.getenv("MAIL_FROM", os.getenv("MAIL_USERNAME", "no-reply@upf.go.ug")),
+    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
+    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
+    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=False
+)
+
+async def send_email_notification(email_to: List[str], subject: str, html_body: str):
+    if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
+        return
+    message = MessageSchema(
+        subject=subject,
+        recipients=email_to,
+        body=html_body,
+        subtype="html"
+    )
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+    except Exception as e:
+        print(f"❌ Failed to dispatch email notification: {e}")
+
+async def notify_admins_of_signup(user_data, db: Session):
+    admins = db.query(models.Users.email).filter(
+        models.Users.email.isnot(None),
+        models.Users.is_approved == True,
+        or_(
+            models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN']),
+            and_(
+                func.upper(models.Users.region) == str(user_data.get('region', '')).strip().upper(),
+                models.Users.role.in_(['REGIONAL_ADMIN', 'STATION_ADMIN', 'SYSTEM_MANAGER'])
+            )
+        )
+    ).all()
+    
+    admin_emails = [a[0] for a in admins if a[0] and '@' in a[0]]
+    if not admin_emails:
+        return
+
+    subject = f"🚨 NEW SIGNUP PENDING APPROVAL: {user_data.get('rank')} {user_data.get('name')} ({user_data.get('fnum')})"
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
+        <h2 style="color: #2563eb; margin-top: 0;">New Officer Registration Request</h2>
+        <p>A new user has submitted a signup request requiring your review and command authorization:</p>
+        <ul style="line-height: 1.6;">
+            <li><strong>Force Number (F/No):</strong> {user_data.get('fnum')}</li>
+            <li><strong>Rank & Name:</strong> {user_data.get('rank')} {user_data.get('name')}</li>
+            <li><strong>Station / Region:</strong> {user_data.get('station')} / {user_data.get('region')}</li>
+            <li><strong>Position:</strong> {user_data.get('position')}</li>
+            <li><strong>Email:</strong> {user_data.get('email')}</li>
+        </ul>
+        <p>Please log in to the <strong>KMP Centralised Security Data Management System</strong> under <em>Access & Command Approvals</em> to approve or reject this request.</p>
+    </div>
+    """
+    await send_email_notification(admin_emails, subject, html_body)
+
+async def notify_user_approval_status(user_email, user_name, is_approved: bool, reason: str = ""):
+    if not user_email or '@' not in user_email:
+        return
+    
+    if is_approved:
+        subject = "✅ UPF System Access Approved"
+        html_body = f"""
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
+            <h2 style="color: #16a34a; margin-top: 0;">Access Authorized</h2>
+            <p>Dear {user_name},</p>
+            <p>Your registration request for the <strong>KMP Centralised Security Data Management System</strong> has been <strong>APPROVED</strong> by command.</p>
+            <p>You can now log in securely using your credentials.</p>
+        </div>
+        """
+    else:
+        subject = "⛔ UPF System Access Request Declined"
+        html_body = f"""
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
+            <h2 style="color: #dc2626; margin-top: 0;">Access Request Declined</h2>
+            <p>Dear {user_name},</p>
+            <p>Your registration request for the <strong>KMP Centralised Security Data Management System</strong> was reviewed and <strong>DECLINED</strong>.</p>
+            <p><strong>Reason / Remarks:</strong> {reason}</p>
+        </div>
+        """
+    await send_email_notification([user_email], subject, html_body)
 
 # 🟢 HELPER: APPEND AUDIT TIMELINE EVENT TO USER PROFILE
 def append_user_audit_event(target_user: models.Users, action_type: str, actor_fnum: str, details: str):
@@ -73,7 +161,6 @@ def get_command_tier(user: models.Users) -> int:
     role = (user.role or "").strip().upper()
     pos = (user.position or "").strip().upper()
 
-    # Principal Super Admin (Apex Tier 5)
     if "A/2408" in fnum or "PRINCIPAL" in pos:
         return 5
     if role == "SUPER_ADMIN" or "SUPER ADMIN" in pos:
@@ -219,6 +306,7 @@ def get_pending_users(
 @router.put("/users/{fnum:path}/approve")
 def approve_pending_user(
     fnum: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)  
@@ -261,10 +349,15 @@ def approve_pending_user(
     if hasattr(target_user, 'is_active'):
         target_user.is_active = True
 
-    # Append approval event to embedded profile audit trail
     append_user_audit_event(target_user, "ACCOUNT_APPROVED", current_user.fnum, f"Account successfully approved and authorized by {current_user.fnum}")
 
     db.commit()
+
+    # 🟢 Trigger background email notification to the approved user
+    if target_user.email:
+        background_tasks.add_task(
+            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, True))
+        )
 
     record_neon_activity(
         logs_db=logs_db,
@@ -324,7 +417,7 @@ def get_all_active_users(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# 4. UPDATE USER ACCESS, ROLES & PERMISSIONS (CLEARANCE MATRIX / DELEGATION WITH HIERARCHICAL LOCK)
+# 4. UPDATE USER ACCESS, ROLES & PERMISSIONS
 @router.put("/users/{fnum:path}/access")
 def update_user_access(
     fnum: str,
@@ -367,7 +460,6 @@ def update_user_access(
             try: current_perms = json.loads(current_perms)
             except: current_perms = {}
 
-        # 🟢 EXTRACT METADATA LOCKS (TRACKING WHO REVOKED/LOCKED PERMISSIONS)
         clearance_locks = current_perms.get("_clearance_locks", {})
         if not isinstance(clearance_locks, dict):
             clearance_locks = {}
@@ -376,14 +468,12 @@ def update_user_access(
         actor_fnum = (current_user.fnum or "").strip().upper()
         is_principal_super_admin = "A/2408" in actor_fnum or actor_tier >= 5
 
-        # 🟢 HIERARCHICAL LOCK VALIDATION: PREVENT LOWER-TIER ADMINS FROM REINSTATING SUPERIOR REVOCATIONS
         for perm_key, new_val in new_perms.items():
             if perm_key.startswith("_"):
                 continue
             
             old_val = current_perms.get(perm_key, False)
             
-            # If permission was previously true and is now being turned off (revoked/unchecked)
             if old_val is True and new_val is False:
                 clearance_locks[perm_key] = {
                     "revoked_by_fnum": actor_fnum,
@@ -393,37 +483,31 @@ def update_user_access(
                 }
                 append_user_audit_event(target_user, "PERMISSION_REVOKED", actor_fnum, f"Granular clearance '{perm_key}' was revoked/unchecked.")
             
-            # If permission was previously false (or revoked) and is now being turned on (reinstated/checked)
             elif old_val is False and new_val is True:
                 lock_info = clearance_locks.get(perm_key)
                 if lock_info:
                     lock_tier = lock_info.get("tier", 0)
                     locked_by_fnum = lock_info.get("revoked_by_fnum", "")
                     
-                    # Strict restriction: If revoked by Principal Super Admin (A/2408), ONLY A/2408 can reinstate it
                     if "A/2408" in locked_by_fnum and not is_principal_super_admin:
                         raise HTTPException(
                             status_code=status.HTTP_403_FORBIDDEN,
                             detail=f"Security Violation: Clearance '{perm_key}' was revoked by Principal Super Admin A/2408. No other administrator can reinstate it."
                         )
                     
-                    # General hierarchical lock: If revoked by an equal or superior tier, current actor cannot override unless higher tier
                     if actor_tier < lock_tier and not is_principal_super_admin:
                         raise HTTPException(
                             status_code=status.HTTP_403_FORBIDDEN,
                             detail=f"Security Violation: Clearance '{perm_key}' was locked by a superior command authority. You lack sufficient clearance rank to reinstate it."
                         )
                 
-                # If successfully reinstated by authorized tier, clear the lock record
                 if perm_key in clearance_locks:
                     del clearance_locks[perm_key]
                 append_user_audit_event(target_user, "PERMISSION_REINSTATED", actor_fnum, f"Granular clearance '{perm_key}' was checked/reinstated.")
 
         new_perms["_clearance_locks"] = clearance_locks
-        # Preserve existing audit history across permission payloads
         new_perms["_audit_history"] = current_perms.get("_audit_history", [])
 
-        # 🟢 RING-FENCE GLOBAL OPEN / BYPASS CLEARANCE TO AUTHORIZED HIGH COMMAND ONLY
         if new_perms.get("global_open") is True or new_perms.get("bypass_jurisdiction") is True:
             if not check_master_clearance(current_user):
                 raise HTTPException(
@@ -469,6 +553,7 @@ def toggle_my_delegation(
 @router.delete("/users/{fnum:path}/revoke")
 def revoke_user_access(
     fnum: str,
+    background_tasks: BackgroundTasks,
     reason: Optional[str] = Query(default="Administrative Revocation"),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
@@ -492,10 +577,17 @@ def revoke_user_access(
     append_user_audit_event(target_user, "ACCOUNT_REVOKED", current_user.fnum, f"Account access revoked. Reason: {reason}")
 
     db.commit()
+
+    # 🟢 Trigger background email notification to the rejected/revoked user
+    if target_user.email:
+        background_tasks.add_task(
+            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, False, reason))
+        )
+
     return {"status": "success", "message": f"Officer {clean_fnum} access revoked."}
 
 
-# 7. PERMANENT DELETE USER RECORD (SUPER ADMIN ONLY)
+# 7. PERMANENT DELETE USER RECORD
 @router.delete("/users/{fnum:path}/permanent-delete")
 def permanent_delete_user(
     fnum: str,
@@ -517,7 +609,7 @@ def permanent_delete_user(
     return {"status": "success", "message": f"Record {clean_fnum} permanently purged."}
 
 
-# 8. FORCE PASSWORD RESET (SUPER ADMIN ONLY)
+# 8. FORCE PASSWORD RESET
 @router.put("/users/{fnum:path}/force-password")
 def force_password_reset(
     fnum: str,
