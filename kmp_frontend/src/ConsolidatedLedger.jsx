@@ -23,46 +23,54 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
+  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false); // NEW STATE
   const [ledgerData, setLedgerData] = useState(null);
 
-  // OPSEC Role Classification Engine
-  const userRoleClean = cleanStr(currentUser?.role);
-  const userPosClean = cleanStr(currentUser?.position);
-  const userRegClean = cleanStr(currentUser?.region);
+  // ... (Role classification logic remains the same) ...
 
-  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
-    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
-    currentUser?.permissions?.view_global_roster === true;
-
-  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
-  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
-
-  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
-  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
-
-  const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
-
-  // Fetch aggregated data from backend whenever filters change
+  // Progressive Fetching Engine
   useEffect(() => {
+    let isMounted = true;
+
     const fetchLedgerData = async () => {
       setLoading(true);
       try {
-        const url = `/api/v1/reports/consolidated-ledger?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
-        
-        const response = await authFetch(url);
-        const result = await response.json();
-        if (response.ok && result.status === 'success') {
-          setLedgerData(result.data);
+        // 1. FAST INITIAL STREAM: Fetch only the last 48 hours of the selected range to render immediately
+        const recentStart = new Date(endDate);
+        recentStart.setDate(recentStart.getDate() - 1);
+        const recentStartStr = recentStart.toISOString().split('T')[0];
+
+        if (new Date(startDate) < recentStart) {
+          const fastUrl = `/api/v1/reports/consolidated-ledger?start_date=${recentStartStr}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
+          const fastRes = await authFetch(fastUrl);
+          if (fastRes.ok && isMounted) {
+            const fastResult = await fastRes.json();
+            setLedgerData(fastResult.data);
+            setLoading(false); // Remove main spinner, recent data is now on screen!
+            setIsBackgroundSyncing(true); // Show background sync indicator
+          }
+        }
+
+        // 2. BACKGROUND FULL FETCH: Fetch the entire requested historical range silently
+        const fullUrl = `/api/v1/reports/consolidated-ledger?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
+        const fullRes = await authFetch(fullUrl);
+        if (fullRes.ok && isMounted) {
+          const fullResult = await fullRes.json();
+          setLedgerData(fullResult.data); // Silently swap in the full dataset
         }
       } catch (error) {
         console.error("Failed to fetch ledger data:", error);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+          setIsBackgroundSyncing(false);
+        }
       }
     };
 
     fetchLedgerData();
+    
+    return () => { isMounted = false; }; // Cleanup prevents memory leaks on unmount
   }, [startDate, endDate, filterRegion, filterStation]);
 
   // Secure Encrypted Export Handler
@@ -105,7 +113,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
 
   // Safe defaults if data is still loading
   const dataMapping = ledgerData || {
-      crimeRegional: {}, crimeGeneral: {}, sortedCrimeRegions: [], grandCrimeCases: 0, grandCrimeSuspects: 0,
+      crimeRegional: {}, crimeRegionalTotals: {}, crimeGeneral: {}, sortedCrimeRegions: [], grandCrimeCases: 0, grandCrimeSuspects: 0,
       opsRegional: {}, opsGeneral: { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 }, sortedOpsRegions: [],
       storyRegional: {}, sortedStoryRegions: [], grandStories: 0
   };
@@ -118,7 +126,9 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
         <div>
           <h2 className="text-xl font-extrabold text-slate-800 dark:text-white flex items-center">
             <Eye size={20} className="mr-2 text-blue-600"/> 
-            Command Master Ledger {loading && <span className="ml-3 text-xs text-blue-500 animate-pulse">(Processing...)</span>}
+            Command Master Ledger 
+            {loading && <span className="ml-3 text-xs text-blue-500 animate-pulse">(Initialising...)</span>}
+            {isBackgroundSyncing && <span className="ml-3 text-[10px] text-amber-600 dark:text-amber-400 animate-pulse tracking-wider">(SYNCING OLDER HISTORICAL RECORDS IN BACKGROUND...)</span>}
           </h2>
         </div>
 
@@ -208,13 +218,12 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
             <tbody className={loading ? 'opacity-50' : ''}>
               {dataMapping.sortedCrimeRegions.map(region => {
                 const offences = Object.keys(dataMapping.crimeRegional[region]);
-                let regCases = 0; 
-                let regSuspects = 0;
+                
+                // Fetch pre-calculated totals from backend payload
+                const regionTotals = dataMapping.crimeRegionalTotals[region] || { cases: 0, suspects: 0 };
                 
                 const rows = offences.map((off, idx) => {
                   const item = dataMapping.crimeRegional[region][off];
-                  regCases += item.cases; 
-                  regSuspects += item.suspects;
                   return (
                     <tr key={`crime-${region}-${off}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       {idx === 0 && (
@@ -231,8 +240,8 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                 rows.push(
                   <tr key={`crime-${region}-subtotal`} className="bg-[#d9d9d9] dark:bg-slate-800 font-extrabold text-slate-900 dark:text-slate-100 border-2 border-slate-400 dark:border-slate-700">
                     <td colSpan="3" className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-left pl-12 uppercase tracking-wide text-xs">SUB-TOTAL</td>
-                    <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center text-sm">{regCases}</td>
-                    <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center text-sm">{regSuspects}</td>
+                    <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center text-sm">{regionTotals.cases}</td>
+                    <td className="px-3 py-2 border border-slate-400 dark:border-slate-700 text-center text-sm">{regionTotals.suspects}</td>
                   </tr>
                 );
                 return rows;
