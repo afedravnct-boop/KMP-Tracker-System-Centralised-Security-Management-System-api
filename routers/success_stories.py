@@ -41,8 +41,8 @@ def get_officer_signature(user):
     return f"{fnum} {rank} {name}".strip().upper()
 
 def apply_opsec_scope(current_user, query, ModelClass):
-    if not ModelClass:
-        return query
+    if not ModelClass or not current_user:
+        return query.filter(text("1=0"))
     
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     user_pos = str(current_user.position).strip().upper() if current_user.position else ""
@@ -55,7 +55,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         except Exception: perms = {}
 
     is_absolute_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "KMP COMMANDER" in user_pos or
         "DEPUTY KMP COMMANDER" in user_pos or
         "KMP ADMIN" in user_pos or
@@ -106,15 +106,21 @@ def apply_opsec_scope(current_user, query, ModelClass):
             return query.filter(or_(*conds))
         return query.filter(text("1=0"))
         
-    elif hasattr(ModelClass, 'station'):
+    elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
+        # 🟢 Station Users & Station Admins: strictly locked to their exact station and region (e.g. Old Kampala -> KMP North)
         clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
-            or_(
-                func.upper(ModelClass.station) == user_stn,
-                func.upper(ModelClass.station) == clean_user_stn,
-                func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+            and_(
+                func.upper(ModelClass.region) == user_reg,
+                or_(
+                    func.upper(ModelClass.station) == user_stn,
+                    func.upper(ModelClass.station) == clean_user_stn,
+                    func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+                )
             )
         )
+    elif hasattr(ModelClass, 'station'):
+        return query.filter(func.upper(ModelClass.station) == user_stn)
         
     return query.filter(text("1=0"))
 

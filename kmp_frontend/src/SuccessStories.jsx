@@ -5,7 +5,6 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { authFetch, hasValidSession } from './api';
 
-// 🟢 Local helper to prevent circular dependency with App.jsx
 const stripHtmlTags = (str) => {
   if (str === null || str === undefined) return '';
   return String(str).replace(/<[^>]*>?/gm, '');
@@ -745,8 +744,12 @@ export function SuccessStories({ currentUser, canViewGlobal = false, stories, se
                     return (
                       <tr 
                         key={rowId} 
-                        className="hover:bg-yellow-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer" 
-                        onClick={() => setSelectedDossier(story)}
+                        className="hover:bg-yellow-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer relative z-10" 
+                        onClick={(e) => {
+                          // Ensure we don't open dossier if clicking inner buttons
+                          if (e.target.closest('button') || e.target.closest('a')) return;
+                          setSelectedDossier(story);
+                        }}
                       >
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-gray-900 dark:text-slate-100 align-top">{rowId}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(story.date)}<br/><span className="text-xs text-gray-400 dark:text-slate-500">{stripHtmlTags(story.time)}</span></td>
@@ -770,14 +773,14 @@ export function SuccessStories({ currentUser, canViewGlobal = false, stories, se
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); toggleRowExpand(rowId); }}
-                              className="text-xs font-extrabold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center cursor-pointer"
+                              className="text-xs font-extrabold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center cursor-pointer relative z-20"
                             >
                               {isRowExpanded ? <><ChevronUp size={14} className="mr-1" /> Collapse View</> : <><ChevronDown size={14} className="mr-1" /> Expand View</>}
                             </button>
                           </div>
                           
                           {linkedCase && (
-                            <div className="mt-3 p-3 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 rounded-lg flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+                            <div className="mt-3 p-3 bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 rounded-lg flex items-center justify-between relative z-20" onClick={(e) => e.stopPropagation()}>
                               <div>
                                 <span className="text-[10px] font-extrabold text-blue-800 dark:text-blue-400 uppercase tracking-wider block">🔗 Traceable Prior Crime Record Found:</span>
                                 <span className="text-xs font-black text-blue-900 dark:text-blue-300">{stripHtmlTags(linkedCase.sdRef || linkedCase.sd_ref)} — {stripHtmlTags(linkedCase.offence)}</span>
@@ -792,7 +795,7 @@ export function SuccessStories({ currentUser, canViewGlobal = false, stories, se
                           )}
 
                           {story.photo_url && (
-                            <div className="mt-4 flex flex-wrap gap-2">
+                            <div className="mt-4 flex flex-wrap gap-2 relative z-20" onClick={(e) => e.stopPropagation()}>
                               {story.photo_url.split(',').filter(Boolean).map((url, idx) => (
                                 <div key={idx} className="border dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 flex justify-center items-center p-1 shadow-sm">
                                   <img 
