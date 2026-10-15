@@ -84,6 +84,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         try: perms = json.loads(perms)
         except Exception: perms = {}
 
+    # 1. Absolute Global (Super Admins, Admins, Global Roster Viewers)
     is_absolute_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "KMP COMMANDER" in user_pos or
@@ -105,6 +106,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         "KMP" in user_pos
     )
 
+    # 2. Regional Command Tier (RPC, Deputy RPC, Regional Admins)
     is_regional_command = (
         user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
         not is_kmp_sys_mgr and
@@ -139,13 +141,21 @@ def apply_opsec_scope(current_user, query, ModelClass):
             return query.filter(or_(*conds))
         return query.filter(text("1=0"))
         
-    elif hasattr(ModelClass, 'station'):
+    elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
+        # 🟢 Station Users & Station Admins: strictly locked to their exact station and region (e.g. Old Kampala -> KMP North)
+        clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
-            or_(
-                func.upper(ModelClass.station) == user_stn,
-                func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
+            and_(
+                func.upper(ModelClass.region) == user_reg,
+                or_(
+                    func.upper(ModelClass.station) == user_stn,
+                    func.upper(ModelClass.station) == clean_user_stn,
+                    func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+                )
             )
         )
+    elif hasattr(ModelClass, 'station'):
+        return query.filter(func.upper(ModelClass.station) == user_stn)
         
     return query.filter(text("1=0"))
 
