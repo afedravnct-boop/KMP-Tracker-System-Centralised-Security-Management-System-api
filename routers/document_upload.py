@@ -355,56 +355,35 @@ def download_archive_file(
 
             section = word_doc.sections[0]
             header = section.header
+            if not header.paragraphs:
+                header_p = header.add_paragraph()
+            else:
+                header_p = header.paragraphs[0]
             
-            # Clear any existing paragraphs in the header
-            for p in header.paragraphs:
-                p.text = ""
-
             try:
-                # 🟢 Margin-Aligned Header Table Solution:
-                # Column 0 sits in the left margin area for the vertical stamp.
-                # Column 1 spans the rest of the printable page width, keeping body text untouched.
-                table = header.add_table(rows=1, cols=2, width=Inches(7.0))
-                table.autofit = False
-                table.columns[0].width = Inches(0.6)  # Fits cleanly inside the left margin printable area
-                table.columns[1].width = Inches(6.4)  # Spans the remaining document width
-
-                cell_left = table.cell(0, 0)
-                cell_right = table.cell(0, 1)
-
-                # Strip all visible borders from the header layout table
-                for row in table.rows:
-                    for cell in row.cells:
-                        tcPr = cell._tc.get_or_add_tcPr()
-                        tcBorders = parse_xml(r'''
-                            <w:tcBorders xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                                <w:top w:val="none"/>
-                                <w:left w:val="none"/>
-                                <w:bottom w:val="none"/>
-                                <w:right w:val="none"/>
-                            </w:tcBorders>
-                        ''')
-                        tcPr.append(tcBorders)
-
-                # Set bottom-to-top vertical text direction (btLr) on the left margin cell
-                tcPr_left = cell_left._tc.get_or_add_tcPr()
-                textDirection = parse_xml(r'<w:textDirection xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="btLr"/>')
-                tcPr_left.append(textDirection)
-
-                # Format and populate the vertical compliance stamp text
-                p_stamp = cell_left.paragraphs[0]
-                p_stamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p_stamp.paragraph_format.space_before = Pt(0)
-                p_stamp.paragraph_format.space_after = Pt(0)
-                
-                run_stamp = p_stamp.add_run(vertical_stamp_text)
-                run_stamp.font.name = 'Courier New'
-                run_stamp.font.size = Pt(5.5)
-                run_stamp.font.bold = True
-                run_stamp.font.color.rgb = RGBColor(139, 0, 0) # Dark Red
-
+                # 🟢 Restored original VML structure mapped cleanly to the left margin
+                vml_xml = f'''
+                <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                     xmlns:v="urn:schemas-microsoft-com:vml" 
+                     xmlns:o="urn:schemas-microsoft-com:office:office">
+                    <w:pict>
+                        <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
+                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
+                            <v:textpath on="t" fitshape="t"/>
+                            <o:lock v:ext="edit" text="t" shapetype="t"/>
+                        </v:shapetype>
+                        <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
+                                 style="position:absolute;left:10pt;top:80pt;width:20pt;height:650pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 fillcolor="#CC0000" stroked="f">
+                            <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                        </v:shape>
+                    </w:pict>
+                </w:r>
+                '''
+                vml_run = parse_xml(vml_xml)
+                header_p._p.append(vml_run)
             except Exception as e:
-                print(f"Failed to inject margin-aligned header table: {e}")
+                print(f"Failed to inject VML left margin watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -490,7 +469,7 @@ def download_archive_file(
 
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
-            # 🟢 Explicitly set ContentDisposition="inline" to fix the Google Docs Viewer crash
+            
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
@@ -499,13 +478,21 @@ def download_archive_file(
                 ContentDisposition="inline", 
                 ServerSideEncryption="AES256"
             )
-            # 🟢 Instruct the generated URL to force the browser to view it inline
+            
+            # 🟢 S3 Consistency Waiter to prevent "file wasn't available" viewer error
+            try:
+                waiter = s3_client.get_waiter('object_exists')
+                waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
+            except Exception:
+                import time
+                time.sleep(1.5)
+
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
                 Params={
                     'Bucket': BUCKET_NAME, 
                     'Key': temp_s3_key,
-                    'ResponseContentDisposition': 'inline' 
+                    'ResponseContentDisposition': 'inline'
                 },
                 ExpiresIn=3600
             )
@@ -604,19 +591,22 @@ def delete_archive_file(
             except Exception as s3_err:
                 print(f"S3 Delete warning: {s3_err}")
             
-        db.delete(doc_record)
-        db.commit()
+            doc_record = None
+            db.delete(doc_record)
+            db.commit()
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="DELETE",
-            module="DOCUMENT_ARCHIVE",
-            target_id=str(doc_id),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} permanently purged archived document ID {doc_id} from repository."
-        )
+            record_neon_activity(
+                logs_db=logs_db,
+                fnum=current_user.fnum,
+                action_type="DELETE",
+                module="DOCUMENT_ARCHIVE",
+                target_id=str(doc_id),
+                changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} permanently purged archived document ID {doc_id} from repository."
+            )
 
-        return {"message": "Document successfully deleted from repository and database."}
+            return {
+                "message": "Document successfully deleted from repository and database."
+            }
     except Exception as e:
         print(f"Delete error: {e}")
         db.rollback()
