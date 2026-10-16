@@ -276,7 +276,6 @@ async def upload_word_report(
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
 
-# 🟢 MASTER DOWNLOAD & FORENSIC STAMPING ROUTER
 @router.get("/reports/download/{doc_id}")
 @router.get("/templates/download/{doc_id}")
 @router.get("/general-docs/download/{doc_id}") 
@@ -294,7 +293,6 @@ def download_archive_file(
     
     doc_record = None
     
-    # STRICT TABLE ROUTING
     if category == 'templates' and TemplateModel:
         doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
     elif category == 'general_doc' and GeneralDocModel:
@@ -341,6 +339,8 @@ def download_archive_file(
         keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
+        vertical_stamp_text = f"RESTRICTED LAW ENFORCEMENT RECORD  |  ACCESS BY: {officer_signature}  |  STAMP ID: {stamp_id}  |  TIME: {timestamp_eat}"
+        
         receipt_text = (
             "========================================================\n"
             "         KAMPALA METROPOLITAN POLICE HEADQUARTERS        \n"
@@ -352,9 +352,6 @@ def download_archive_file(
             f"TIMESTAMP      : {timestamp_eat}\n"
             "========================================================"
         )
-        
-        vertical_stamp_text = f"RESTRICTED LAW ENFORCEMENT RECORD  |  ACCESS BY: {officer_signature}  |  STAMP ID: {stamp_id}  |  TIME: {timestamp_eat}"
-
 
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
@@ -371,23 +368,19 @@ def download_archive_file(
             section = word_doc.sections[0]
             header = section.header
             
-            # Clear any existing paragraphs in the header
             for p in header.paragraphs:
                 p.text = ""
 
             try:
-                # 🟢 Margin-Aligned Header Table Solution:
-                # Column 0 sits in the left margin area for the vertical stamp.
-                # Column 1 spans the rest of the printable page width, keeping body text untouched.
+                # 🟢 LEFT MARGIN TABLE: Col 0 is the margin, Col 1 is the full body width
                 table = header.add_table(rows=1, cols=2, width=Inches(7.0))
                 table.autofit = False
-                table.columns[0].width = Inches(0.6)  # Fits cleanly inside the left margin printable area
-                table.columns[1].width = Inches(6.4)  # Spans the remaining document width
+                table.columns[0].width = Inches(0.6)  
+                table.columns[1].width = Inches(6.4)  
 
                 cell_left = table.cell(0, 0)
                 cell_right = table.cell(0, 1)
 
-                # Strip all visible borders from the header layout table
                 for row in table.rows:
                     for cell in row.cells:
                         tcPr = cell._tc.get_or_add_tcPr()
@@ -401,12 +394,11 @@ def download_archive_file(
                         ''')
                         tcPr.append(tcBorders)
 
-                # Set bottom-to-top vertical text direction (btLr) on the left margin cell
+                # Vertical text direction for the left margin
                 tcPr_left = cell_left._tc.get_or_add_tcPr()
                 textDirection = parse_xml(r'<w:textDirection xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="btLr"/>')
                 tcPr_left.append(textDirection)
 
-                # Format and populate the vertical compliance stamp text
                 p_stamp = cell_left.paragraphs[0]
                 p_stamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 p_stamp.paragraph_format.space_before = Pt(0)
@@ -424,6 +416,28 @@ def download_archive_file(
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
+        elif file_extension == 'pdf':
+            try:
+                pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
+                for page in pdf_doc:
+                    rect = page.rect
+                    page.insert_text(
+                        pymupdf.Point(20, rect.height - 50),
+                        vertical_stamp_text,
+                        fontsize=7,
+                        fontname="courier-bold",
+                        color=(0.545, 0, 0), 
+                        rotate=90,
+                        overlay=True
+                    )
+                stamped_pdf_bytes = pdf_doc.tobytes()
+                output_stream = io.BytesIO(stamped_pdf_bytes)
+                content_type = "application/pdf"
+            except Exception as pdf_err:
+                print(f"PDF watermarking notice: {pdf_err}")
+                output_stream.write(raw_bytes)
+                content_type = "application/pdf"
+
         elif file_extension in ['xlsx', 'xls']:
             wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
             wb.properties.creator = officer_signature
@@ -431,10 +445,12 @@ def download_archive_file(
             wb.properties.keywords = keywords_str
             wb.properties.description = comments_str
             wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
-
+            
             for ws in wb.worksheets:
-                if hasattr(ws, 'sheet_footer'): ws.sheet_footer.center.text = receipt_text
-                elif hasattr(ws, 'odd_footer'): ws.odd_footer.center.text = receipt_text
+                if hasattr(ws, 'sheet_footer'): 
+                    ws.sheet_footer.left.text = vertical_stamp_text
+                elif hasattr(ws, 'odd_footer'): 
+                    ws.odd_footer.left.text = vertical_stamp_text
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -449,14 +465,14 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    txBox = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
-                    tf = txBox.text_frame
-                    p = tf.add_paragraph()
-                    p.text = receipt_text
-                    p.font.size = PPTXPt(6.5)
-                    p.font.color.rgb = PPTXRGBColor(139, 0, 0)
-                    p.font.bold = True
-                    p.font.name = 'Courier New'
+                    left_box = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
+                    left_box.rotation = 270 
+                    p_left = left_box.text_frame.add_paragraph()
+                    p_left.text = vertical_stamp_text
+                    p_left.font.size = PPTXPt(6.5)
+                    p_left.font.bold = True
+                    p_left.font.name = 'Courier New'
+                    p_left.font.color.rgb = PPTXRGBColor(139, 0, 0)
 
                 prs.save(output_stream)
                 content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -464,30 +480,9 @@ def download_archive_file(
                 output_stream.write(raw_bytes)
                 content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
-        elif file_extension == 'pdf':
-            try:
-                pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
-                for page in pdf_doc:
-                    rect = page.rect
-                    stamp_point = pymupdf.Point(50, rect.height - 60)
-                    page.insert_text(
-                        stamp_point,
-                        receipt_text,
-                        fontsize=6,
-                        fontname="courier-bold",
-                        color=(0.545, 0, 0)
-                    )
-                stamped_pdf_bytes = pdf_doc.tobytes()
-                output_stream = io.BytesIO(stamped_pdf_bytes)
-                content_type = "application/pdf"
-            except Exception:
-                output_stream.write(raw_bytes)
-                content_type = "application/pdf"
-
         else:
             output_stream.write(raw_bytes)
 
-        # 🟢 GUARANTEED GENERATION OF FINAL BYTES
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
@@ -500,7 +495,6 @@ def download_archive_file(
             changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded and watermarked document titled \"{file_name}\"."
         )
 
-        # 🟢 CACHE S3 URL FOR WEB VIEWERS
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
@@ -513,17 +507,21 @@ def download_archive_file(
                 ServerSideEncryption="AES256"
             )
             
-            # 🟢 S3 Consistency Waiter: Pauses slightly to ensure Google Docs Viewer finds the file
+            # 🟢 FIX: S3 Waiter forces Google Docs Viewer to wait until the file is ready
             try:
                 waiter = s3_client.get_waiter('object_exists')
                 waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
             except Exception:
                 import time
                 time.sleep(1.5)
-            
+
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
-                Params={'Bucket': BUCKET_NAME, 'Key': temp_s3_key, 'ResponseContentDisposition': 'inline'},
+                Params={
+                    'Bucket': BUCKET_NAME, 
+                    'Key': temp_s3_key,
+                    'ResponseContentDisposition': 'inline'
+                },
                 ExpiresIn=3600
             )
             return JSONResponse(content={"url": presigned_url})
