@@ -361,7 +361,7 @@ def download_archive_file(
                 header_p = header.paragraphs[0]
             
             try:
-                # 🟢 Restored safe VML structure mapped cleanly to the left margin (diagonal/vertical)
+                # 🟢 Corrected absolute page coordinate binding for true left-margin vertical placement
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -373,7 +373,7 @@ def download_archive_file(
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
-                                 style="position:absolute;left:10pt;top:80pt;width:20pt;height:650pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 style="position:absolute;left:36pt;top:72pt;width:14pt;height:650pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:margin;mso-position-vertical-relative:margin" 
                                  fillcolor="#CC0000" stroked="f">
                             <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
