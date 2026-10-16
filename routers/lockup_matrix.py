@@ -53,7 +53,7 @@ def is_station_equivalent(stat_a: str, stat_b: str) -> bool:
     clean_b = b.replace(" HEADQUARTERS", "").replace(" HQ", "")
     return clean_a == clean_b and len(clean_a) > 0
 
-# 🟢 Local serializer to prevent circular imports with api_backend
+# Local serializer
 fn = lambda v: v.isoformat() if hasattr(v, 'isoformat') else v
 def serialize_model_row(row):
     if not row:
@@ -88,7 +88,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         try: perms = json.loads(perms)
         except Exception: perms = {}
 
-    # 1. Absolute Global (Super Admins, Admins, Global Roster Viewers)
     is_absolute_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "KMP COMMANDER" in user_pos or
@@ -110,7 +109,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         "KMP" in user_pos
     )
 
-    # 2. Regional Command Tier (RPC, Deputy RPC, Regional Admins)
     is_regional_command = (
         user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
         not is_kmp_sys_mgr and
@@ -146,7 +144,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
-        # 🟢 Station Users & Station Admins: strictly locked to their exact station and region (e.g. Old Kampala -> KMP North)
         clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
             and_(
@@ -176,6 +173,28 @@ def create_lockup_entry(
     try:
         station_val = data.get('station', '').strip().upper()
         date_val = data.get('date', date.today().isoformat())
+        req_region = data.get('region', current_user.region).strip().upper()
+        user_reg = str(current_user.region or "").strip().upper()
+        user_role = str(current_user.role or "").strip().upper()
+        user_pos = str(current_user.position or "").strip().upper()
+
+        # 🟢 OPSEC CHECK 1: Prevent Police HQ from logging for KMP HQ
+        if user_reg == "POLICE HEADQUARTERS" and user_role not in ["SUPER_ADMIN", "ADMIN"]:
+            if req_region == "KMP HEADQUARTERS" or station_val in REGIONAL_HIERARCHY.get("KMP HEADQUARTERS", []) + ["KMP HEADQUARTERS", "HEADQUARTERS GENERAL TOTAL"]:
+                raise HTTPException(status_code=403, detail="Clearance Denied: Police Headquarters personnel cannot log records on behalf of KMP Headquarters.")
+
+        # 🟢 OPSEC CHECK 2: Strict authorization for the KMP Master Lockup
+        if station_val == "HEADQUARTERS GENERAL TOTAL":
+            valid_master_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]
+            valid_master_positions = [
+                "KMP COMMANDER", "KMP COMD", "KMP COMDR", "COMMANDER KMP", "COMD KMP", "COMDR KMP", 
+                "DEPUTY KMP COMMANDER", "DEPUTY KMP COMD", "DEPUTY KMP COMDR", "DEPUTY COMMANDER KMP", 
+                "DEPUTY COMD KMP", "DEPUTY COMDR KMP", "KMP ADMIN OFFICER", "KMP ADMIN", "ADMIN. KMP", "ADMIN"
+            ]
+            has_master_clearance = user_role in valid_master_roles or any(p in user_pos for p in valid_master_positions) or user_role in valid_master_positions
+            
+            if not has_master_clearance:
+                raise HTTPException(status_code=403, detail="Clearance Denied: Only the Office of the Commander KMP can log the Master Lockup.")
 
         existing = db.query(models.LockupMatrix).filter(
             func.upper(models.LockupMatrix.station) == station_val,
@@ -187,7 +206,7 @@ def create_lockup_entry(
 
         new_entry = models.LockupMatrix(
             sd_ref=data.get('sd_ref', f"POP-{station_val[:3]}-{int(datetime.now().timestamp())}"),
-            region=data.get('region', current_user.region),
+            region=req_region,
             station=station_val,
             date=date_val,
             time=data.get('time', datetime.now().strftime("%H%M") + "Hrs"),
@@ -224,17 +243,90 @@ def create_lockup_entry(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to log cell population: {str(e)}")
 
-# 🟢 NEW: Backend Station Summary Engine
+# 🟢 NEW: Backend Engine for Master Lockup Timeline with NIL Padding
+@router.get("/lockup-matrix/master-history")
+def get_master_lockup_history(
+    period: str = Query("WEEK", description="Filter period: TODAY, WEEK, MONTH, YEAR, ALL"),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    """
+    Takes heavy calculation off the frontend. Returns a padded, chronological array
+    of the KMP Master Lockup, automatically filling missing days with NIL.
+    """
+    today = date.today()
+    days_to_generate = 7
+
+    if period == "TODAY":
+        days_to_generate = 1
+    elif period == "WEEK":
+        days_to_generate = 7
+    elif period == "MONTH":
+        days_to_generate = 30
+    elif period == "YEAR":
+        days_to_generate = 365
+    else: # ALL
+        days_to_generate = 365 
+        
+    start_date = today - timedelta(days=days_to_generate - 1)
+    
+    if period == "ALL":
+        earliest_record = db.query(func.min(models.LockupMatrix.date)).filter(
+            func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
+        ).scalar()
+        if earliest_record:
+            try:
+                earliest_date = datetime.strptime(earliest_record, "%Y-%m-%d").date() if isinstance(earliest_record, str) else earliest_record
+                start_date = earliest_date
+                days_to_generate = (today - start_date).days + 1
+            except Exception:
+                pass
+
+    records = db.query(models.LockupMatrix).filter(
+        func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL",
+        func.date(models.LockupMatrix.date) >= start_date.isoformat(),
+        func.date(models.LockupMatrix.date) <= today.isoformat()
+    ).all()
+    
+    entries_by_date = {r.date if isinstance(r.date, str) else r.date.isoformat(): r for r in records}
+    
+    results = []
+    # Generate timeline downward from Today -> Past
+    for i in range(days_to_generate):
+        current_date = (today - timedelta(days=i)).isoformat()
+        entry = entries_by_date.get(current_date)
+        
+        if entry:
+            row = serialize_model_row(entry)
+            row["is_nil"] = False
+            results.append(row)
+        else:
+            results.append({
+                "is_nil": True,
+                "date": current_date,
+                "station": "HEADQUARTERS GENERAL TOTAL",
+                "sn": "-",
+                "suspects": "NIL",
+                "male_count": "-",
+                "male_juvenile_count": "-",
+                "female_count": "-",
+                "female_juvenile_count": "-",
+                "detention_1day": "-",
+                "detention_2days": "-",
+                "detention_3days_over": "-",
+                "last_updated_by": "-",
+                "marginStr": "0",
+                "variation": 0
+            })
+            
+    return results
+
 @router.get("/lockup-matrix/station-summary")
 def get_station_lockup_summary(
     station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    """
-    Offloads heavy station census lookup and date sorting to the backend.
-    Returns the last logged date and suspect count for the specified or user's station.
-    """
     target_station = (station or current_user.station or "").strip().upper()
     clean_stn = target_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
 
@@ -246,10 +338,7 @@ def get_station_lockup_summary(
         )
     )
 
-    # Apply OPSEC scope check to ensure station security
     query = apply_opsec_scope(current_user, query, models.LockupMatrix)
-
-    # Fetch the most recent log by date and serial number descending
     latest_log = query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).first()
     
     today_str = date.today().isoformat()
@@ -275,7 +364,6 @@ def get_lockup_entries(
     query = db.query(models.LockupMatrix)
     query = apply_opsec_scope(current_user, query, models.LockupMatrix)
 
-    # Enforce strict station user boundary on backend if not global/regional command
     user_role = str(current_user.role or "").strip().upper()
     user_pos = str(current_user.position or "").strip().upper()
     is_absolute_global = (
@@ -285,7 +373,6 @@ def get_lockup_entries(
     is_regional_command = user_role in ["RPC", "DEPUTY_RPC", "REGIONAL_ADMIN"] or "RPC" in user_pos
 
     if not is_absolute_global and not is_regional_command:
-        # Station users are strictly locked to their profile station
         user_stn = str(current_user.station or "").strip().upper()
         clean_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         query = query.filter(
@@ -351,11 +438,17 @@ def update_lockup_entry(
     user_role = (current_user.role or "").strip().upper()
     user_pos = (current_user.position or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
+    user_reg = str(current_user.region or "").strip().upper()
     perms = current_user.permissions or {}
     
     entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
 
-    # 🟢 2. KMP Master Lockup Authorization Check
+    # 🟢 OPSEC CHECK 1: Prevent Police HQ from modifying KMP data
+    if user_reg == "POLICE HEADQUARTERS" and user_role not in ["SUPER_ADMIN", "ADMIN"]:
+        if "KMP" in existing_entry.region.upper() or entry_station in REGIONAL_HIERARCHY.get("KMP HEADQUARTERS", []) + ["KMP HEADQUARTERS", "HEADQUARTERS GENERAL TOTAL"]:
+            raise HTTPException(status_code=403, detail="Clearance Denied: Police Headquarters personnel are restricted from modifying KMP jurisdictional data.")
+
+    # 🟢 OPSEC CHECK 2: KMP Master Lockup Authorization Check
     if entry_station == "HEADQUARTERS GENERAL TOTAL":
         valid_master_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]
         valid_master_positions = [
@@ -363,7 +456,6 @@ def update_lockup_entry(
             "DEPUTY KMP COMMANDER", "DEPUTY KMP COMD", "DEPUTY KMP COMDR", "DEPUTY COMMANDER KMP", 
             "DEPUTY COMD KMP", "DEPUTY COMDR KMP", "KMP ADMIN OFFICER", "KMP ADMIN", "ADMIN. KMP", "ADMIN"
         ]
-        
         has_master_clearance = user_role in valid_master_roles or any(p in user_pos for p in valid_master_positions) or user_role in valid_master_positions
         
         if not has_master_clearance:
@@ -375,9 +467,8 @@ def update_lockup_entry(
             user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
             perms.get("global_observer", False) is True or 
             perms.get("global_open", False) is True or
-            str(current_user.region).strip().upper() in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
         )
-        
         if not is_global and not is_station_equivalent(entry_station, user_station):
             raise HTTPException(status_code=403, detail="Clearance Denied: You can only update lockup records for your own station.")
 
