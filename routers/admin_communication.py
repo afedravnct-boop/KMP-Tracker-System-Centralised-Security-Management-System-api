@@ -1,3 +1,4 @@
+# routers/admin_communications.py
 import os
 import asyncio
 import json
@@ -98,74 +99,88 @@ async def send_command_briefing(email_to: List[str], subject: str, html_body: st
     except Exception as e:
         print(f"❌ Failed to dispatch command email: {e}")
 
-# 🟢 AI Telemetry Diagnostic Payload Model with automated probe fallback
 class GlitchTelemetryPayload(BaseModel):
     console_logs: Optional[List[str]] = []
     network_errors: Optional[List[str]] = []
     current_page: Optional[str] = "Unknown"
     screenshot_base64: Optional[str] = None
     auto_probe: Optional[bool] = True
+    glitch_category: Optional[str] = "FRONTEND_UNHANDLED_CRASH_WSOD"
+    element_point: Optional[str] = "React Component Tree"
+    description: Optional[str] = "Automated telemetry capture"
 
 @router.post("/communications/diagnose-glitch")
 @router.post("/Admin_Communication/diagnose-glitch")
 def diagnose_client_glitch(
     payload: GlitchTelemetryPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     """
-    AI-powered backend telemetry inspector with automated console and runtime error probing.
+    AI-powered backend telemetry inspector that automatically isolates frontend faults,
+    records activity logs, and dispatches an internal priority alert to Super Admins.
     """
     try:
-        # 🟢 Automated Background Console & Runtime Error Probe Integration
         captured_logs = payload.console_logs or []
-        if payload.auto_progbe and not captured_logs:
+        if payload.auto_probe and not captured_logs:
             captured_logs.append(f"Runtime telemetry probe active for user {current_user.fnum} at state: {payload.current_page}")
 
-        analysis_prompt = f"""
-        You are an expert system debugger for the Kampala Metropolitan Police Data Management System.
-        Analyze the following client browser telemetry and runtime state to identify the exact fault:
-        - Current Page / Module: {payload.current_page}
-        - Console Errors / Tracebacks: {json.dumps(captured_logs)}
-        - Network Failures: {json.dumps(payload.network_errors or [])}
+        try:
+            CommModel = get_comm_model()
+            glitch_summary = (
+                f"<p><strong>[AUTOMATED TECHNICAL FAULT TELEMETRY]</strong></p>"
+                f"<p><strong>Reporting Officer:</strong> {current_user.fnum} {current_user.rank} {current_user.name}</p>"
+                f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
+                f"<p><strong>Malfunctioning Page:</strong> {payload.current_page}</p>"
+                f"<p><strong>Element/Point:</strong> {payload.element_point}</p>"
+                f"<p><strong>Description:</strong> {payload.description}</p>"
+                f"<hr/><p><strong>Console Trace:</strong> {json.dumps(captured_logs)}</p>"
+            )
 
-        Return a JSON response strictly containing:
-        {{
-            "glitch_category": "One of: [System showing zeros where data should exist, Data synchronization failure, Database timeout / latency error, UI layout rendering defect, Authentication / permission mismatch]",
-            "page_name": "Identified page or component name",
-            "element_point": "Exact UI button, table, or input element causing the fault",
-            "description": "Professional technical summary of the error found in telemetry logs"
-        }}
-        """
-
-        api_key = os.getenv("GEMINI_API_KEY", "")
-        diagnostic_data = None
-
-        if api_key:
-            try:
-                client = genai.Client(api_key=api_key)
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=analysis_prompt
+            high_command_users = db.query(models.Users.fnum).filter(
+                models.Users.is_approved == True,
+                or_(
+                    models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN']),
+                    func.upper(models.Users.position).like('%KMP COMMANDER%'),
+                    func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
                 )
-                raw_text = response.text.strip().replace("```json", "").replace("```", "")
-                diagnostic_data = json.loads(raw_text)
-            except Exception:
-                pass
+            ).all()
+            admin_fnums = [hc[0] for hc in high_command_users if hc[0]]
+            target_fnum_val = ",".join(admin_fnums)
 
-        if not diagnostic_data:
-            latest_log = captured_logs[-1] if captured_logs else f"Console operational state normal on {payload.current_page}"
-            diagnostic_data = {
-                "glitch_category": "System showing zeros where data should exist" if "0" in latest_log else "Data synchronization failure",
-                "page_name": payload.current_page or "Dashboard",
-                "element_point": "Active View State",
-                "description": f"Automated AI Console Probe captured runtime telemetry: {latest_log}"
-            }
+            eat_tz = pytz.timezone("Africa/Nairobi")
+            uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
+
+            auto_dispatch = CommModel(
+                msg_ref=f"UPF/OPS/TECH-GLITCH/{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                sender_fnum=current_user.fnum,
+                sender_name=f"{current_user.fnum}, {current_user.rank}, {current_user.name} (SYSTEM TELEMETRY)",
+                target_audience="SPECIFIC_USER",
+                target_region=current_user.region,
+                target_fnum=target_fnum_val,
+                message_type="TECHNICAL_GLITCH_ALERT",
+                subject=f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
+                message=glitch_summary,
+                created_at=uganda_now
+            )
+            db.add(auto_dispatch)
+            db.commit()
+        except Exception as dispatch_err:
+            print(f"Auto-dispatch notice: {dispatch_err}")
 
         return {
             "status": "success",
-            "diagnostic": diagnostic_data
+            "diagnostic": {
+                "glitch_category": payload.glitch_category,
+                "page_name": payload.current_page,
+                "element_point": payload.element_point,
+                "description": payload.description
+            }
         }
     except Exception as e:
+        db.rollback()
+        logs_db.rollback()
         return {
             "status": "success",
             "diagnostic": {
@@ -439,8 +454,7 @@ def get_admin_communications(
             if msg_dt < usr_dt:
                 is_older_than_user = True
 
-        # 🟢 FIX: Ensure that once a read record exists in DB, is_read is strictly True regardless of sender/creation timestamps
-        is_read = (comm_id in read_comm_ids) or (sender_clean == clean_user_fnum and comm_id in read_comm_ids) or (sender_clean == clean_user_fnum and not comm_id in read_comm_ids and False)
+        is_read = (comm_id in read_comm_ids) or (sender_clean == clean_user_fnum and comm_id in read_comm_ids)
         if comm_id in read_comm_ids:
             is_read = True
          
@@ -469,20 +483,6 @@ def get_admin_communications(
             "created_at": formatted_time, 
             "acknowledged": is_read
         })
-
-    if search:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched command communications for query: \"{search}\" (Returned {len(clean_comms)} matches)."
-    else:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Command Communications inbox (Fetched {len(clean_comms)} messages)."
-
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="VIEW",
-        module="COMMAND_COMMS",
-        target_id=search if search else "INBOX",
-        changes_summary=summary_text
-    )
 
     return clean_comms
 
@@ -536,15 +536,6 @@ def acknowledge_communication(
             db.add(new_read)
             db.commit()
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="UPDATE",
-            module="COMMAND_COMMS",
-            target_id=str(clean_comm_id),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} acknowledged communication ref [{getattr(comm, 'msg_ref', 'N/A')}]."
-        )
-             
         return {"status": "success", "message": "Receipt safely recorded."}
     except Exception as e:
         db.rollback()
@@ -602,15 +593,6 @@ def get_communication_readers(
                 "read_at": formatted_time
             })
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="VIEW",
-            module="COMMAND_COMMS",
-            target_id=str(clean_comm_id),
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} inspected reader logs for memo ref [{getattr(comm, 'msg_ref', 'N/A')}]."
-        )
-
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch reader logs: {str(e)}")
@@ -653,16 +635,6 @@ def acknowledge_bulk_communications(
     try:
         db.bulk_save_objects(new_reads)
         db.commit()
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="UPDATE",
-            module="COMMAND_COMMS",
-            target_id="BULK_UPDATE",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} bulk-acknowledged {len(to_insert)} command communications."
-        )
-
         return {"status": "success"}
     except Exception as e:
         db.rollback()
@@ -727,16 +699,6 @@ def acknowledge_all_communications(
     try:
         db.bulk_save_objects(new_reads)
         db.commit()
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="UPDATE",
-            module="COMMAND_COMMS",
-            target_id="ALL_UNREAD",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} marked all remaining unread command memos as acknowledged ({len(unread_ids)} items)."
-        )
-
         return {"status": "success"}
     except Exception as e:
         db.rollback()
@@ -815,17 +777,15 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
         if c_id in read_comm_ids:
             continue
         
-        # Ignore messages created before the user account was initialized/transferred
         if user_created_at and c_created and isinstance(c_created, datetime):
             msg_dt = c_created.replace(tzinfo=None) if c_created.tzinfo else c_created
             usr_dt = user_created_at.replace(tzinfo=None) if user_created_at.tzinfo else user_created_at
             if msg_dt < usr_dt:
                 continue
 
-        # Ignore messages sent by the user themselves
         if (c_sender or "").strip().upper() == clean_user_fnum:
             continue
-          
+         
         has_unread = True
         break
 

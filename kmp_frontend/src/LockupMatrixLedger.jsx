@@ -47,7 +47,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const [notification, setNotification] = useState(null);
   
   // Matrix Ledger States
-  const [lockupFilter, setLockupFilter] = useState('ALL');
+  const [lockupFilter, setLockupFilter] = useState('WEEK'); // Default to WEEK
   const [searchQuery, setSearchQuery] = useState('');
   const [ledgerViewType, setLedgerViewType] = useState('STATIONS'); // 'STATIONS' or 'MASTER'
   
@@ -58,7 +58,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
   // 🟢 Commander KMP Office / Super Admin Strict Checking
   const validMasterPositions = ['KMP COMMANDER', 'KMP COMD', 'KMP COMDR', 'COMMANDER KMP', 'COMD KMP', 'COMDR KMP', 'DEPUTY KMP COMMANDER', 'DEPUTY KMP COMD', 'DEPUTY KMP COMDR', 'DEPUTY COMMANDER KMP', 'DEPUTY COMD KMP', 'DEPUTY COMDR KMP', 'KMP ADMIN OFFICER', 'KMP ADMIN', 'ADMIN. KMP', 'ADMIN'];
-  const canManageMasterLockup = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'ADMIN'].includes(userRole) || validMasterPositions.some(p => userPos.includes(p) || userRole === p);
+  
+  // Exclude Police HQ standard users from managing Master Lockup
+  const canManageMasterLockup = (['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'ADMIN'].includes(userRole) || validMasterPositions.some(p => userPos.includes(p) || userRole === p)) && !(userRegClean === 'POLICE HEADQUARTERS' && !['SUPER_ADMIN', 'ADMIN'].includes(userRole));
 
   // Clearance Tiers matching Admin Approvals standards
   const isAbsoluteGlobal = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRole) || 
@@ -69,7 +71,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                               userPos.includes('RPC') || 
                               userPos.includes('DEPUTY COMMANDER');
 
-  // Strict jurisdiction locking
+  // Strict jurisdiction locking for logging inputs
+  const canLogGlobally = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRole) || (isAbsoluteGlobal && userRegClean !== 'POLICE HEADQUARTERS');
+  
   const initialRegion = isAbsoluteGlobal ? (selectedRegion || 'ALL REGIONS') : userRegClean;
   const initialStation = isAbsoluteGlobal ? (selectedStation || 'ALL STATIONS') : (isRegionalCommandTier ? 'ALL STATIONS' : userStnClean);
 
@@ -84,6 +88,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
   // Backend Summary State
   const [stationSummary, setStationSummary] = useState({ todaysTotal: null, lastLoggedDate: 'Never', lastLoggedSuspects: 0 });
+  const [masterLockupHistory, setMasterLockupHistory] = useState([]);
 
   // Form Inputs initialized to user's assigned station/region
   const [matrixOperation, setMatrixOperation] = useState('new');
@@ -107,7 +112,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     region: stripHtmlTags(currentUser?.region || '')
   });
 
-  // 🟢 Helper to dynamically inject KMP Master Lockup into station dropdown if clearance allows
+  // Helper to dynamically inject KMP Master Lockup into station dropdown if clearance allows
   const getDropdownStations = (region) => {
     const base = REGIONAL_HIERARCHY[region] || [];
     if (region === 'KMP HEADQUARTERS' && canManageMasterLockup) {
@@ -138,6 +143,24 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     fetchStationSummary();
   }, [ledgerFilterStation, currentUser?.station]);
 
+  // 🟢 Fetch specifically for the Master Lockup History from Backend
+  useEffect(() => {
+    if (ledgerViewType === 'MASTER') {
+      const fetchMasterHistory = async () => {
+        try {
+          const res = await authFetch(`/api/v1/lockup-matrix/master-history?period=${lockupFilter}`);
+          if (res.ok) {
+            const data = await res.json();
+            setMasterLockupHistory(data);
+          }
+        } catch (err) {
+          console.error("Failed to fetch master lockup history", err);
+        }
+      };
+      fetchMasterHistory();
+    }
+  }, [ledgerViewType, lockupFilter]);
+
   useEffect(() => {
     if (activeTab === 'SUSPECT_REGISTER') fetchSuspectRegister();
   }, [activeTab, registerFilterRegion, registerFilterStation, suspectSearchQuery]);
@@ -164,8 +187,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     const cleanStationSub = stripHtmlTags(formInput.station).substring(0, 3).toUpperCase();
     const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
 
-    const submissionRegion = isAbsoluteGlobal ? formInput.region : userRegClean;
-    const submissionStation = (isAbsoluteGlobal || isRegionalCommandTier) ? formInput.station : userStnClean;
+    const submissionRegion = canLogGlobally ? formInput.region : userRegClean;
+    const submissionStation = (canLogGlobally || isRegionalCommandTier) ? formInput.station : userStnClean;
 
     const payload = {
       ...formInput,
@@ -213,8 +236,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     e.preventDefault();
     setNotification({ type: 'info', text: "⏳ Saving suspect record..." });
 
-    const submissionStation = (isAbsoluteGlobal || isRegionalCommandTier) ? suspectFormInput.station : userStnClean;
-    const submissionRegion = isAbsoluteGlobal ? suspectFormInput.region : userRegClean;
+    const submissionStation = (canLogGlobally || isRegionalCommandTier) ? suspectFormInput.station : userStnClean;
+    const submissionRegion = canLogGlobally ? suspectFormInput.region : userRegClean;
 
     const finalSuspectPayload = {
       ...suspectFormInput,
@@ -296,34 +319,30 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }
   };
 
+  // 🟢 STATION LOGS ONLY (Master logs are handled by the backend entirely)
   const filteredLockupEntries = useMemo(() => {
+    if (ledgerViewType === 'MASTER') return []; // Processed separately
+
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
+    filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() !== 'HEADQUARTERS GENERAL TOTAL');
+    
+    filtered = filtered.filter(row => {
+      const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, row.region);
 
-    // 🟢 View Type Logic: Separate KMP Master General Logs vs Standard Station Logs
-    if (ledgerViewType === 'MASTER') {
-      filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() === 'HEADQUARTERS GENERAL TOTAL');
-    } else {
-      filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() !== 'HEADQUARTERS GENERAL TOTAL');
-      
-      // Enforce strict jurisdiction bounds for non-globals on Station Logs
-      filtered = filtered.filter(row => {
-        const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
-        const reg = getOfficialRegionForStation(stn, row.region);
+      if (!isAbsoluteGlobal && !isRegionalCommandTier) {
+        if (!isStationEquivalent(stn, userStnClean)) return false;
+      } else if (ledgerFilterRegion && ledgerFilterRegion !== 'ALL REGIONS') {
+        const cleanTargetRegion = ledgerFilterRegion.trim().toUpperCase();
+        const belongsToRegion = reg === cleanTargetRegion || (REGIONAL_HIERARCHY[cleanTargetRegion] && REGIONAL_HIERARCHY[cleanTargetRegion].includes(stn));
+        if (!belongsToRegion) return false;
+      }
 
-        if (!isAbsoluteGlobal && !isRegionalCommandTier) {
-          if (!isStationEquivalent(stn, userStnClean)) return false;
-        } else if (ledgerFilterRegion && ledgerFilterRegion !== 'ALL REGIONS') {
-          const cleanTargetRegion = ledgerFilterRegion.trim().toUpperCase();
-          const belongsToRegion = reg === cleanTargetRegion || (REGIONAL_HIERARCHY[cleanTargetRegion] && REGIONAL_HIERARCHY[cleanTargetRegion].includes(stn));
-          if (!belongsToRegion) return false;
-        }
-
-        if (ledgerFilterStation && ledgerFilterStation !== 'ALL STATIONS') {
-          if (!isStationEquivalent(stn, ledgerFilterStation)) return false;
-        }
-        return true;
-      });
-    }
+      if (ledgerFilterStation && ledgerFilterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(stn, ledgerFilterStation)) return false;
+      }
+      return true;
+    });
 
     if (searchQuery.trim()) {
       const query = searchQuery.trim().toUpperCase();
@@ -334,7 +353,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       });
     }
 
-    // Dynamic Date Filtering (Applies strictly to Master General Logs AND Station Logs)
     if (lockupFilter !== 'ALL') {
       const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
       const todayStr = today.toISOString().split('T')[0];
@@ -360,6 +378,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation, searchQuery, isAbsoluteGlobal, isRegionalCommandTier, userStnClean, ledgerViewType]);
 
   const totals = useMemo(() => {
+    if (ledgerViewType === 'MASTER') return { suspects: 0, male: 0, male_juvenile: 0, female: 0, female_juvenile: 0, d1: 0, d2: 0, d3: 0 };
     return filteredLockupEntries.reduce((acc, row) => {
       acc.suspects += Number(row.suspects || 0);
       acc.male += Number(row.male_count || row.male || 0);
@@ -371,7 +390,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       acc.d3 += Number(row.detention_3days_over || 0);
       return acc;
     }, { suspects: 0, male: 0, male_juvenile: 0, female: 0, female_juvenile: 0, d1: 0, d2: 0, d3: 0 });
-  }, [filteredLockupEntries]);
+  }, [filteredLockupEntries, ledgerViewType]);
 
   const headerBgClass = activeTab === 'LOG_FORM' ? 'bg-emerald-800' : activeTab === 'LEDGER' ? 'bg-amber-800' : 'bg-blue-800';
   const innerNavBg = activeTab === 'LOG_FORM' ? 'bg-emerald-900 border-emerald-700' : activeTab === 'LEDGER' ? 'bg-amber-900 border-amber-700' : 'bg-blue-900 border-blue-700';
@@ -396,7 +415,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               <Shield className="w-4 h-4 mr-2" />
               {activeTab === 'LOG_FORM' ? 'Daily Cell Census Entry' : activeTab === 'LEDGER' ? 'Suspect Lock-Up Matrix Ledger' : 'Detailed Suspect Register'}
             </h3>
-            {/* Backend-Powered Header Data */}
             <div className="flex flex-wrap gap-3 mt-1">
               <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
                 Today's Log: <span className={stationSummary.todaysTotal !== null ? "text-green-300" : "text-red-300"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'MISSING'}</span>
@@ -445,13 +463,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Region *</label>
                   <select 
-                    value={isAbsoluteGlobal ? formInput.region : userRegClean} 
-                    onChange={e => isAbsoluteGlobal && setFormInput({...formInput, region: e.target.value, station: getDropdownStations(e.target.value)[0] || ''})} 
+                    value={canLogGlobally ? formInput.region : userRegClean} 
+                    onChange={e => canLogGlobally && setFormInput({...formInput, region: e.target.value, station: getDropdownStations(e.target.value)[0] || ''})} 
                     required 
-                    disabled={!isAbsoluteGlobal} 
+                    disabled={!canLogGlobally} 
                     className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none disabled:opacity-90 disabled:cursor-not-allowed"
                   >
-                    {isAbsoluteGlobal ? (
+                    {canLogGlobally ? (
                       Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
                     ) : (
                       <option value={userRegClean}>{userRegClean}</option>
@@ -461,13 +479,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Station *</label>
                   <select 
-                    value={isAbsoluteGlobal || isRegionalCommandTier ? formInput.station : userStnClean} 
-                    onChange={e => (isAbsoluteGlobal || isRegionalCommandTier) && setFormInput({...formInput, station: e.target.value})} 
+                    value={canLogGlobally || isRegionalCommandTier ? formInput.station : userStnClean} 
+                    onChange={e => (canLogGlobally || isRegionalCommandTier) && setFormInput({...formInput, station: e.target.value})} 
                     required 
-                    disabled={!isAbsoluteGlobal && !isRegionalCommandTier} 
+                    disabled={!canLogGlobally && !isRegionalCommandTier} 
                     className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none disabled:opacity-90 disabled:cursor-not-allowed"
                   >
-                    {(isAbsoluteGlobal || isRegionalCommandTier) ? (
+                    {(canLogGlobally || isRegionalCommandTier) ? (
                       getDropdownStations(formInput.region || userRegClean).map(stat => <option key={stat} value={stat}>{stat}</option>)
                     ) : (
                       <option value={userStnClean}>{userStnClean}</option>
@@ -491,12 +509,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <div><label className="block font-bold text-purple-800 dark:text-purple-300 mb-1">Female Juvs</label><input type="number" min="0" value={formInput.female_juvenile_count} onChange={e => setFormInput({...formInput, female_juvenile_count: e.target.value})} className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 dark:text-white rounded outline-none" /></div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 bg-slate-100 dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
-                <div><label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Detention: 1 Day</label><input type="number" min="0" value={formInput.detention_1day} onChange={e => setFormInput({...formInput, detention_1day: e.target.value})} className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 dark:text-white rounded outline-none" /></div>
-                <div><label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Detention: 2 Days</label><input type="number" min="0" value={formInput.detention_2days} onChange={e => setFormInput({...formInput, detention_2days: e.target.value})} className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 dark:text-white rounded outline-none" /></div>
-                <div><label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Detention: 3+ Days</label><input type="number" min="0" value={formInput.detention_3days_over} onChange={e => setFormInput({...formInput, detention_3days_over: e.target.value})} className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 dark:text-white rounded outline-none" /></div>
-              </div>
-
               <div className="flex justify-end pt-2">
                 <button type="submit" className="px-6 py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-black uppercase rounded-xl shadow cursor-pointer text-xs tracking-wider transition">
                   💾 {matrixOperation === 'update' ? 'Save Changes' : 'Save Census to Ledger'}
@@ -514,7 +526,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <div className="flex items-center space-x-2">
                   <Filter className="w-4 h-4 text-amber-800 dark:text-amber-400 shrink-0" />
                   
-                  {/* 🟢 View Type Toggle for Station Logs vs Master Lockup */}
+                  {/* View Type Toggle for Station Logs vs Master Lockup */}
                   <div className="flex bg-amber-200/50 dark:bg-slate-800 rounded-lg p-0.5 shadow-inner border border-amber-300 dark:border-slate-700 mr-2">
                     <button onClick={() => setLedgerViewType('STATIONS')} className={`px-3 py-1.5 text-[10px] font-extrabold uppercase rounded-md transition-colors cursor-pointer ${ledgerViewType === 'STATIONS' ? 'bg-amber-600 text-white shadow' : 'text-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-slate-700'}`}>Station Logs</button>
                     <button onClick={() => setLedgerViewType('MASTER')} className={`px-3 py-1.5 text-[10px] font-extrabold uppercase rounded-md transition-colors cursor-pointer ${ledgerViewType === 'MASTER' ? 'bg-amber-600 text-white shadow' : 'text-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-slate-700'}`}>Master Lockup</button>
@@ -561,10 +573,12 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                     </>
                   )}
                 </div>
-                <div className="relative flex items-center min-w-[200px]">
-                  <Search className="w-3.5 h-3.5 absolute left-2.5 text-amber-700 dark:text-amber-400" />
-                  <input type="text" placeholder="Search station, date..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-amber-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-amber-900 dark:text-amber-200 outline-none focus:ring-1 focus:ring-amber-500" />
-                </div>
+                {ledgerViewType === 'STATIONS' && (
+                  <div className="relative flex items-center min-w-[200px]">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 text-amber-700 dark:text-amber-400" />
+                    <input type="text" placeholder="Search station, date..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-amber-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-amber-900 dark:text-amber-200 outline-none focus:ring-1 focus:ring-amber-500" />
+                  </div>
+                )}
               </div>
               <div className="flex bg-amber-900 dark:bg-slate-950 rounded-lg p-0.5 shadow-inner border border-amber-700/50 dark:border-slate-800 overflow-x-auto max-w-full custom-scrollbar">
                 {['TODAY', 'WEEK', 'MONTH', 'YEAR', 'ALL'].map((f) => (
@@ -573,90 +587,129 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               </div>
             </div>
 
-            {/* 🟢 History Banner specific to Master Lockup Dropdown */}
-            {ledgerViewType === 'MASTER' && (
-              <div className="bg-amber-950/80 text-amber-300 px-6 py-2 text-[10px] font-black uppercase flex items-center shadow-inner tracking-widest border-b border-amber-900/50 shrink-0">
-                <Calendar className="w-3.5 h-3.5 mr-2" /> KMP Master Lock-up History Log
-              </div>
-            )}
-            
-            <div className="overflow-y-auto flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900">
-              <table className="w-full text-left border-collapse table-auto">
-                <thead className="bg-amber-100 dark:bg-slate-950 sticky top-0 border-b border-amber-200 dark:border-slate-800 shadow-sm z-20">
-                  <tr>
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[4%]">Act</th>
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[110px]">Date</th>
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[140px]">Station</th>
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-white uppercase bg-amber-900 dark:bg-slate-950 border-r border-amber-800 dark:border-slate-800 text-center min-w-[90px]">Total Suspects</th>
-                    <th colSpan="4" className="px-2 py-2 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-amber-200/50 dark:bg-slate-900">SEX & AGE CATEGORY</th>
-                    <th colSpan="3" className="px-2 py-2 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-amber-100 dark:bg-slate-900">DURATION IN DETENTION</th>
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase text-center border-r border-amber-200 dark:border-slate-800 min-w-[100px]">Margin</th>
-                    <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase min-w-[140px]">Last Updated By</th>
-                  </tr>
-                  <tr className="bg-amber-50 dark:bg-slate-900 border-b-2 border-amber-200 dark:border-slate-800">
-                    <th className="px-2 py-2 text-[9px] font-extrabold text-blue-800 dark:text-blue-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-blue-50/50 dark:bg-slate-950 min-w-[75px]">Male Ad</th>
-                    <th className="px-2 py-2 text-[9px] font-extrabold text-indigo-800 dark:text-indigo-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-indigo-50/50 dark:bg-slate-950 min-w-[75px]">Male Juv</th>
-                    <th className="px-2 py-2 text-[9px] font-extrabold text-pink-800 dark:text-pink-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-pink-50/50 dark:bg-slate-950 min-w-[75px]">Fem Ad</th>
-                    <th className="px-2 py-2 text-[9px] font-extrabold text-purple-800 dark:text-purple-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-purple-50/50 dark:bg-slate-950 min-w-[75px]">Fem Juv</th>
-                    <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center min-w-[60px]">1 Day</th>
-                    <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center min-w-[60px]">2 Days</th>
-                    <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center min-w-[80px]">3+ Days</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-amber-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                  {filteredLockupEntries.length > 0 ? (
-                    filteredLockupEntries.map((row, idx) => {
-                      const isMasterRow = stripHtmlTags(row.station || '').trim().toUpperCase() === 'HEADQUARTERS GENERAL TOTAL';
-                      // 🟢 Enforce 24 Hour Edit Lock AND Master Lockup Role Guard
-                      const isTimeValid = row.date === todayStr || row.date === yesterdayStr;
-                      const hasRoleRights = !isMasterRow || canManageMasterLockup;
-                      const isEditable = isTimeValid && hasRoleRights;
+            {/* 🟢 MASTER LOCKUP VIEW (SIMPLIFIED NIL TABLE) */}
+            {ledgerViewType === 'MASTER' ? (
+              <div className="overflow-y-auto flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900">
+                <table className="w-full text-left border-collapse table-auto">
+                  <thead className="bg-amber-100 dark:bg-slate-950 sticky top-0 border-b border-amber-200 dark:border-slate-800 shadow-sm z-20">
+                    <tr>
+                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[10%]">Act</th>
+                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[15%]">S/No</th>
+                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 w-[45%]">Date</th>
+                      <th className="px-3 py-3 text-[10px] font-black text-white uppercase bg-amber-900 dark:bg-slate-950 text-center w-[30%]">KMP Master Lock</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                    {masterLockupHistory.length > 0 ? (
+                      masterLockupHistory.map((row, idx) => {
+                        const isTimeValid = row.date === todayStr || row.date === yesterdayStr;
+                        const isEditable = isTimeValid && canManageMasterLockup && !row.is_nil;
 
-                      return (
-                        <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                          <td className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-800">
-                            {isEditable ? (
-                              <button onClick={() => populateMatrixEdit(row)} className="text-blue-400 hover:text-blue-300 p-1 bg-blue-950/60 rounded border border-blue-800 cursor-pointer" title="Edit Census">
-                                <Edit size={14}/>
-                              </button>
-                            ) : (
-                              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded cursor-not-allowed border border-slate-300 dark:border-slate-700" title={!hasRoleRights ? "Command Tier Access Only" : "Record locked (Exceeds 24 Hrs)"}>LOCKED</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{row.date}</td>
-                          <td className="px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase border-r border-slate-200 dark:border-slate-800">{row.station}</td>
-                          <td className="px-3 py-3 text-sm font-black text-amber-700 dark:text-amber-400 text-center bg-amber-50/30 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800">{row.suspects}</td>
-                          <td className="px-2 py-3 text-xs font-bold text-blue-700 dark:text-blue-400 text-center border-r border-slate-200 dark:border-slate-800 bg-blue-50/20 dark:bg-slate-950">{row.male_count || row.male || 0}</td>
-                          <td className="px-2 py-3 text-xs font-bold text-indigo-700 dark:text-indigo-400 text-center border-r border-slate-200 dark:border-slate-800 bg-indigo-50/20 dark:bg-slate-950">{row.male_juvenile_count || row.male_juvenile || 0}</td>
-                          <td className="px-2 py-3 text-xs font-bold text-pink-700 dark:text-pink-400 text-center border-r border-slate-200 dark:border-slate-800 bg-pink-50/20 dark:bg-slate-950">{row.female_count || row.female || 0}</td>
-                          <td className="px-2 py-3 text-xs font-bold text-purple-700 dark:text-purple-400 text-center border-r border-slate-200 dark:border-slate-800 bg-purple-50/20 dark:bg-slate-950">{row.female_juvenile_count || row.female_juvenile || 0}</td>
-                          <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_1day || 0}</td>
-                          <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_2days || 0}</td>
-                          <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_3days_over || 0}</td>
-                          <td className="px-3 py-3 text-xs font-bold text-center border-r border-slate-200 dark:border-slate-800">
-                            {row.marginStr.startsWith('+') ? <span className="text-red-400 bg-red-950/60 px-2 py-0.5 rounded border border-red-800 flex items-center justify-center max-w-max mx-auto"><TrendingUp className="w-3 h-3 mr-1" /> {row.marginStr}</span>
-                            : row.marginStr.startsWith('-') ? <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800 flex items-center justify-center max-w-max mx-auto"><TrendingDown className="w-3 h-3 mr-1" /> {row.marginStr}</span>
-                            : <span className="text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 flex items-center justify-center max-w-max mx-auto"><Minus className="w-3 h-3 mr-1" /> 0</span>}
-                          </td>
-                          <td className="px-3 py-3 text-[11px] font-semibold text-slate-400 uppercase">{formatOfficerDisplay(row.last_updated_by)}</td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr><td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No master lockup records found.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="bg-slate-900 dark:bg-slate-950 shrink-0 shadow-inner z-10 border-t border-slate-700 dark:border-slate-800 text-amber-300">
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-2 px-6 py-3 border-b border-slate-800 text-xs font-black uppercase">
-                <div>{lockupFilter} Period Totals:</div>
-                <div>Total: <span className="text-white">{totals.suspects}</span></div>
-                <div>Male (Ad / Juv): <span className="text-blue-400">{totals.male}</span> / <span className="text-indigo-400">{totals.male_juvenile}</span></div>
-                <div>Female (Ad / Juv): <span className="text-pink-400">{totals.female}</span> / <span className="text-purple-400">{totals.female_juvenile}</span></div>
-                <div className="col-span-2">Detention (1d/2d/3d+): <span className="text-white">{totals.d1} / {totals.d2} / {totals.d3}</span></div>
+                        return (
+                          <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                            <td className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-800">
+                              {row.is_nil ? '-' : (
+                                isEditable ? (
+                                  <button onClick={() => populateMatrixEdit(row)} className="text-blue-400 hover:text-blue-300 p-1 bg-blue-950/60 rounded border border-blue-800 cursor-pointer" title="Edit Master Census">
+                                    <Edit size={14} />
+                                  </button>
+                                ) : (
+                                  <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded cursor-not-allowed border border-slate-300 dark:border-slate-700" title={!canManageMasterLockup ? "Command Tier Access Only" : "Record locked (Exceeds 24 Hrs)"}>LOCKED</span>
+                                )
+                              )}
+                            </td>
+                            <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 text-center">{row.sn}</td>
+                            <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800">{row.date}</td>
+                            <td className="px-3 py-3 text-sm font-black text-center border-r border-slate-200 dark:border-slate-800">
+                              {row.is_nil ? <span className="text-slate-400 italic">NIL</span> : <span className="text-amber-700 dark:text-amber-400">{row.suspects} Suspects</span>}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    ) : (
+                      <tr><td colSpan="4" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No master lockup records found for this period.</td></tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            </div>
+            ) : (
+              /* 🟢 STATION LOGS VIEW */
+              <>
+                <div className="overflow-y-auto flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900">
+                  <table className="w-full text-left border-collapse table-auto">
+                    <thead className="bg-amber-100 dark:bg-slate-950 sticky top-0 border-b border-amber-200 dark:border-slate-800 shadow-sm z-20">
+                      <tr>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[4%]">Act</th>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[110px]">Date</th>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[140px]">Station</th>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-white uppercase bg-amber-900 dark:bg-slate-950 border-r border-amber-800 dark:border-slate-800 text-center min-w-[90px]">Total Suspects</th>
+                        <th colSpan="4" className="px-2 py-2 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-amber-200/50 dark:bg-slate-900">SEX & AGE CATEGORY</th>
+                        <th colSpan="3" className="px-2 py-2 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-amber-100 dark:bg-slate-900">DURATION IN DETENTION</th>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase text-center border-r border-amber-200 dark:border-slate-800 min-w-[100px]">Margin</th>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase min-w-[140px]">Last Updated By</th>
+                      </tr>
+                      <tr className="bg-amber-50 dark:bg-slate-900 border-b-2 border-amber-200 dark:border-slate-800">
+                        <th className="px-2 py-2 text-[9px] font-extrabold text-blue-800 dark:text-blue-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-blue-50/50 dark:bg-slate-950 min-w-[75px]">Male Ad</th>
+                        <th className="px-2 py-2 text-[9px] font-extrabold text-indigo-800 dark:text-indigo-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-indigo-50/50 dark:bg-slate-950 min-w-[75px]">Male Juv</th>
+                        <th className="px-2 py-2 text-[9px] font-extrabold text-pink-800 dark:text-pink-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-pink-50/50 dark:bg-slate-950 min-w-[75px]">Fem Ad</th>
+                        <th className="px-2 py-2 text-[9px] font-extrabold text-purple-800 dark:text-purple-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-purple-50/50 dark:bg-slate-950 min-w-[75px]">Fem Juv</th>
+                        <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center min-w-[60px]">1 Day</th>
+                        <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center min-w-[60px]">2 Days</th>
+                        <th className="px-2 py-2 text-[9px] font-extrabold text-slate-700 dark:text-slate-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center min-w-[80px]">3+ Days</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                      {filteredLockupEntries.length > 0 ? (
+                        filteredLockupEntries.map((row, idx) => {
+                          const isEditable = row.date === todayStr || row.date === yesterdayStr;
+
+                          return (
+                            <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                              <td className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-800">
+                                {isEditable ? (
+                                  <button onClick={() => populateMatrixEdit(row)} className="text-blue-400 hover:text-blue-300 p-1 bg-blue-950/60 rounded border border-blue-800 cursor-pointer" title="Edit Census">
+                                    <Edit size={14} />
+                                  </button>
+                                ) : (
+                                  <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded cursor-not-allowed border border-slate-300 dark:border-slate-700" title="Record locked (Exceeds 24 Hrs)">LOCKED</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{row.date}</td>
+                              <td className="px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase border-r border-slate-200 dark:border-slate-800">{row.station}</td>
+                              <td className="px-3 py-3 text-sm font-black text-amber-700 dark:text-amber-400 text-center bg-amber-50/30 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800">{row.suspects}</td>
+                              <td className="px-2 py-3 text-xs font-bold text-blue-700 dark:text-blue-400 text-center border-r border-slate-200 dark:border-slate-800 bg-blue-50/20 dark:bg-slate-950">{row.male_count || row.male || 0}</td>
+                              <td className="px-2 py-3 text-xs font-bold text-indigo-700 dark:text-indigo-400 text-center border-r border-slate-200 dark:border-slate-800 bg-indigo-50/20 dark:bg-slate-950">{row.male_juvenile_count || row.male_juvenile || 0}</td>
+                              <td className="px-2 py-3 text-xs font-bold text-pink-700 dark:text-pink-400 text-center border-r border-slate-200 dark:border-slate-800 bg-pink-50/20 dark:bg-slate-950">{row.female_count || row.female || 0}</td>
+                              <td className="px-2 py-3 text-xs font-bold text-purple-700 dark:text-purple-400 text-center border-r border-slate-200 dark:border-slate-800 bg-purple-50/20 dark:bg-slate-950">{row.female_juvenile_count || row.female_juvenile || 0}</td>
+                              <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_1day || 0}</td>
+                              <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_2days || 0}</td>
+                              <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_3days_over || 0}</td>
+                              <td className="px-3 py-3 text-xs font-bold text-center border-r border-slate-200 dark:border-slate-800">
+                                {row.marginStr.startsWith('+') ? <span className="text-red-400 bg-red-950/60 px-2 py-0.5 rounded border border-red-800 flex items-center justify-center max-w-max mx-auto"><TrendingUp className="w-3 h-3 mr-1" /> {row.marginStr}</span>
+                                : row.marginStr.startsWith('-') ? <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800 flex items-center justify-center max-w-max mx-auto"><TrendingDown className="w-3 h-3 mr-1" /> {row.marginStr}</span>
+                                : <span className="text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 flex items-center justify-center max-w-max mx-auto"><Minus className="w-3 h-3 mr-1" /> 0</span>}
+                              </td>
+                              <td className="px-3 py-3 text-[11px] font-semibold text-slate-400 uppercase">{formatOfficerDisplay(row.last_updated_by)}</td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr><td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No independent lock-up records found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="bg-slate-900 dark:bg-slate-950 shrink-0 shadow-inner z-10 border-t border-slate-700 dark:border-slate-800 text-amber-300">
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 px-6 py-3 border-b border-slate-800 text-xs font-black uppercase">
+                    <div>{lockupFilter} Period Totals:</div>
+                    <div>Total: <span className="text-white">{totals.suspects}</span></div>
+                    <div>Male (Ad / Juv): <span className="text-blue-400">{totals.male}</span> / <span className="text-indigo-400">{totals.male_juvenile}</span></div>
+                    <div>Female (Ad / Juv): <span className="text-pink-400">{totals.female}</span> / <span className="text-purple-400">{totals.female_juvenile}</span></div>
+                    <div className="col-span-2">Detention (1d/2d/3d+): <span className="text-white">{totals.d1} / {totals.d2} / {totals.d3}</span></div>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -738,7 +791,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 </div>
 <div className="flex justify-end mt-3">
   <button type="submit" className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded shadow transition flex items-center cursor-pointer">
-    <Save className="w-3 h-3 mr-1.5"/> {registerOperation === 'update' ? 'Save Record Updates' : 'Add to Register'}
+    <Save className="w-3 h-3 mr-1.5" /> {registerOperation === 'update' ? 'Save Record Updates' : 'Add to Register'}
   </button>
 </div>
 </form>
@@ -809,7 +862,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                     suspectRecords.map((row, idx) => (
                       <tr key={idx} className="hover:bg-blue-50/50 dark:hover:bg-slate-800/50 transition-colors">
                         <td className="px-3 py-3 text-center border-r border-slate-100 dark:border-slate-800">
-                           <button onClick={() => populateSuspectEdit(row)} className="text-blue-400 hover:text-blue-300 p-1 bg-blue-950/60 rounded border border-blue-800 cursor-pointer"><Edit size={14}/></button>
+                           <button onClick={() => populateSuspectEdit(row)} className="text-blue-400 hover:text-blue-300 p-1 bg-blue-950/60 rounded border border-blue-800 cursor-pointer"><Edit size={14} /></button>
                         </td>
                         <td className="px-3 py-3 text-[10px] font-bold text-slate-400 uppercase">{stripHtmlTags(row.station)}</td>
                         <td className="px-3 py-3 text-xs font-black text-slate-800 dark:text-slate-100 uppercase">{stripHtmlTags(row.name)}</td>

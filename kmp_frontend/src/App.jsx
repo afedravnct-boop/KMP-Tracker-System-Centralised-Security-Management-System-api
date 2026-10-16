@@ -34,6 +34,7 @@ import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSess
 import { FullUserPolicyText } from './policyContent';
 import ExhibitsRegistry from './ExhibitsRegistry';
 import LockupMatrixLedger from './LockupMatrixLedger';
+import ErrorBoundary from './ErrorBoundary';
 
 // ====================================================================
 // 1. CONSTANTS & CONFIGURATION
@@ -3054,11 +3055,13 @@ const App = () => {
 
       case 'reports':  
         return checkClearance(currentUser, 'acc_crime', true) ? (
-          <CrimeIncidentRegistry 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal}
-            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-          />
+          <ErrorBoundary>
+            <CrimeIncidentRegistry 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal}
+              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3073,13 +3076,15 @@ const App = () => {
 
       case 'statistics':  
         return checkClearance(currentUser, 'acc_ops', true) ? (
-          <Statistics 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal} 
-            stats={stats} 
-            setStats={setStats}
-            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-          />
+          <ErrorBoundary>
+            <Statistics 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal} 
+              stats={stats} 
+              setStats={setStats}
+              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3095,13 +3100,15 @@ const App = () => {
       case 'success': // 🟢 Matches id: 'success' in navItems and home dashboard card
       case 'stories':  
         return checkClearance(currentUser, 'acc_stories', true) ? (
-          <SuccessStories 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal} 
-            stories={stories} 
-            setStories={setStories}
-            isReadOnlyObserver={isReadOnlyObserver}
-          />
+          <ErrorBoundary>
+            <SuccessStories 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal} 
+              stories={stories} 
+              setStories={setStories}
+              isReadOnlyObserver={isReadOnlyObserver}
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3116,13 +3123,15 @@ const App = () => {
 
       case 'establishments':  
         return checkClearance(currentUser, 'acc_est', true) ? (
-          <Establishments 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal} 
-            establishments={establishments} 
-            setEstablishments={setEstablishments}
-            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-          />
+          <ErrorBoundary>
+            <Establishments 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal} 
+              establishments={establishments} 
+              setEstablishments={setEstablishments}
+              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3137,12 +3146,14 @@ const App = () => {
 
       case 'analytics':  
         return checkClearance(currentUser, 'acc_analytics', true) ? (
-          <AnalyticsDashboard 
-            nominalRolls={Nominal_Rolls} 
-            crimeRegistry={reports} 
-            successStories={stories} 
-            operationalStats={stats} 
-          />
+          <ErrorBoundary>
+            <AnalyticsDashboard 
+              nominalRolls={Nominal_Rolls} 
+              crimeRegistry={reports} 
+              successStories={stories} 
+              operationalStats={stats} 
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3157,15 +3168,17 @@ const App = () => {
 
       case 'nominal-roll':  
         return checkClearance(currentUser, 'acc_hr', true) ? (
-          <Nominal_Roll 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal} 
-            Nominal_Rolls={Nominal_Rolls} 
-            setNominal_Rolls={setNominal_Rolls} 
-            Nominal_Roll_archives={Nominal_Roll_archives} 
-            setNominal_Roll_archives={setNominal_Roll_archives} 
-            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-          />
+          <ErrorBoundary>
+            <Nominal_Roll 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal} 
+              Nominal_Rolls={Nominal_Rolls} 
+              setNominal_Rolls={setNominal_Rolls} 
+              Nominal_Roll_archives={Nominal_Roll_archives} 
+              setNominal_Roll_archives={setNominal_Roll_archives} 
+              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3180,13 +3193,15 @@ const App = () => {
 
       case 'reports_hub':  
         return checkClearance(currentUser, 'acc_documents', true) ? (
-          <WordReportUpload 
-            currentUser={currentUser} 
-            generalDocs={generalDocs}
-            setGeneralDocs={setGeneralDocs}
-            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-            setCurrentPage={handlePageChange} // 🟢 ADD THIS LINE TO FIX THE BACK BUTTON
-          />
+          <ErrorBoundary>
+            <WordReportUpload 
+              currentUser={currentUser} 
+              generalDocs={generalDocs}
+              setGeneralDocs={setGeneralDocs}
+              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
+              setCurrentPage={handlePageChange} // 🟢 ADD THIS LINE TO FIX THE BACK BUTTON
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3201,40 +3216,46 @@ const App = () => {
 
       case 'lockup-matrix': 
         return checkClearance(currentUser, 'acc_lockup', true) ? (
-          <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
-            <LockupMatrixLedger 
-              lockupEntries={reports}
-              allTimeLockupTotal={grandTotals.displayTotal}
-              onClose={() => handlePageChange('home')}
-              selectedRegion={currentUser?.region || 'ALL REGIONS'}
-              selectedStation={currentUser?.station || 'ALL STATIONS'}
-              currentUser={currentUser}
-              onRefreshData={() => window.location.reload()}
-            />
-          </div>
+          <ErrorBoundary>
+            <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
+              <LockupMatrixLedger 
+                lockupEntries={reports}
+                allTimeLockupTotal={grandTotals.displayTotal}
+                onClose={() => handlePageChange('home')}
+                selectedRegion={currentUser?.region || 'ALL REGIONS'}
+                selectedStation={currentUser?.station || 'ALL STATIONS'}
+                currentUser={currentUser}
+                onRefreshData={() => window.location.reload()}
+              />
+            </div>
+          </ErrorBoundary>
         ) : (
           <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} />
         );
 
       case 'ai_console':
         return checkClearance(currentUser, 'acc_ai', false) ? (
-          <AICommandConsole 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal}
-            onBack={() => handlePageChange('home')}
-          />
+          <ErrorBoundary>
+            <AICommandConsole 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal}
+              onBack={() => handlePageChange('home')}
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} />
         );
 
       case 'approvals':  
         return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? (
-          <AdminApprovals 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal}
-            canViewGlobalActive={canViewGlobal}
-            setCurrentPage={handlePageChange} // 🟢 Passes the dashboard navigation handler correctly
-          />
+          <ErrorBoundary>
+            <AdminApprovals 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal}
+              canViewGlobalActive={canViewGlobal}
+              setCurrentPage={handlePageChange} // 🟢 Passes the dashboard navigation handler correctly
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3249,11 +3270,13 @@ const App = () => {
 
       case 'profile':  
         return checkClearance(currentUser, 'acc_profile', true) ? (
-          <AdminProfile 
-            currentUser={currentUser} 
-            setCurrentUser={setCurrentUser} 
-            setCurrentPage={handlePageChange} 
-          />
+          <ErrorBoundary>
+            <AdminProfile 
+              currentUser={currentUser} 
+              setCurrentUser={setCurrentUser} 
+              setCurrentPage={handlePageChange} 
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3268,14 +3291,16 @@ const App = () => {
 
       case 'Admin_Communication':  
         return checkClearance(currentUser, 'acc_comms', true) ? (
-          <Admin_Communication 
-            currentUser={currentUser} 
-            users={users} 
-            setCurrentPage={handlePageChange} 
-            onAcknowledgeComm={handleAcknowledgeComm}
-            onMarkAllRead={handleClearAllPings} 
-            initialTab={commDefaultTab} 
-          />
+          <ErrorBoundary>
+            <Admin_Communication 
+              currentUser={currentUser} 
+              users={users} 
+              setCurrentPage={handlePageChange} 
+              onAcknowledgeComm={handleAcknowledgeComm}
+              onMarkAllRead={handleClearAllPings} 
+              initialTab={commDefaultTab} 
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3290,11 +3315,13 @@ const App = () => {
 
       case 'exhibits':  
         return checkClearance(currentUser, 'acc_exhibits', true) ? (
-          <ExhibitsRegistry 
-            currentUser={currentUser} 
-            canViewGlobal={canViewGlobal}
-            isReadOnlyObserver={isReadOnlyObserver} 
-          />
+          <ErrorBoundary>
+            <ExhibitsRegistry 
+              currentUser={currentUser} 
+              canViewGlobal={canViewGlobal}
+              isReadOnlyObserver={isReadOnlyObserver} 
+            />
+          </ErrorBoundary>
         ) : (
           <HomeDashboard 
             currentUser={currentUser} 
@@ -3320,7 +3347,6 @@ const App = () => {
           />
         );
     }
-  };
 
   const handleViewHRReport = async () => {
     try {

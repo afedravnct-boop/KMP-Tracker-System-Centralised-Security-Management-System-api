@@ -462,3 +462,68 @@ async def process_tactical_query(
         tracecode = traceback.format_exc()
         print(tracecode)
         raise HTTPException(status_code=500, detail=f"Google API Connectivity Issue: {str(e)}")
+
+# Add to routers/ai.py
+
+class CrashTelemetryPayload(BaseModel):
+    glitch_category: str
+    page_name: str
+    element_point: str
+    description: str
+    console_logs: list[str] = []
+    network_errors: list[str] = []
+
+@router.post("/report-crash")
+async def report_client_crash(
+    payload: CrashTelemetryPayload,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db)
+):
+    """
+    Silently captures frontend WSOD/crash telemetry from the ErrorBoundary,
+    logs it to audit trails, and auto-dispatches an internal alert to Super Admins.
+    """
+    try:
+        # 1. Record activity in neon audit logs
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum if current_user else "SYSTEM",
+            action_type="CRASH_REPORT",
+            module="FRONTEND_TELEMETRY",
+            target_id=payload.page_name,
+            changes_summary=f"WSOD Crash on page [{payload.page_name}]. Element: {payload.element_point}. Error: {payload.description}"
+        )
+
+        # 2. Auto-dispatch internal command communication alert to Super Admins
+        AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', None))
+        if AdminCommsModel:
+            glitch_summary = (
+                f"<p><strong>[AUTOMATED SYSTEM TELEMETRY ALERT]</strong></p>"
+                f"<p><strong>Glitch Category:</strong> {payload.glitch_category}</p>"
+                f"<p><strong>Malfunctioning Page:</strong> {payload.page_name}</p>"
+                f"<p><strong>Element / Coordinate:</strong> {payload.element_point}</p>"
+                f"<p><strong>Description:</strong> {payload.description}</p>"
+                f"<hr/><p><strong>Console Trace:</strong> {json.dumps(payload.console_logs)}</p>"
+            )
+            
+            new_dispatch = AdminCommsModel(
+                sender_fnum=current_user.fnum if current_user else "SYSTEM_AI",
+                sender_name="System AI Diagnostics",
+                sender_rank="AUTONOMOUS AUDITOR",
+                target_audience="ADMINS_ONLY",
+                subject=f"⚠️ TECHNICAL FAULT DETECTED: {payload.page_name}",
+                message=glitch_summary,
+                category="TECHNICAL_GLITCH",
+                priority="CRITICAL",
+                region="ALL REGIONS",
+                station="ALL STATIONS",
+                acknowledged=False
+            )
+            db.add(new_dispatch)
+            db.commit()
+
+        return {"status": "success", "message": "Crash telemetry processed and routed to High Command."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Crash reporting failed: {str(e)}")

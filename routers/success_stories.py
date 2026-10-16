@@ -272,7 +272,7 @@ def get_unique_categories(
     return sorted(list(set(categories)))
 
 # ====================================================================
-# 1C. SECURE AES-256 ZIP EXPORT (PHYSICAL PHOTOS & EXHIBITS)
+# 1C. SECURE AES-256 ZIP EXPORT (PHYSICAL PHOTOS, EXHIBITS & EXCEL DATA)
 # ====================================================================
 @router.get("/stories/export")
 def export_stories_archive(
@@ -332,14 +332,46 @@ def export_stories_archive(
 
     records = query.order_by(models.Success_Stories.sn.desc()).all()
 
+    # 1. Generate Excel Document Data
+    data_rows = []
+    for r in records:
+        data_rows.append({
+            "SN": getattr(r, 'sn', getattr(r, 'id', '')),
+            "Date": getattr(r, 'date', ''),
+            "Category": getattr(r, 'category', ''),
+            "Title": getattr(r, 'title', ''),
+            "Region": getattr(r, 'region', ''),
+            "Station": getattr(r, 'station', ''),
+            "Narrative": strip_html_tags(getattr(r, 'narrative', '')),
+            "Photo/Exhibit Links": getattr(r, 'photo_url', ''),
+            "Last Updated By": getattr(r, 'last_updated_by', '')
+        })
+
+    df = pd.DataFrame(data_rows) if data_rows else pd.DataFrame(columns=["SN", "Date", "Category", "Title", "Region", "Station", "Narrative", "Photo/Exhibit Links", "Last Updated By"])
+
+    excel_buffer = io.BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name="Success Stories", index=False)
+        workbook = writer.book
+        workbook.properties.creator = get_officer_signature(current_user)
+        workbook.properties.title = "KMP Secure Success Stories Export"
+        workbook.properties.subject = "Restricted Law Enforcement Extract"
+
+    excel_buffer.seek(0)
+
+    # 2. Create Secure ZIP Archive
     zip_stream = io.BytesIO()
     zip_password = str(current_user.fnum).strip().encode('utf-8')
-    timestamp = datetime.now().strftime("%Y%m%d")
-    zip_filename = f"SECURE_SUCCESS_STORIES_EXHIBITS_{timestamp}.zip"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_filename = f"SECURE_SUCCESS_STORIES_ARCHIVE_{timestamp}.zip"
 
     with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
         zf.setpassword(zip_password)
 
+        # Write the Excel summary document to the root of the ZIP
+        zf.writestr(f"Success_Stories_Report_{timestamp}.xlsx", excel_buffer.getvalue())
+
+        # Write the physical photo exhibits into the ZIP
         for r in records:
             sn = getattr(r, 'sn', getattr(r, 'id', 'UNKNOWN'))
             station_name = strip_html_tags(getattr(r, 'station', 'STATION')).replace('/', '_').replace(' ', '_')
@@ -358,12 +390,12 @@ def export_stories_archive(
                             if file_ext not in ['jpg', 'jpeg', 'png', 'webp', 'pdf']:
                                 file_ext = 'jpg'
                             
-                            filename = f"SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
+                            filename = f"Exhibits/SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
                             zf.writestr(filename, img_response.content)
                     elif os.path.exists(url):
                         with open(url, 'rb') as f:
                             file_ext = url.split('.')[-1].lower()
-                            filename = f"SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
+                            filename = f"Exhibits/SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
                             zf.writestr(filename, f.read())
                 except Exception as ex:
                     print(f"Failed to bundle exhibit for SN {sn}: {str(ex)}")
@@ -375,8 +407,8 @@ def export_stories_archive(
         fnum=current_user.fnum,
         action_type="EXPORT",
         module="SUCCESS_STORIES",
-        target_id="SECURE_PHOTO_ZIP_EXPORT",
-        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely exported physical photo exhibits archive for Success Stories ({len(records)} records processed)."
+        target_id="SECURE_FULL_ARCHIVE_EXPORT",
+        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely exported combined Excel report and physical photo exhibits archive for Success Stories ({len(records)} records processed)."
     )
 
     return StreamingResponse(

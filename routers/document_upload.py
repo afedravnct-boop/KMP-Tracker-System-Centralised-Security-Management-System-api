@@ -361,7 +361,7 @@ def download_archive_file(
                 header_p = header.paragraphs[0]
             
             try:
-                # 🟢 Robust VML Left-Margin / Diagonal Red Watermark in Receipt Font (Courier New)
+                # 🟢 Restored safe VML structure mapped cleanly to the left margin (diagonal/vertical)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -373,9 +373,9 @@ def download_archive_file(
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
-                                 style="position:absolute;left:10pt;top:40pt;width:15pt;height:620pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 style="position:absolute;left:10pt;top:80pt;width:20pt;height:650pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                  fillcolor="#CC0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:8pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                            <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
                 </w:r>
@@ -394,7 +394,7 @@ def download_archive_file(
                 for page in pdf_doc:
                     rect = page.rect
                     page.insert_text(
-                        pymupdf.Point(15, rect.height - 50),
+                        pymupdf.Point(20, rect.height - 50),
                         vertical_stamp_text,
                         fontsize=7,
                         fontname="courier-bold",
@@ -469,16 +469,23 @@ def download_archive_file(
 
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
+            # 🟢 Explicitly set ContentDisposition="inline" to fix the Google Docs Viewer crash
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
                 Body=final_bytes,
                 ContentType=content_type,
+                ContentDisposition="inline", 
                 ServerSideEncryption="AES256"
             )
+            # 🟢 Instruct the generated URL to force the browser to view it inline
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
-                Params={'Bucket': BUCKET_NAME, 'Key': temp_s3_key},
+                Params={
+                    'Bucket': BUCKET_NAME, 
+                    'Key': temp_s3_key,
+                    'ResponseContentDisposition': 'inline' 
+                },
                 ExpiresIn=3600
             )
             return JSONResponse(content={"url": presigned_url})
