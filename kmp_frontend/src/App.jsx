@@ -3347,6 +3347,7 @@ const App = () => {
           />
         );
     }
+  };  
 
   const handleViewHRReport = async () => {
     try {
