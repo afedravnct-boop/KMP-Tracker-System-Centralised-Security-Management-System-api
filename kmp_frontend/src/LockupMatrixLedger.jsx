@@ -38,7 +38,7 @@ const getTodayString = () => {
 
 const getYesterdayString = () => {
   const tzOffset = new Date().getTimezoneOffset() * 60000; 
-  const localDate = new Date(Date.now() - 86400000 - tzOffset); // Subtract 24 hours
+  const localDate = new Date(Date.now() - 86400000 - tzOffset);
   return localDate.toISOString().split('T')[0];
 };
 
@@ -49,12 +49,16 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   // Matrix Ledger States
   const [lockupFilter, setLockupFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [ledgerViewType, setLedgerViewType] = useState('STATIONS'); // 🟢 'STATIONS' or 'MASTER'
+  const [ledgerViewType, setLedgerViewType] = useState('STATIONS'); // 'STATIONS' or 'MASTER'
   
   const userRole = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPos = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const userStnClean = stripHtmlTags(currentUser?.station || '').toUpperCase();
+
+  // 🟢 Commander KMP Office / Super Admin Strict Checking
+  const validMasterPositions = ['KMP COMMANDER', 'KMP COMD', 'KMP COMDR', 'COMMANDER KMP', 'COMD KMP', 'COMDR KMP', 'DEPUTY KMP COMMANDER', 'DEPUTY KMP COMD', 'DEPUTY KMP COMDR', 'DEPUTY COMMANDER KMP', 'DEPUTY COMD KMP', 'DEPUTY COMDR KMP', 'KMP ADMIN OFFICER', 'KMP ADMIN', 'ADMIN. KMP', 'ADMIN'];
+  const canManageMasterLockup = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'ADMIN'].includes(userRole) || validMasterPositions.some(p => userPos.includes(p) || userRole === p);
 
   // Clearance Tiers matching Admin Approvals standards
   const isAbsoluteGlobal = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRole) || 
@@ -102,6 +106,17 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     station: stripHtmlTags(currentUser?.station || ''),
     region: stripHtmlTags(currentUser?.region || '')
   });
+
+  // 🟢 Helper to dynamically inject KMP Master Lockup into station dropdown if clearance allows
+  const getDropdownStations = (region) => {
+    const base = REGIONAL_HIERARCHY[region] || [];
+    if (region === 'KMP HEADQUARTERS' && canManageMasterLockup) {
+      if (!base.includes('HEADQUARTERS GENERAL TOTAL')) {
+        return ['HEADQUARTERS GENERAL TOTAL', ...base];
+      }
+    }
+    return base;
+  };
 
   useEffect(() => {
     const fetchStationSummary = async () => {
@@ -290,7 +305,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     } else {
       filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() !== 'HEADQUARTERS GENERAL TOTAL');
       
-      // 🟢 Enforce strict jurisdiction bounds for non-globals on Station Logs
+      // Enforce strict jurisdiction bounds for non-globals on Station Logs
       filtered = filtered.filter(row => {
         const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
         const reg = getOfficialRegionForStation(stn, row.region);
@@ -319,7 +334,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       });
     }
 
-    // 🟢 Dynamic Date Filtering (Applies to both Master General Logs and Station Logs)
+    // Dynamic Date Filtering (Applies strictly to Master General Logs AND Station Logs)
     if (lockupFilter !== 'ALL') {
       const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
       const todayStr = today.toISOString().split('T')[0];
@@ -381,7 +396,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               <Shield className="w-4 h-4 mr-2" />
               {activeTab === 'LOG_FORM' ? 'Daily Cell Census Entry' : activeTab === 'LEDGER' ? 'Suspect Lock-Up Matrix Ledger' : 'Detailed Suspect Register'}
             </h3>
-            {/* 🟢 Backend-Powered Header Data */}
+            {/* Backend-Powered Header Data */}
             <div className="flex flex-wrap gap-3 mt-1">
               <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
                 Today's Log: <span className={stationSummary.todaysTotal !== null ? "text-green-300" : "text-red-300"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'MISSING'}</span>
@@ -431,7 +446,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Region *</label>
                   <select 
                     value={isAbsoluteGlobal ? formInput.region : userRegClean} 
-                    onChange={e => isAbsoluteGlobal && setFormInput({...formInput, region: e.target.value, station: REGIONAL_HIERARCHY[e.target.value]?.[0] || ''})} 
+                    onChange={e => isAbsoluteGlobal && setFormInput({...formInput, region: e.target.value, station: getDropdownStations(e.target.value)[0] || ''})} 
                     required 
                     disabled={!isAbsoluteGlobal} 
                     className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none disabled:opacity-90 disabled:cursor-not-allowed"
@@ -453,7 +468,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                     className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none disabled:opacity-90 disabled:cursor-not-allowed"
                   >
                     {(isAbsoluteGlobal || isRegionalCommandTier) ? (
-                      (REGIONAL_HIERARCHY[formInput.region || userRegClean] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
+                      getDropdownStations(formInput.region || userRegClean).map(stat => <option key={stat} value={stat}>{stat}</option>)
                     ) : (
                       <option value={userStnClean}>{userStnClean}</option>
                     )}
@@ -536,10 +551,10 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                       >
                         {(isAbsoluteGlobal || isRegionalCommandTier) && <option value="ALL STATIONS">ALL STATIONS ({ledgerFilterRegion})</option>}
                         {(isAbsoluteGlobal || isRegionalCommandTier) && ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
-                          REGIONAL_HIERARCHY[ledgerFilterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                          getDropdownStations(ledgerFilterRegion).map(stat => <option key={stat} value={stat}>{stat}</option>)
                         ) : (
                           REGIONAL_HIERARCHY[userRegClean] ? (
-                            REGIONAL_HIERARCHY[userRegClean].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                            getDropdownStations(userRegClean).map(stat => <option key={stat} value={stat}>{stat}</option>)
                           ) : <option value={userStnClean}>{userStnClean}</option>
                         )}
                       </select>
@@ -557,6 +572,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 ))}
               </div>
             </div>
+
+            {/* 🟢 History Banner specific to Master Lockup Dropdown */}
+            {ledgerViewType === 'MASTER' && (
+              <div className="bg-amber-950/80 text-amber-300 px-6 py-2 text-[10px] font-black uppercase flex items-center shadow-inner tracking-widest border-b border-amber-900/50 shrink-0">
+                <Calendar className="w-3.5 h-3.5 mr-2" /> KMP Master Lock-up History Log
+              </div>
+            )}
             
             <div className="overflow-y-auto flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900">
               <table className="w-full text-left border-collapse table-auto">
@@ -584,8 +606,11 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <tbody className="divide-y divide-amber-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                   {filteredLockupEntries.length > 0 ? (
                     filteredLockupEntries.map((row, idx) => {
-                      // 🟢 Enforce 24 Hour Edit Lock: Only Today's and Yesterday's logs are editable
-                      const isEditable = row.date === todayStr || row.date === yesterdayStr;
+                      const isMasterRow = stripHtmlTags(row.station || '').trim().toUpperCase() === 'HEADQUARTERS GENERAL TOTAL';
+                      // 🟢 Enforce 24 Hour Edit Lock AND Master Lockup Role Guard
+                      const isTimeValid = row.date === todayStr || row.date === yesterdayStr;
+                      const hasRoleRights = !isMasterRow || canManageMasterLockup;
+                      const isEditable = isTimeValid && hasRoleRights;
 
                       return (
                         <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-slate-800/50 transition-colors">
@@ -595,7 +620,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                                 <Edit size={14}/>
                               </button>
                             ) : (
-                              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded cursor-not-allowed border border-slate-300 dark:border-slate-700" title="Record locked (Exceeds 24 Hrs)">LOCKED</span>
+                              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded cursor-not-allowed border border-slate-300 dark:border-slate-700" title={!hasRoleRights ? "Command Tier Access Only" : "Record locked (Exceeds 24 Hrs)"}>LOCKED</span>
                             )}
                           </td>
                           <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{row.date}</td>
@@ -618,7 +643,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                       );
                     })
                   ) : (
-                    <tr><td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No independent lock-up records found.</td></tr>
+                    <tr><td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No master lockup records found.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -746,10 +771,10 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                   >
                     {(isAbsoluteGlobal || isRegionalCommandTier) && <option value="ALL STATIONS">ALL STATIONS ({registerFilterRegion})</option>}
                     {(isAbsoluteGlobal || isRegionalCommandTier) && registerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[registerFilterRegion] ? (
-                      REGIONAL_HIERARCHY[registerFilterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                      getDropdownStations(registerFilterRegion).map(stat => <option key={stat} value={stat}>{stat}</option>)
                     ) : (
                       REGIONAL_HIERARCHY[userRegClean] ? (
-                        REGIONAL_HIERARCHY[userRegClean].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                        getDropdownStations(userRegClean).map(stat => <option key={stat} value={stat}>{stat}</option>)
                       ) : <option value={userStnClean}>{userStnClean}</option>
                     )}
                   </select>

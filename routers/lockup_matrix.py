@@ -335,12 +335,12 @@ def update_lockup_entry(
     if not existing_entry:
         raise HTTPException(status_code=404, detail="Lockup matrix entry not found.")
     
-    # 🟢 Strict 24-Hour Edit Lock Check on Backend
+    # 🟢 1. Strict 24-Hour Edit Lock Check
     entry_date = existing_entry.date
     if isinstance(entry_date, str):
         try:
             entry_date = datetime.strptime(entry_date, "%Y-%m-%d").date()
-        except:
+        except Exception:
             entry_date = None
             
     if entry_date:
@@ -349,20 +349,36 @@ def update_lockup_entry(
             raise HTTPException(status_code=403, detail="Clearance Denied: Cannot modify lockup records older than 24 hours.")
             
     user_role = (current_user.role or "").strip().upper()
+    user_pos = (current_user.position or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
     perms = current_user.permissions or {}
     
-    is_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
-        perms.get("global_observer", False) is True or 
-        perms.get("global_open", False) is True or
-        str(current_user.region).strip().upper() in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
-    )
-    
-    if not is_global:
-        entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
-        # 🟢 Use dual-equivalence engine check so station names match cleanly without 403 blocks
-        if not is_station_equivalent(entry_station, user_station) and entry_station != "HEADQUARTERS GENERAL TOTAL":
+    entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
+
+    # 🟢 2. KMP Master Lockup Authorization Check
+    if entry_station == "HEADQUARTERS GENERAL TOTAL":
+        valid_master_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]
+        valid_master_positions = [
+            "KMP COMMANDER", "KMP COMD", "KMP COMDR", "COMMANDER KMP", "COMD KMP", "COMDR KMP", 
+            "DEPUTY KMP COMMANDER", "DEPUTY KMP COMD", "DEPUTY KMP COMDR", "DEPUTY COMMANDER KMP", 
+            "DEPUTY COMD KMP", "DEPUTY COMDR KMP", "KMP ADMIN OFFICER", "KMP ADMIN", "ADMIN. KMP", "ADMIN"
+        ]
+        
+        has_master_clearance = user_role in valid_master_roles or any(p in user_pos for p in valid_master_positions) or user_role in valid_master_positions
+        
+        if not has_master_clearance:
+            raise HTTPException(status_code=403, detail="Clearance Denied: Only the Office of the Commander KMP can edit the Master Lockup.")
+            
+    # 🟢 3. Standard Station User Clearance Check
+    else:
+        is_global = (
+            user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
+            perms.get("global_observer", False) is True or 
+            perms.get("global_open", False) is True or
+            str(current_user.region).strip().upper() in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
+        )
+        
+        if not is_global and not is_station_equivalent(entry_station, user_station):
             raise HTTPException(status_code=403, detail="Clearance Denied: You can only update lockup records for your own station.")
 
     try:
