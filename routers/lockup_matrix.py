@@ -2,10 +2,14 @@
 import json
 import csv
 import io
+import os
+import tempfile
+import zipfile
+import pandas as pd
 from datetime import date, datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, text
 
@@ -331,6 +335,19 @@ def update_lockup_entry(
     if not existing_entry:
         raise HTTPException(status_code=404, detail="Lockup matrix entry not found.")
     
+    # 🟢 Strict 24-Hour Edit Lock Check on Backend
+    entry_date = existing_entry.date
+    if isinstance(entry_date, str):
+        try:
+            entry_date = datetime.strptime(entry_date, "%Y-%m-%d").date()
+        except:
+            entry_date = None
+            
+    if entry_date:
+        days_difference = (date.today() - entry_date).days
+        if days_difference > 1:
+            raise HTTPException(status_code=403, detail="Clearance Denied: Cannot modify lockup records older than 24 hours.")
+            
     user_role = (current_user.role or "").strip().upper()
     user_station = (current_user.station or "").strip().upper()
     perms = current_user.permissions or {}

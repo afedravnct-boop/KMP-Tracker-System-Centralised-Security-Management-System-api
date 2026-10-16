@@ -36,6 +36,12 @@ const getTodayString = () => {
   return localDate.toISOString().split('T')[0];
 };
 
+const getYesterdayString = () => {
+  const tzOffset = new Date().getTimezoneOffset() * 60000; 
+  const localDate = new Date(Date.now() - 86400000 - tzOffset); // Subtract 24 hours
+  return localDate.toISOString().split('T')[0];
+};
+
 const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, selectedRegion, selectedStation, currentUser, onRefreshData }) => {
   const [activeTab, setActiveTab] = useState('LOG_FORM'); 
   const [notification, setNotification] = useState(null);
@@ -43,6 +49,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   // Matrix Ledger States
   const [lockupFilter, setLockupFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [ledgerViewType, setLedgerViewType] = useState('STATIONS'); // 🟢 'STATIONS' or 'MASTER'
   
   const userRole = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPos = stripHtmlTags(currentUser?.position || '').toUpperCase();
@@ -58,7 +65,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                               userPos.includes('RPC') || 
                               userPos.includes('DEPUTY COMMANDER');
 
-  // 🟢 Strict jurisdiction locking: Station users are locked to their profile region & station
+  // Strict jurisdiction locking
   const initialRegion = isAbsoluteGlobal ? (selectedRegion || 'ALL REGIONS') : userRegClean;
   const initialStation = isAbsoluteGlobal ? (selectedStation || 'ALL STATIONS') : (isRegionalCommandTier ? 'ALL STATIONS' : userStnClean);
 
@@ -71,11 +78,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const [registerFilterRegion, setRegisterFilterRegion] = useState(initialRegion);
   const [registerFilterStation, setRegisterFilterStation] = useState(initialStation);
 
-  // 🟢 Backend Summary State
+  // Backend Summary State
   const [stationSummary, setStationSummary] = useState({ todaysTotal: null, lastLoggedDate: 'Never', lastLoggedSuspects: 0 });
-
-  const canSelectAnyRegion = isAbsoluteGlobal;
-  const effectiveRegion = isAbsoluteGlobal ? ledgerFilterRegion : userRegClean;
 
   // Form Inputs initialized to user's assigned station/region
   const [matrixOperation, setMatrixOperation] = useState('new');
@@ -99,7 +103,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     region: stripHtmlTags(currentUser?.region || '')
   });
 
-  // 🟢 Fetch summary from the backend to avoid heavy frontend calculations
   useEffect(() => {
     const fetchStationSummary = async () => {
       try {
@@ -146,7 +149,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     const cleanStationSub = stripHtmlTags(formInput.station).substring(0, 3).toUpperCase();
     const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
 
-    // Enforce station restriction on submission for non-globals
     const submissionRegion = isAbsoluteGlobal ? formInput.region : userRegClean;
     const submissionStation = (isAbsoluteGlobal || isRegionalCommandTier) ? formInput.station : userStnClean;
 
@@ -282,30 +284,42 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const filteredLockupEntries = useMemo(() => {
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
 
-    filtered = filtered.filter(row => {
-      const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
-      const reg = getOfficialRegionForStation(stn, row.region);
+    // 🟢 View Type Logic: Separate KMP Master General Logs vs Standard Station Logs
+    if (ledgerViewType === 'MASTER') {
+      filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() === 'HEADQUARTERS GENERAL TOTAL');
+    } else {
+      filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() !== 'HEADQUARTERS GENERAL TOTAL');
+      
+      // 🟢 Enforce strict jurisdiction bounds for non-globals on Station Logs
+      filtered = filtered.filter(row => {
+        const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
+        const reg = getOfficialRegionForStation(stn, row.region);
 
-      // 🟢 Enforce strict jurisdiction bounds for non-globals
-      if (!isAbsoluteGlobal && !isRegionalCommandTier) {
-        if (!isStationEquivalent(stn, userStnClean)) return false;
-      } else if (ledgerFilterRegion && ledgerFilterRegion !== 'ALL REGIONS') {
-        const cleanTargetRegion = ledgerFilterRegion.trim().toUpperCase();
-        const belongsToRegion = reg === cleanTargetRegion || (REGIONAL_HIERARCHY[cleanTargetRegion] && REGIONAL_HIERARCHY[cleanTargetRegion].includes(stn));
-        if (!belongsToRegion) return false;
-      }
+        if (!isAbsoluteGlobal && !isRegionalCommandTier) {
+          if (!isStationEquivalent(stn, userStnClean)) return false;
+        } else if (ledgerFilterRegion && ledgerFilterRegion !== 'ALL REGIONS') {
+          const cleanTargetRegion = ledgerFilterRegion.trim().toUpperCase();
+          const belongsToRegion = reg === cleanTargetRegion || (REGIONAL_HIERARCHY[cleanTargetRegion] && REGIONAL_HIERARCHY[cleanTargetRegion].includes(stn));
+          if (!belongsToRegion) return false;
+        }
 
-      if (ledgerFilterStation && ledgerFilterStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, ledgerFilterStation)) return false;
-      }
+        if (ledgerFilterStation && ledgerFilterStation !== 'ALL STATIONS') {
+          if (!isStationEquivalent(stn, ledgerFilterStation)) return false;
+        }
+        return true;
+      });
+    }
 
-      if (searchQuery.trim()) {
-        const query = searchQuery.trim().toUpperCase();
+    if (searchQuery.trim()) {
+      const query = searchQuery.trim().toUpperCase();
+      filtered = filtered.filter(row => {
+        const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
+        const reg = getOfficialRegionForStation(stn, row.region);
         return stn.includes(query) || reg.includes(query) || stripHtmlTags(row.last_updated_by || '').toUpperCase().includes(query) || stripHtmlTags(row.date || '').includes(query);
-      }
-      return true;
-    });
+      });
+    }
 
+    // 🟢 Dynamic Date Filtering (Applies to both Master General Logs and Station Logs)
     if (lockupFilter !== 'ALL') {
       const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
       const todayStr = today.toISOString().split('T')[0];
@@ -328,7 +342,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       const diff = Number(log?.suspects || 0) - Number(arr[index + 1]?.suspects || 0);
       return { ...log, variation: diff, marginStr: diff > 0 ? `+${diff}` : `${diff}`, hasPrev: true };
     });
-  }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation, searchQuery, isAbsoluteGlobal, isRegionalCommandTier, userStnClean]);
+  }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation, searchQuery, isAbsoluteGlobal, isRegionalCommandTier, userStnClean, ledgerViewType]);
 
   const totals = useMemo(() => {
     return filteredLockupEntries.reduce((acc, row) => {
@@ -352,6 +366,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       activeTab === tabId ? `bg-${baseColor}-500 text-${baseColor}-950 shadow` : `text-${baseColor}-200 hover:text-white`
     }`;
   };
+
+  const todayStr = getTodayString();
+  const yesterdayStr = getYesterdayString();
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-2 sm:p-4 animate-in fade-in zoom-in-95 duration-200">
@@ -480,45 +497,55 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
             <div className="bg-amber-50 dark:bg-slate-900 px-6 py-3 border-b border-amber-200 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-3 shrink-0">
               <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                 <div className="flex items-center space-x-2">
-  <Filter className="w-4 h-4 text-amber-800 dark:text-amber-400 shrink-0" />
-  
-  {/* Region Selector */}
-  <select 
-    value={isAbsoluteGlobal ? ledgerFilterRegion : userRegClean} 
-    onChange={e => { 
-      if (isAbsoluteGlobal) {
-        setLedgerFilterRegion(e.target.value); 
-        setLedgerFilterStation('ALL STATIONS'); 
-      }
-    }} 
-    disabled={!isAbsoluteGlobal} 
-    className="border border-amber-300 dark:border-slate-700 text-amber-900 dark:text-amber-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
-  >
-    {isAbsoluteGlobal && <option value="ALL REGIONS">ALL REGIONS</option>}
-    {isAbsoluteGlobal ? (
-      Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
-    ) : (
-      <option value={userRegClean}>{userRegClean}</option>
-    )}
-  </select>
+                  <Filter className="w-4 h-4 text-amber-800 dark:text-amber-400 shrink-0" />
+                  
+                  {/* 🟢 View Type Toggle for Station Logs vs Master Lockup */}
+                  <div className="flex bg-amber-200/50 dark:bg-slate-800 rounded-lg p-0.5 shadow-inner border border-amber-300 dark:border-slate-700 mr-2">
+                    <button onClick={() => setLedgerViewType('STATIONS')} className={`px-3 py-1.5 text-[10px] font-extrabold uppercase rounded-md transition-colors cursor-pointer ${ledgerViewType === 'STATIONS' ? 'bg-amber-600 text-white shadow' : 'text-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-slate-700'}`}>Station Logs</button>
+                    <button onClick={() => setLedgerViewType('MASTER')} className={`px-3 py-1.5 text-[10px] font-extrabold uppercase rounded-md transition-colors cursor-pointer ${ledgerViewType === 'MASTER' ? 'bg-amber-600 text-white shadow' : 'text-amber-800 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-slate-700'}`}>Master Lockup</button>
+                  </div>
+                  
+                  {ledgerViewType === 'STATIONS' && (
+                    <>
+                      {/* Region Selector */}
+                      <select 
+                        value={isAbsoluteGlobal ? ledgerFilterRegion : userRegClean} 
+                        onChange={e => { 
+                          if (isAbsoluteGlobal) {
+                            setLedgerFilterRegion(e.target.value); 
+                            setLedgerFilterStation('ALL STATIONS'); 
+                          }
+                        }} 
+                        disabled={!isAbsoluteGlobal} 
+                        className="border border-amber-300 dark:border-slate-700 text-amber-900 dark:text-amber-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
+                      >
+                        {isAbsoluteGlobal && <option value="ALL REGIONS">ALL REGIONS</option>}
+                        {isAbsoluteGlobal ? (
+                          Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
+                        ) : (
+                          <option value={userRegClean}>{userRegClean}</option>
+                        )}
+                      </select>
 
-  {/* Station Selector */}
-  <select 
-    value={isAbsoluteGlobal || isRegionalCommandTier ? ledgerFilterStation : userStnClean} 
-    onChange={e => (isAbsoluteGlobal || isRegionalCommandTier) && setLedgerFilterStation(e.target.value)} 
-    disabled={!isAbsoluteGlobal && !isRegionalCommandTier}
-    className="border border-amber-300 dark:border-slate-700 text-amber-900 dark:text-amber-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
-  >
-    {(isAbsoluteGlobal || isRegionalCommandTier) && <option value="ALL STATIONS">ALL STATIONS ({ledgerFilterRegion})</option>}
-    {(isAbsoluteGlobal || isRegionalCommandTier) && ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
-      REGIONAL_HIERARCHY[ledgerFilterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
-    ) : (
-      REGIONAL_HIERARCHY[userRegClean] ? (
-        REGIONAL_HIERARCHY[userRegClean].map(stat => <option key={stat} value={stat}>{stat}</option>)
-      ) : <option value={userStnClean}>{userStnClean}</option>
-    )}
-  </select>
-</div>
+                      {/* Station Selector */}
+                      <select 
+                        value={isAbsoluteGlobal || isRegionalCommandTier ? ledgerFilterStation : userStnClean} 
+                        onChange={e => (isAbsoluteGlobal || isRegionalCommandTier) && setLedgerFilterStation(e.target.value)} 
+                        disabled={!isAbsoluteGlobal && !isRegionalCommandTier}
+                        className="border border-amber-300 dark:border-slate-700 text-amber-900 dark:text-amber-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
+                      >
+                        {(isAbsoluteGlobal || isRegionalCommandTier) && <option value="ALL STATIONS">ALL STATIONS ({ledgerFilterRegion})</option>}
+                        {(isAbsoluteGlobal || isRegionalCommandTier) && ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
+                          REGIONAL_HIERARCHY[ledgerFilterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                        ) : (
+                          REGIONAL_HIERARCHY[userRegClean] ? (
+                            REGIONAL_HIERARCHY[userRegClean].map(stat => <option key={stat} value={stat}>{stat}</option>)
+                          ) : <option value={userStnClean}>{userStnClean}</option>
+                        )}
+                      </select>
+                    </>
+                  )}
+                </div>
                 <div className="relative flex items-center min-w-[200px]">
                   <Search className="w-3.5 h-3.5 absolute left-2.5 text-amber-700 dark:text-amber-400" />
                   <input type="text" placeholder="Search station, date..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-950 border border-amber-300 dark:border-slate-700 rounded-lg text-xs font-semibold text-amber-900 dark:text-amber-200 outline-none focus:ring-1 focus:ring-amber-500" />
@@ -556,29 +583,40 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 </thead>
                 <tbody className="divide-y divide-amber-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
                   {filteredLockupEntries.length > 0 ? (
-                    filteredLockupEntries.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-800">
-                           <button onClick={() => populateMatrixEdit(row)} className="text-blue-400 hover:text-blue-300 p-1 bg-blue-950/60 rounded border border-blue-800 cursor-pointer"><Edit size={14}/></button>
-                        </td>
-                        <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{row.date}</td>
-                        <td className="px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase border-r border-slate-200 dark:border-slate-800">{row.station}</td>
-                        <td className="px-3 py-3 text-sm font-black text-amber-700 dark:text-amber-400 text-center bg-amber-50/30 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800">{row.suspects}</td>
-                        <td className="px-2 py-3 text-xs font-bold text-blue-700 dark:text-blue-400 text-center border-r border-slate-200 dark:border-slate-800 bg-blue-50/20 dark:bg-slate-950">{row.male_count || row.male || 0}</td>
-                        <td className="px-2 py-3 text-xs font-bold text-indigo-700 dark:text-indigo-400 text-center border-r border-slate-200 dark:border-slate-800 bg-indigo-50/20 dark:bg-slate-950">{row.male_juvenile_count || row.male_juvenile || 0}</td>
-                        <td className="px-2 py-3 text-xs font-bold text-pink-700 dark:text-pink-400 text-center border-r border-slate-200 dark:border-slate-800 bg-pink-50/20 dark:bg-slate-950">{row.female_count || row.female || 0}</td>
-                        <td className="px-2 py-3 text-xs font-bold text-purple-700 dark:text-purple-400 text-center border-r border-slate-200 dark:border-slate-800 bg-purple-50/20 dark:bg-slate-950">{row.female_juvenile_count || row.female_juvenile || 0}</td>
-                        <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_1day || 0}</td>
-                        <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_2days || 0}</td>
-                        <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_3days_over || 0}</td>
-                        <td className="px-3 py-3 text-xs font-bold text-center border-r border-slate-200 dark:border-slate-800">
-                          {row.marginStr.startsWith('+') ? <span className="text-red-400 bg-red-950/60 px-2 py-0.5 rounded border border-red-800 flex items-center justify-center max-w-max mx-auto"><TrendingUp className="w-3 h-3 mr-1" /> {row.marginStr}</span>
-                          : row.marginStr.startsWith('-') ? <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800 flex items-center justify-center max-w-max mx-auto"><TrendingDown className="w-3 h-3 mr-1" /> {row.marginStr}</span>
-                          : <span className="text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 flex items-center justify-center max-w-max mx-auto"><Minus className="w-3 h-3 mr-1" /> 0</span>}
-                        </td>
-                        <td className="px-3 py-3 text-[11px] font-semibold text-slate-400 uppercase">{formatOfficerDisplay(row.last_updated_by)}</td>
-                      </tr>
-                    ))
+                    filteredLockupEntries.map((row, idx) => {
+                      // 🟢 Enforce 24 Hour Edit Lock: Only Today's and Yesterday's logs are editable
+                      const isEditable = row.date === todayStr || row.date === yesterdayStr;
+
+                      return (
+                        <tr key={idx} className="hover:bg-amber-50/50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="px-3 py-3 text-center border-r border-slate-200 dark:border-slate-800">
+                            {isEditable ? (
+                              <button onClick={() => populateMatrixEdit(row)} className="text-blue-400 hover:text-blue-300 p-1 bg-blue-950/60 rounded border border-blue-800 cursor-pointer" title="Edit Census">
+                                <Edit size={14}/>
+                              </button>
+                            ) : (
+                              <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded cursor-not-allowed border border-slate-300 dark:border-slate-700" title="Record locked (Exceeds 24 Hrs)">LOCKED</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{row.date}</td>
+                          <td className="px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase border-r border-slate-200 dark:border-slate-800">{row.station}</td>
+                          <td className="px-3 py-3 text-sm font-black text-amber-700 dark:text-amber-400 text-center bg-amber-50/30 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800">{row.suspects}</td>
+                          <td className="px-2 py-3 text-xs font-bold text-blue-700 dark:text-blue-400 text-center border-r border-slate-200 dark:border-slate-800 bg-blue-50/20 dark:bg-slate-950">{row.male_count || row.male || 0}</td>
+                          <td className="px-2 py-3 text-xs font-bold text-indigo-700 dark:text-indigo-400 text-center border-r border-slate-200 dark:border-slate-800 bg-indigo-50/20 dark:bg-slate-950">{row.male_juvenile_count || row.male_juvenile || 0}</td>
+                          <td className="px-2 py-3 text-xs font-bold text-pink-700 dark:text-pink-400 text-center border-r border-slate-200 dark:border-slate-800 bg-pink-50/20 dark:bg-slate-950">{row.female_count || row.female || 0}</td>
+                          <td className="px-2 py-3 text-xs font-bold text-purple-700 dark:text-purple-400 text-center border-r border-slate-200 dark:border-slate-800 bg-purple-50/20 dark:bg-slate-950">{row.female_juvenile_count || row.female_juvenile || 0}</td>
+                          <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_1day || 0}</td>
+                          <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_2days || 0}</td>
+                          <td className="px-2 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 text-center border-r border-slate-200 dark:border-slate-800">{row.detention_3days_over || 0}</td>
+                          <td className="px-3 py-3 text-xs font-bold text-center border-r border-slate-200 dark:border-slate-800">
+                            {row.marginStr.startsWith('+') ? <span className="text-red-400 bg-red-950/60 px-2 py-0.5 rounded border border-red-800 flex items-center justify-center max-w-max mx-auto"><TrendingUp className="w-3 h-3 mr-1" /> {row.marginStr}</span>
+                            : row.marginStr.startsWith('-') ? <span className="text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800 flex items-center justify-center max-w-max mx-auto"><TrendingDown className="w-3 h-3 mr-1" /> {row.marginStr}</span>
+                            : <span className="text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700 flex items-center justify-center max-w-max mx-auto"><Minus className="w-3 h-3 mr-1" /> 0</span>}
+                          </td>
+                          <td className="px-3 py-3 text-[11px] font-semibold text-slate-400 uppercase">{formatOfficerDisplay(row.last_updated_by)}</td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr><td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No independent lock-up records found.</td></tr>
                   )}
