@@ -71,6 +71,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const [registerFilterRegion, setRegisterFilterRegion] = useState(initialRegion);
   const [registerFilterStation, setRegisterFilterStation] = useState(initialStation);
 
+  // 🟢 Backend Summary State
+  const [stationSummary, setStationSummary] = useState({ todaysTotal: null, lastLoggedDate: 'Never', lastLoggedSuspects: 0 });
+
   const canSelectAnyRegion = isAbsoluteGlobal;
   const effectiveRegion = isAbsoluteGlobal ? ledgerFilterRegion : userRegClean;
 
@@ -95,6 +98,27 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     station: stripHtmlTags(currentUser?.station || ''),
     region: stripHtmlTags(currentUser?.region || '')
   });
+
+  // 🟢 Fetch summary from the backend to avoid heavy frontend calculations
+  useEffect(() => {
+    const fetchStationSummary = async () => {
+      try {
+        const activeStn = ledgerFilterStation !== 'ALL STATIONS' ? ledgerFilterStation : (currentUser?.station || '');
+        const res = await authFetch(`/api/v1/lockup-matrix/station-summary?station=${encodeURIComponent(activeStn)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setStationSummary({
+            todaysTotal: data.todays_total,
+            lastLoggedDate: data.last_logged_date,
+            lastLoggedSuspects: data.last_logged_suspects
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch station summary:", err);
+      }
+    };
+    fetchStationSummary();
+  }, [ledgerFilterStation, currentUser?.station]);
 
   useEffect(() => {
     if (activeTab === 'SUSPECT_REGISTER') fetchSuspectRegister();
@@ -255,20 +279,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }
   };
 
-  const stationDailyStats = useMemo(() => {
-    const stn = userStnClean;
-    const today = getTodayString();
-    const stationLogs = lockupEntries.filter(r => stripHtmlTags(r.station || '').trim().toUpperCase() === stn).sort((a, b) => new Date(b.date) - new Date(a.date));
-    
-    const todaysLog = stationLogs.find(r => r.date === today);
-    const lastLog = stationLogs.length > 0 ? stationLogs[0] : null;
-
-    return {
-      todaysTotal: todaysLog ? todaysLog.suspects : null,
-      lastLoggedDate: lastLog ? lastLog.date : 'Never'
-    };
-  }, [lockupEntries, userStnClean]);
-
   const filteredLockupEntries = useMemo(() => {
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
 
@@ -354,12 +364,16 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               <Shield className="w-4 h-4 mr-2" />
               {activeTab === 'LOG_FORM' ? 'Daily Cell Census Entry' : activeTab === 'LEDGER' ? 'Suspect Lock-Up Matrix Ledger' : 'Detailed Suspect Register'}
             </h3>
-            <div className="flex gap-4 mt-1">
+            {/* 🟢 Backend-Powered Header Data */}
+            <div className="flex flex-wrap gap-3 mt-1">
               <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
-                Today's Log: <span className={stationDailyStats.todaysTotal !== null ? "text-green-300" : "text-red-300"}>{stationDailyStats.todaysTotal !== null ? stationDailyStats.todaysTotal : 'MISSING'}</span>
+                Today's Log: <span className={stationSummary.todaysTotal !== null ? "text-green-300" : "text-red-300"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'MISSING'}</span>
               </span>
               <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
-                Last Logged: <span className="text-amber-300">{stationDailyStats.lastLoggedDate}</span>
+                Last Logged Date: <span className="text-amber-300">{stationSummary.lastLoggedDate}</span>
+              </span>
+              <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
+                Number Last Logged: <span className="text-emerald-300">{stationSummary.lastLoggedSuspects} Suspects</span>
               </span>
             </div>
           </div>
@@ -399,7 +413,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Region *</label>
                   <select 
-                    value={isAbsoluteGlobal || isRegionalCommandTier ? formInput.region : userRegClean} 
+                    value={isAbsoluteGlobal ? formInput.region : userRegClean} 
                     onChange={e => isAbsoluteGlobal && setFormInput({...formInput, region: e.target.value, station: REGIONAL_HIERARCHY[e.target.value]?.[0] || ''})} 
                     required 
                     disabled={!isAbsoluteGlobal} 

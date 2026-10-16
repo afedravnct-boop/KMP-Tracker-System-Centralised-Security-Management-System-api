@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, text
+from sqlalchemy import func, or_, and_, text
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -220,16 +220,87 @@ def create_lockup_entry(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to log cell population: {str(e)}")
 
+# 🟢 NEW: Backend Station Summary Engine
+@router.get("/lockup-matrix/station-summary")
+def get_station_lockup_summary(
+    station: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    """
+    Offloads heavy station census lookup and date sorting to the backend.
+    Returns the last logged date and suspect count for the specified or user's station.
+    """
+    target_station = (station or current_user.station or "").strip().upper()
+    clean_stn = target_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
+
+    query = db.query(models.LockupMatrix).filter(
+        or_(
+            func.upper(models.LockupMatrix.station) == target_station,
+            func.upper(models.LockupMatrix.station) == clean_stn,
+            func.upper(models.LockupMatrix.station) == f"{clean_stn} HEADQUARTERS"
+        )
+    )
+
+    # Apply OPSEC scope check to ensure station security
+    query = apply_opsec_scope(current_user, query, models.LockupMatrix)
+
+    # Fetch the most recent log by date and serial number descending
+    latest_log = query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).first()
+    
+    today_str = date.today().isoformat()
+    todays_log = query.filter(func.date(models.LockupMatrix.date) == today_str).first()
+
+    return {
+        "station": target_station,
+        "todays_total": todays_log.suspects if todays_log else None,
+        "last_logged_date": latest_log.date if latest_log else "Never",
+        "last_logged_suspects": latest_log.suspects if latest_log else 0
+    }
+
 @router.get("/lockup-matrix")
 def get_lockup_entries(
     search: Optional[str] = Query(None, description="Search term for station, region, or update signature"),
     todays_only: bool = Query(False, description="Filter strictly for current 24-hour cycle"),
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     query = db.query(models.LockupMatrix)
     query = apply_opsec_scope(current_user, query, models.LockupMatrix)
+
+    # Enforce strict station user boundary on backend if not global/regional command
+    user_role = str(current_user.role or "").strip().upper()
+    user_pos = str(current_user.position or "").strip().upper()
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        current_user.permissions.get("view_global_roster") is True
+    )
+    is_regional_command = user_role in ["RPC", "DEPUTY_RPC", "REGIONAL_ADMIN"] or "RPC" in user_pos
+
+    if not is_absolute_global and not is_regional_command:
+        # Station users are strictly locked to their profile station
+        user_stn = str(current_user.station or "").strip().upper()
+        clean_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        query = query.filter(
+            or_(
+                func.upper(models.LockupMatrix.station) == user_stn,
+                func.upper(models.LockupMatrix.station) == clean_stn
+            )
+        )
+    else:
+        if region and region.upper() not in ["ALL REGIONS", "ALL"]:
+            query = query.filter(func.upper(models.LockupMatrix.region) == region.upper())
+        if station and station.upper() not in ["ALL STATIONS", "ALL"]:
+            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(models.LockupMatrix.station) == station.upper(),
+                    func.upper(models.LockupMatrix.station) == clean_stn
+                )
+            )
 
     if todays_only:
         today_str = date.today().isoformat()
@@ -274,7 +345,7 @@ def update_lockup_entry(
     if not is_global:
         entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
         # 🟢 Use dual-equivalence engine check so station names match cleanly without 403 blocks
-        if not is_stationEquivalent(entry_station, user_station) and entry_station != "HEADQUARTERS GENERAL TOTAL":
+        if not is_station_equivalent(entry_station, user_station) and entry_station != "HEADQUARTERS GENERAL TOTAL":
             raise HTTPException(status_code=403, detail="Clearance Denied: You can only update lockup records for your own station.")
 
     try:
