@@ -49,18 +49,18 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const userStnClean = stripHtmlTags(currentUser?.station || '').toUpperCase();
 
-  // Clearance Tiers
+  // Clearance Tiers matching Admin Approvals standards
   const isAbsoluteGlobal = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRole) || 
                           currentUser?.permissions?.view_global_roster === true ||
                           ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean);
 
-  const isRegionalCommandTier = ['RPC', 'DEPUTY_RPC', 'RPC KMP', 'DEPUTY COMMANDER'].includes(userRole) || 
+  const isRegionalCommandTier = ['RPC', 'DEPUTY_RPC', 'RPC KMP', 'DEPUTY COMMANDER', 'REGIONAL_ADMIN'].includes(userRole) || 
                               userPos.includes('RPC') || 
                               userPos.includes('DEPUTY COMMANDER');
 
-  // Scoped initialization based on clearance
+  // 🟢 Strict jurisdiction locking: Station users are locked to their profile region & station
   const initialRegion = isAbsoluteGlobal ? (selectedRegion || 'ALL REGIONS') : userRegClean;
-  const initialStation = (isAbsoluteGlobal || isRegionalCommandTier) ? (selectedStation || 'ALL STATIONS') : userStnClean;
+  const initialStation = isAbsoluteGlobal ? (selectedStation || 'ALL STATIONS') : (isRegionalCommandTier ? 'ALL STATIONS' : userStnClean);
 
   const [ledgerFilterRegion, setLedgerFilterRegion] = useState(initialRegion);
   const [ledgerFilterStation, setLedgerFilterStation] = useState(initialStation);
@@ -74,7 +74,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const canSelectAnyRegion = isAbsoluteGlobal;
   const effectiveRegion = isAbsoluteGlobal ? ledgerFilterRegion : userRegClean;
 
-  // Form Inputs
+  // Form Inputs initialized to user's assigned station/region
   const [matrixOperation, setMatrixOperation] = useState('new');
   const [formInput, setFormInput] = useState({
     sn: null,
@@ -122,11 +122,15 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     const cleanStationSub = stripHtmlTags(formInput.station).substring(0, 3).toUpperCase();
     const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
 
+    // Enforce station restriction on submission for non-globals
+    const submissionRegion = isAbsoluteGlobal ? formInput.region : userRegClean;
+    const submissionStation = (isAbsoluteGlobal || isRegionalCommandTier) ? formInput.station : userStnClean;
+
     const payload = {
       ...formInput,
       sd_ref: popRef,
-      region: stripHtmlTags(formInput.region).toUpperCase(),
-      station: stripHtmlTags(formInput.station).toUpperCase(),
+      region: stripHtmlTags(submissionRegion).toUpperCase(),
+      station: stripHtmlTags(submissionStation).toUpperCase(),
       suspects: totalVal,
       male_count: parseInt(formInput.male_count) || 0,
       male_juvenile_count: parseInt(formInput.male_juvenile_count) || 0,
@@ -168,12 +172,21 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     e.preventDefault();
     setNotification({ type: 'info', text: "⏳ Saving suspect record..." });
 
+    const submissionStation = (isAbsoluteGlobal || isRegionalCommandTier) ? suspectFormInput.station : userStnClean;
+    const submissionRegion = isAbsoluteGlobal ? suspectFormInput.region : userRegClean;
+
+    const finalSuspectPayload = {
+      ...suspectFormInput,
+      station: stripHtmlTags(submissionStation),
+      region: stripHtmlTags(submissionRegion)
+    };
+
     try {
       const endpoint = registerOperation === 'update' && suspectFormInput.id ? `/api/v1/suspect-register/${suspectFormInput.id}` : '/api/v1/suspect-register';
       const method = registerOperation === 'update' && suspectFormInput.id ? 'PUT' : 'POST';
       
       const response = await authFetch(endpoint, {
-        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(suspectFormInput)
+        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(finalSuspectPayload)
       });
       
       if (!response.ok) throw new Error("Failed to save suspect record.");
@@ -188,7 +201,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
           id: null, name: '', sex: 'MALE', age: '', tribe: '', nationality: 'UGANDAN', residence: '',
           contact: '', next_of_kin: '', reason_for_detention: '', reference: '',
           date_in: getTodayString(), date_out: '', status: 'IN CUSTODY',
-          station: stripHtmlTags(currentUser?.station || ''), region: stripHtmlTags(currentUser?.region || '')
+          station: userStnClean, region: userRegClean
         });
       }, 1500);
     } catch (err) {
@@ -243,7 +256,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   };
 
   const stationDailyStats = useMemo(() => {
-    const stn = stripHtmlTags(currentUser?.station || '').trim().toUpperCase();
+    const stn = userStnClean;
     const today = getTodayString();
     const stationLogs = lockupEntries.filter(r => stripHtmlTags(r.station || '').trim().toUpperCase() === stn).sort((a, b) => new Date(b.date) - new Date(a.date));
     
@@ -254,7 +267,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       todaysTotal: todaysLog ? todaysLog.suspects : null,
       lastLoggedDate: lastLog ? lastLog.date : 'Never'
     };
-  }, [lockupEntries, currentUser?.station]);
+  }, [lockupEntries, userStnClean]);
 
   const filteredLockupEntries = useMemo(() => {
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
@@ -263,14 +276,17 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
       const reg = getOfficialRegionForStation(stn, row.region);
 
-      if (ledgerFilterRegion && ledgerFilterRegion !== 'ALL REGIONS') {
+      // 🟢 Enforce strict jurisdiction bounds for non-globals
+      if (!isAbsoluteGlobal && !isRegionalCommandTier) {
+        if (!isStationEquivalent(stn, userStnClean)) return false;
+      } else if (ledgerFilterRegion && ledgerFilterRegion !== 'ALL REGIONS') {
         const cleanTargetRegion = ledgerFilterRegion.trim().toUpperCase();
         const belongsToRegion = reg === cleanTargetRegion || (REGIONAL_HIERARCHY[cleanTargetRegion] && REGIONAL_HIERARCHY[cleanTargetRegion].includes(stn));
         if (!belongsToRegion) return false;
       }
 
       if (ledgerFilterStation && ledgerFilterStation !== 'ALL STATIONS') {
-        if (!stn.includes(ledgerFilterStation.trim().toUpperCase())) return false;
+        if (!isStationEquivalent(stn, ledgerFilterStation)) return false;
       }
 
       if (searchQuery.trim()) {
@@ -302,7 +318,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
       const diff = Number(log?.suspects || 0) - Number(arr[index + 1]?.suspects || 0);
       return { ...log, variation: diff, marginStr: diff > 0 ? `+${diff}` : `${diff}`, hasPrev: true };
     });
-  }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation, searchQuery]);
+  }, [lockupEntries, lockupFilter, ledgerFilterRegion, ledgerFilterStation, searchQuery, isAbsoluteGlobal, isRegionalCommandTier, userStnClean]);
 
   const totals = useMemo(() => {
     return filteredLockupEntries.reduce((acc, row) => {
@@ -382,14 +398,34 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Region *</label>
-                  <select value={formInput.region} onChange={e => setFormInput({...formInput, region: e.target.value, station: REGIONAL_HIERARCHY[e.target.value]?.[0] || ''})} required disabled={!isAbsoluteGlobal && matrixOperation === 'update'} className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none">
-                    {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
+                  <select 
+                    value={isAbsoluteGlobal || isRegionalCommandTier ? formInput.region : userRegClean} 
+                    onChange={e => isAbsoluteGlobal && setFormInput({...formInput, region: e.target.value, station: REGIONAL_HIERARCHY[e.target.value]?.[0] || ''})} 
+                    required 
+                    disabled={!isAbsoluteGlobal} 
+                    className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none disabled:opacity-90 disabled:cursor-not-allowed"
+                  >
+                    {isAbsoluteGlobal ? (
+                      Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
+                    ) : (
+                      <option value={userRegClean}>{userRegClean}</option>
+                    )}
                   </select>
                 </div>
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Station *</label>
-                  <select value={formInput.station} onChange={e => setFormInput({...formInput, station: e.target.value})} required disabled={!isAbsoluteGlobal && matrixOperation === 'update'} className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none">
-                    {(REGIONAL_HIERARCHY[formInput.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                  <select 
+                    value={isAbsoluteGlobal || isRegionalCommandTier ? formInput.station : userStnClean} 
+                    onChange={e => (isAbsoluteGlobal || isRegionalCommandTier) && setFormInput({...formInput, station: e.target.value})} 
+                    required 
+                    disabled={!isAbsoluteGlobal && !isRegionalCommandTier} 
+                    className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded uppercase bg-white dark:bg-slate-900 font-bold text-slate-800 dark:text-slate-200 outline-none disabled:opacity-90 disabled:cursor-not-allowed"
+                  >
+                    {(isAbsoluteGlobal || isRegionalCommandTier) ? (
+                      (REGIONAL_HIERARCHY[formInput.region || userRegClean] || []).map(stat => <option key={stat} value={stat}>{stat}</option>)
+                    ) : (
+                      <option value={userStnClean}>{userStnClean}</option>
+                    )}
                   </select>
                 </div>
                 <div>
@@ -434,10 +470,12 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   
   {/* Region Selector */}
   <select 
-    value={ledgerFilterRegion} 
+    value={isAbsoluteGlobal ? ledgerFilterRegion : userRegClean} 
     onChange={e => { 
-      setLedgerFilterRegion(e.target.value); 
-      setLedgerFilterStation('ALL STATIONS'); 
+      if (isAbsoluteGlobal) {
+        setLedgerFilterRegion(e.target.value); 
+        setLedgerFilterStation('ALL STATIONS'); 
+      }
     }} 
     disabled={!isAbsoluteGlobal} 
     className="border border-amber-300 dark:border-slate-700 text-amber-900 dark:text-amber-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
@@ -452,13 +490,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
   {/* Station Selector */}
   <select 
-    value={ledgerFilterStation} 
-    onChange={e => setLedgerFilterStation(e.target.value)} 
+    value={isAbsoluteGlobal || isRegionalCommandTier ? ledgerFilterStation : userStnClean} 
+    onChange={e => (isAbsoluteGlobal || isRegionalCommandTier) && setLedgerFilterStation(e.target.value)} 
     disabled={!isAbsoluteGlobal && !isRegionalCommandTier}
-    className="border border-amber-300 dark:border-slate-700 text-amber-900 dark:text-amber-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90"
+    className="border border-amber-300 dark:border-slate-700 text-amber-900 dark:text-amber-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
   >
     {(isAbsoluteGlobal || isRegionalCommandTier) && <option value="ALL STATIONS">ALL STATIONS ({ledgerFilterRegion})</option>}
-    {ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
+    {(isAbsoluteGlobal || isRegionalCommandTier) && ledgerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[ledgerFilterRegion] ? (
       REGIONAL_HIERARCHY[ledgerFilterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
     ) : (
       REGIONAL_HIERARCHY[userRegClean] ? (
@@ -630,7 +668,17 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
                 {/* Filters for Register */}
                 <div className="flex flex-wrap items-center gap-2">
-                  <select value={registerFilterRegion} onChange={e => { setRegisterFilterRegion(e.target.value); setRegisterFilterStation('ALL STATIONS'); }} disabled={!isAbsoluteGlobal} className="border border-blue-300 dark:border-slate-700 text-blue-900 dark:text-blue-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed">
+                  <select 
+                    value={isAbsoluteGlobal ? registerFilterRegion : userRegClean} 
+                    onChange={e => { 
+                      if (isAbsoluteGlobal) {
+                        setRegisterFilterRegion(e.target.value); 
+                        setRegisterFilterStation('ALL STATIONS'); 
+                      }
+                    }} 
+                    disabled={!isAbsoluteGlobal} 
+                    className="border border-blue-300 dark:border-slate-700 text-blue-900 dark:text-blue-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
+                  >
                     {isAbsoluteGlobal && <option value="ALL REGIONS">ALL REGIONS</option>}
                     {isAbsoluteGlobal ? (
                       Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)
@@ -638,9 +686,14 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                       <option value={userRegClean}>{userRegClean}</option>
                     )}
                   </select>
-                  <select value={registerFilterStation} onChange={e => setRegisterFilterStation(e.target.value)} disabled={!isAbsoluteGlobal && !isRegionalCommandTier} className="border border-blue-300 dark:border-slate-700 text-blue-900 dark:text-blue-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90">
+                  <select 
+                    value={isAbsoluteGlobal || isRegionalCommandTier ? registerFilterStation : userStnClean} 
+                    onChange={e => (isAbsoluteGlobal || isRegionalCommandTier) && setRegisterFilterStation(e.target.value)} 
+                    disabled={!isAbsoluteGlobal && !isRegionalCommandTier}
+                    className="border border-blue-300 dark:border-slate-700 text-blue-900 dark:text-blue-200 font-bold rounded-lg px-2.5 py-1.5 text-xs bg-white dark:bg-slate-950 outline-none cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
+                  >
                     {(isAbsoluteGlobal || isRegionalCommandTier) && <option value="ALL STATIONS">ALL STATIONS ({registerFilterRegion})</option>}
-                    {registerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[registerFilterRegion] ? (
+                    {(isAbsoluteGlobal || isRegionalCommandTier) && registerFilterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[registerFilterRegion] ? (
                       REGIONAL_HIERARCHY[registerFilterRegion].map(stat => <option key={stat} value={stat}>{stat}</option>)
                     ) : (
                       REGIONAL_HIERARCHY[userRegClean] ? (
@@ -689,7 +742,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                           Res: {stripHtmlTags(row.residence)}
                         </td>
                         <td className="px-3 py-3 text-xs font-bold text-blue-400 whitespace-nowrap">{stripHtmlTags(row.reference)}</td>
-                        <td className="px-3 py-3 text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase max-w-[200px] truncate" title={stripHtmlTags(row.reason_for_detention)}>{stripHtmlTags(row.reason_for_detention)}</td>
+                        <td className="px-3 py-3 text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase max-w-[200px] truncate" title={stripHtmlTags(row.reason_for_detention)}>{stripHtmlTags(row.reason_for_detenthion || row.reason_for_detention)}</td>
                         <td className="px-3 py-3 text-xs font-mono text-slate-400 whitespace-nowrap">{stripHtmlTags(row.date_in)}</td>
                         <td className="px-3 py-3 text-center">
                           <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${row.status === 'IN CUSTODY' ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'}`}>

@@ -200,6 +200,9 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
   const handleReadDoc = async (docId, isTemplate = false, docName = 'Document', categoryKey = 'weekly_report') => {
     setActionLoading(`read-${docId}`);
     
+    // Open a blank tab immediately to prevent popup blockers on mobile/desktop
+    const mobileSafeWindow = window.open('about:blank', '_blank');
+
     try {
       let endpoint = `/api/v1/reports/download/${docId}?stamp=true&return_url=true&category=${categoryKey}`;
       
@@ -221,10 +224,18 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
       
       if (!s3Url) throw new Error("Pre-signed S3 URL missing from backend response.");
 
-      // 🟢 Open watermarked document securely in a new browser tab for live viewing
-      window.open(s3Url, '_blank');
-
+      const lowerName = (docName || '').toLowerCase();
+      
+      // Native browser viewable formats (PDF, images) open directly
+      if (lowerName.endsWith('.pdf') || lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+        mobileSafeWindow.location.href = s3Url;
+      } else {
+        // Word (.docx), Excel (.xlsx), etc. use Google Docs Viewer for live web preview without downloading
+        const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(s3Url)}&embedded=false`;
+        mobileSafeWindow.location.href = googleViewerUrl;
+      }
     } catch (err) {
+      if (mobileSafeWindow) mobileSafeWindow.close();
       alert(`Reader Error: ${err.message}`);
     } finally {
       setActionLoading(null);

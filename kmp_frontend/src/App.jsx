@@ -3092,14 +3092,15 @@ const App = () => {
           />
         );
 
-      case 'SuccessStories':  
+      case 'success': // 🟢 Matches id: 'success' in navItems and home dashboard card
+      case 'stories':  
         return checkClearance(currentUser, 'acc_stories', true) ? (
           <SuccessStories 
             currentUser={currentUser} 
             canViewGlobal={canViewGlobal} 
             stories={stories} 
             setStories={setStories}
-            isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
+            isReadOnlyObserver={isReadOnlyObserver}
           />
         ) : (
           <HomeDashboard 

@@ -361,7 +361,7 @@ def download_archive_file(
                 header_p = header.paragraphs[0]
             
             try:
-                # 🟢 Robust VML Left Margin Watermark for Word Documents
+                # 🟢 Robust VML Left-Margin / Diagonal Red Watermark in Receipt Font (Courier New)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -373,9 +373,9 @@ def download_archive_file(
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
-                                 style="position:absolute;left:0pt;top:0pt;width:12pt;height:600pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                 fillcolor="#8B0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                                 style="position:absolute;left:10pt;top:40pt;width:15pt;height:620pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 fillcolor="#CC0000" stroked="f">
+                            <v:textpath style="font-family:'Courier New';font-size:8pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
                 </w:r>
