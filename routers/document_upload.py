@@ -353,25 +353,26 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 Inject the vertical sidebar directly into the first paragraph of the document body
-            # instead of the header, avoiding the top-left header stacking issue entirely.
-            if word_doc.paragraphs:
-                target_p = word_doc.paragraphs[0]
-            else:
-                target_p = word_doc.add_paragraph()
+            section = word_doc.sections[0]
+            header = section.header
+            
+            # Clear any existing paragraphs in the header
+            for p in header.paragraphs:
+                p.text = ""
 
             try:
-                # Create a 1-row, 2-column layout table directly at the top of the body
-                # Left cell holds the vertical text; Right cell holds the normal document content
-                table = word_doc.add_table(rows=1, cols=2)
+                # 🟢 Margin-Aligned Header Table Solution:
+                # Column 0 sits in the left margin area for the vertical stamp.
+                # Column 1 spans the rest of the printable page width, keeping body text untouched.
+                table = header.add_table(rows=1, cols=2, width=Inches(7.0))
                 table.autofit = False
-                table.columns[0].width = Inches(0.4)  # Sidebar width for the vertical stamp
-                table.columns[1].width = Inches(6.1)  # Main text column width
+                table.columns[0].width = Inches(0.6)  # Fits cleanly inside the left margin printable area
+                table.columns[1].width = Inches(6.4)  # Spans the remaining document width
 
                 cell_left = table.cell(0, 0)
                 cell_right = table.cell(0, 1)
 
-                # Strip all borders from this layout table
+                # Strip all visible borders from the header layout table
                 for row in table.rows:
                     for cell in row.cells:
                         tcPr = cell._tc.get_or_add_tcPr()
@@ -385,28 +386,25 @@ def download_archive_file(
                         ''')
                         tcPr.append(tcBorders)
 
-                # Set bottom-to-top vertical text direction (btLr) on the left sidebar cell
+                # Set bottom-to-top vertical text direction (btLr) on the left margin cell
                 tcPr_left = cell_left._tc.get_or_add_tcPr()
                 textDirection = parse_xml(r'<w:textDirection xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="btLr"/>')
                 tcPr_left.append(textDirection)
 
-                # Populate the vertical compliance text into the left cell
+                # Format and populate the vertical compliance stamp text
                 p_stamp = cell_left.paragraphs[0]
                 p_stamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p_stamp.paragraph_format.space_before = Pt(0)
+                p_stamp.paragraph_format.space_after = Pt(0)
+                
                 run_stamp = p_stamp.add_run(vertical_stamp_text)
                 run_stamp.font.name = 'Courier New'
-                run_stamp.font.size = Pt(6.5)
+                run_stamp.font.size = Pt(5.5)
                 run_stamp.font.bold = True
                 run_stamp.font.color.rgb = RGBColor(139, 0, 0) # Dark Red
 
-                # Move the document's original first paragraph content into the right cell
-                # so the letterhead and title stay intact beside the sidebar
-                right_p = cell_right.paragraphs[0]
-                right_p.text = target_p.text
-                target_p.text = "" # Clear the original paragraph
-
             except Exception as e:
-                print(f"Failed to inject body sidebar table: {e}")
+                print(f"Failed to inject margin-aligned header table: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
