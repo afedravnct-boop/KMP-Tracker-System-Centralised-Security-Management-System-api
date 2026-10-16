@@ -353,25 +353,25 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            section = word_doc.sections[0]
-            header = section.header
-            
-            # Clear any existing header paragraphs to avoid spacing interference
-            for p in header.paragraphs:
-                p.text = ""
+            # 🟢 Inject the vertical sidebar directly into the first paragraph of the document body
+            # instead of the header, avoiding the top-left header stacking issue entirely.
+            if word_doc.paragraphs:
+                target_p = word_doc.paragraphs[0]
+            else:
+                target_p = word_doc.add_paragraph()
 
             try:
-                # 🟢 Use a borderless header table with vertical text direction (btLr)
-                # This ensures 100% compatibility with Microsoft Word AND Google Docs Viewer
-                table = header.add_table(rows=1, cols=2, width=Inches(7.0))
+                # Create a 1-row, 2-column layout table directly at the top of the body
+                # Left cell holds the vertical text; Right cell holds the normal document content
+                table = word_doc.add_table(rows=1, cols=2)
                 table.autofit = False
-                table.columns[0].width = Inches(0.35)
-                table.columns[1].width = Inches(6.65)
+                table.columns[0].width = Inches(0.4)  # Sidebar width for the vertical stamp
+                table.columns[1].width = Inches(6.1)  # Main text column width
 
                 cell_left = table.cell(0, 0)
                 cell_right = table.cell(0, 1)
 
-                # Remove all borders from the header table cells
+                # Strip all borders from this layout table
                 for row in table.rows:
                     for cell in row.cells:
                         tcPr = cell._tc.get_or_add_tcPr()
@@ -385,12 +385,12 @@ def download_archive_file(
                         ''')
                         tcPr.append(tcBorders)
 
-                # Set vertical text direction (bottom-to-top, left-to-right) on the left cell
+                # Set bottom-to-top vertical text direction (btLr) on the left sidebar cell
                 tcPr_left = cell_left._tc.get_or_add_tcPr()
                 textDirection = parse_xml(r'<w:textDirection xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="btLr"/>')
                 tcPr_left.append(textDirection)
 
-                # Format the vertical watermark text in the left cell
+                # Populate the vertical compliance text into the left cell
                 p_stamp = cell_left.paragraphs[0]
                 p_stamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 run_stamp = p_stamp.add_run(vertical_stamp_text)
@@ -399,8 +399,14 @@ def download_archive_file(
                 run_stamp.font.bold = True
                 run_stamp.font.color.rgb = RGBColor(139, 0, 0) # Dark Red
 
+                # Move the document's original first paragraph content into the right cell
+                # so the letterhead and title stay intact beside the sidebar
+                right_p = cell_right.paragraphs[0]
+                right_p.text = target_p.text
+                target_p.text = "" # Clear the original paragraph
+
             except Exception as e:
-                print(f"Failed to inject header sidebar watermark table: {e}")
+                print(f"Failed to inject body sidebar table: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
