@@ -370,15 +370,18 @@ def download_archive_file(
                         <!-- Define a custom shape path that physically travels Bottom-to-Top -->
                         <v:shapetype id="VerticalPathShape" coordsize="21600,21600" o:spt="1" path="m 0,21600 l 0,0 e">
                             <v:path textpathok="t" o:connecttype="custom" o:connectlocs="0,0;0,21600"/>
-                            <v:textpath on="t" fitshape="t"/>
+                            <!-- Changed fitshape to "f" to prevent letter squishing/distortion -->
+                            <v:textpath on="t" fitshape="f"/>
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         
                         <!-- Apply the vertical shape to the left margin -->
+                        <!-- Increased height to 820pt, width to 60pt, and adjusted top to 10pt -->
                         <v:shape id="LeftMarginAuditStamp" type="#VerticalPathShape" 
-                                 style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 style="position:absolute;left:10pt;top:10pt;width:60pt;height:820pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                  fillcolor="#CC0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold;v-text-align:center" string="{vertical_stamp_text}"/>
+                            <!-- Shrunk font to 6pt to ensure it fits cleanly on a single line -->
+                            <v:textpath style="font-family:'Courier New';font-size:6pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
                 </w:r>
