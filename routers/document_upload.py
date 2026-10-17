@@ -368,50 +368,39 @@ def download_archive_file(
             section = word_doc.sections[0]
             header = section.header
             
+            # Clear any messy paragraphs from previous attempts
             for p in header.paragraphs:
                 p.text = ""
 
+            header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+            
             try:
-                # 🟢 LEFT MARGIN TABLE: Col 0 is the margin, Col 1 is the full body width
-                table = header.add_table(rows=1, cols=2, width=Inches(7.0))
-                table.autofit = False
-                table.columns[0].width = Inches(0.6)  
-                table.columns[1].width = Inches(6.4)  
-
-                cell_left = table.cell(0, 0)
-                cell_right = table.cell(0, 1)
-
-                for row in table.rows:
-                    for cell in row.cells:
-                        tcPr = cell._tc.get_or_add_tcPr()
-                        tcBorders = parse_xml(r'''
-                            <w:tcBorders xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-                                <w:top w:val="none"/>
-                                <w:left w:val="none"/>
-                                <w:bottom w:val="none"/>
-                                <w:right w:val="none"/>
-                            </w:tcBorders>
-                        ''')
-                        tcPr.append(tcBorders)
-
-                # Vertical text direction for the left margin
-                tcPr_left = cell_left._tc.get_or_add_tcPr()
-                textDirection = parse_xml(r'<w:textDirection xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" w:val="btLr"/>')
-                tcPr_left.append(textDirection)
-
-                p_stamp = cell_left.paragraphs[0]
-                p_stamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                p_stamp.paragraph_format.space_before = Pt(0)
-                p_stamp.paragraph_format.space_after = Pt(0)
-                
-                run_stamp = p_stamp.add_run(vertical_stamp_text)
-                run_stamp.font.name = 'Courier New'
-                run_stamp.font.size = Pt(5.5)
-                run_stamp.font.bold = True
-                run_stamp.font.color.rgb = RGBColor(139, 0, 0) # Dark Red
-
+                # 🟢 TRUE VERTICAL LEFT-MARGIN STAMP (Behind Text)
+                # margin-left: 20pt pins it to the extreme left edge of the physical page
+                # mso-position-vertical: center centers it perfectly along the left margin
+                # z-index: -251658240 pushes it BEHIND the letterhead/body text so it never collides
+                vml_xml = f'''
+                <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                     xmlns:v="urn:schemas-microsoft-com:vml" 
+                     xmlns:o="urn:schemas-microsoft-com:office:office">
+                    <w:pict>
+                        <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
+                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
+                            <v:textpath on="t" fitshape="t"/>
+                            <o:lock v:ext="edit" text="t" shapetype="t"/>
+                        </v:shapetype>
+                        <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
+                                 style="position:absolute;margin-left:20pt;width:15pt;height:700pt;rotation:270;z-index:-251658240;mso-position-horizontal:absolute;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
+                                 fillcolor="#8B0000" stroked="f">
+                            <v:textpath style="font-family:'Courier New';font-size:6.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                        </v:shape>
+                    </w:pict>
+                </w:r>
+                '''
+                vml_run = parse_xml(vml_xml)
+                header_p._p.append(vml_run)
             except Exception as e:
-                print(f"Failed to inject margin-aligned header table: {e}")
+                print(f"Failed to inject VML left margin watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
