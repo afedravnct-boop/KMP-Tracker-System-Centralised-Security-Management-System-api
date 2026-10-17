@@ -368,9 +368,9 @@ def download_archive_file(
 
             section = word_doc.sections[0]
             header = section.header
-            
+
             try:
-                # 🟢 1. Generate the forensic stamp as a high-res transparent PNG image
+                # 1. Generate the forensic stamp as a high-res transparent PNG image
                 font_size = 22
                 try:
                     font = ImageFont.truetype("arial.ttf", font_size)
@@ -400,17 +400,14 @@ def download_archive_file(
                 img.save(img_stream, format='PNG')
                 img_stream.seek(0)
 
-                # 🟢 2. DEDICATED LEFT-ALIGNED PARAGRAPH
-                # By creating a new paragraph before the letterhead and forcing left alignment,
-                # we prevent Google Docs from dragging the image into the center.
-                stamp_p = header.insert_paragraph_before("")
-                stamp_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                run = stamp_p.add_run()
+                # 2. Attach the run to the EXISTING first paragraph so Google Docs Viewer doesn't delete it
+                header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+                run = header_p.add_run()
                 
-                # Add picture inline first (height spans ~9 inches of the margin)
+                # Add picture inline first
                 picture = run.add_picture(img_stream, height=Inches(9.0))
                 
-                # 🟢 3. Convert inline picture to absolute floating watermark
+                # 3. Convert inline picture to absolute floating watermark using native alignment tags
                 drawing_elem = run._r.find('.//w:drawing', namespaces=run._r.nsmap)
                 inline_elem = drawing_elem.find('.//wp:inline', namespaces=run._r.nsmap)
                 
@@ -419,21 +416,20 @@ def download_archive_file(
                     cx, cy = extent.get('cx'), extent.get('cy')
                     graphic_elem = inline_elem.find('.//a:graphic', namespaces=run._r.nsmap)
                     
-                    # behindDoc="1" pushes the image behind the text
-                    # posOffset=228600 pins it exactly 0.25 inches from the left edge of the paper
-                    # posOffset=1000000 pins it ~1 inch down from the top edge
+                    # Using <wp:align>left</wp:align> overrides the paragraph's center alignment
+                    # relativeFrom="page" snaps it to the absolute edge of the physical paper
                     anchor_xml = f'''
                     <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
                                xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
                                xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
-                               distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="0"
+                               distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240"
                                behindDoc="1" locked="1" layoutInCell="0" allowOverlap="1">
                         <wp:simplePos x="0" y="0"/>
                         <wp:positionH relativeFrom="page">
-                            <wp:posOffset>228600</wp:posOffset>
+                            <wp:align>left</wp:align>
                         </wp:positionH>
                         <wp:positionV relativeFrom="page">
-                            <wp:posOffset>1000000</wp:posOffset>
+                            <wp:align>center</wp:align>
                         </wp:positionV>
                         <wp:extent cx="{cx}" cy="{cy}"/>
                         <wp:effectExtent l="0" t="0" r="0" b="0"/>
