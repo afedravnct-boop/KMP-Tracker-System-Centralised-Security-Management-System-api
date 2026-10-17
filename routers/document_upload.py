@@ -361,22 +361,28 @@ def download_archive_file(
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
             try:
-                # 🟢 Live-Viewer Compatible: Bottom-to-Top Text Path (Bypasses Rotation Constraints)
+                # 🟢 Live-Viewer & Word Compatible: Custom Vertical Path Shape (No Rotation Needed)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
                      xmlns:o="urn:schemas-microsoft-com:office:office">
                     <w:pict>
-                        <v:line id="LeftMarginAuditStamp" 
-                                from="15pt,750pt" to="15pt,50pt" 
-                                style="position:absolute;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                strokecolor="#CC0000" stroked="f">
-                            <v:path textpathok="t"/>
-                            <v:textpath on="t" style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
-                        </v:line>
+                        <!-- Define a custom shape path that physically travels Bottom-to-Top -->
+                        <v:shapetype id="VerticalPathShape" coordsize="21600,21600" o:spt="1" path="m 0,21600 l 0,0 e">
+                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="0,0;0,21600"/>
+                            <v:textpath on="t" fitshape="t"/>
+                            <o:lock v:ext="edit" text="t" shapetype="t"/>
+                        </v:shapetype>
+                        
+                        <!-- Apply the vertical shape to the left margin -->
+                        <v:shape id="LeftMarginAuditStamp" type="#VerticalPathShape" 
+                                 style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 fillcolor="#CC0000" stroked="f">
+                            <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold;v-text-align:center" string="{vertical_stamp_text}"/>
+                        </v:shape>
                     </w:pict>
                 </w:r>
-                '''                
+                '''
                 vml_run = parse_xml(vml_xml)
                 header_p._p.append(vml_run)
             except Exception as e:
