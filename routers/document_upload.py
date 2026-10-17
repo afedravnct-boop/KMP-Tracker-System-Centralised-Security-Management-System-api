@@ -361,30 +361,36 @@ def download_archive_file(
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
             try:
-                # 🟢 NATIVE WORD WATERMARK SCHEMA (Fully Supported by Web Viewers)
+                # 🟢 CRASH-FREE NATIVE VERTICAL TEXTBOX (No WordArt, No Rotation)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
                      xmlns:o="urn:schemas-microsoft-com:office:office">
                     <w:pict>
-                        <!-- Standard WordArt TextPath Schema -->
-                        <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
-                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
-                            <v:textpath on="t" fitshape="t"/>
-                            <o:lock v:ext="edit" text="t" shapetype="t"/>
-                        </v:shapetype>
-                        
-                        <!-- 
-                          1. left:0pt prevents Google Docs from clipping the shape out of existence.
-                          2. width:650pt prevents the barcode text-wrapping effect.
-                          3. rotation:270 stands the text up vertically.
-                          4. margin and mso-position lock it flush to the left edge.
-                        -->
-                        <v:shape id="LeftMarginAuditStamp" type="#_x0000_t136" 
-                                 style="position:absolute;left:0pt;text-align:left;margin-left:15pt;margin-top:350pt;width:650pt;height:20pt;rotation:270;z-index:251657216;mso-position-horizontal:left;mso-position-vertical:center;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                 fillcolor="#CC0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
-                        </v:shape>
+                        <!-- Transparent bounding box pinned to the left margin -->
+                        <v:rect id="LeftMarginAuditStamp" 
+                                style="position:absolute;left:10pt;top:50pt;width:30pt;height:700pt;z-index:-251657216" 
+                                stroked="f" filled="f">
+                            <!-- CSS properties enforce vertical bottom-to-top rendering natively -->
+                            <v:textbox style="layout-flow:vertical;mso-layout-flow-alt:bottom-to-top;writing-mode:tb-rl" inset="0,0,0,0">
+                                <w:txbxContent>
+                                    <w:p>
+                                        <w:pPr>
+                                            <w:jc w:val="center"/>
+                                        </w:pPr>
+                                        <w:r>
+                                            <w:rPr>
+                                                <w:color w:val="CC0000"/>
+                                                <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                <w:sz w:val="14"/>
+                                                <w:b/>
+                                            </w:rPr>
+                                            <w:t>{vertical_stamp_text}</w:t>
+                                        </w:r>
+                                    </w:p>
+                                </w:txbxContent>
+                            </v:textbox>
+                        </v:rect>
                     </w:pict>
                 </w:r>
                 '''
