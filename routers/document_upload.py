@@ -5,6 +5,7 @@ import base64
 import urllib.parse
 from datetime import datetime
 from typing import Optional, List
+from PIL import Image, ImageDraw, ImageFont
 
 import boto3
 import openpyxl
@@ -344,7 +345,7 @@ def download_archive_file(
         receipt_text = (
             "========================================================\n"
             "         KAMPALA METROPOLITAN POLICE HEADQUARTERS        \n"
-            "         SECURE DOCUMENT ACCESS        \n"
+            "         CSDMS SECURE DOCUMENT ACCESS        \n"
             "--------------------------------------------------------\n"
             f"ACCESSED BY    : {officer_signature}\n"
             f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
@@ -368,39 +369,90 @@ def download_archive_file(
             section = word_doc.sections[0]
             header = section.header
             
-            # Clear any messy paragraphs from previous attempts
             for p in header.paragraphs:
                 p.text = ""
 
-            header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
-            
             try:
-                # 🟢 TRUE VERTICAL LEFT-MARGIN STAMP (Behind Text)
-                # margin-left: 20pt pins it to the extreme left edge of the physical page
-                # mso-position-vertical: center centers it perfectly along the left margin
-                # z-index: -251658240 pushes it BEHIND the letterhead/body text so it never collides
-                vml_xml = f'''
-                <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
-                     xmlns:v="urn:schemas-microsoft-com:vml" 
-                     xmlns:o="urn:schemas-microsoft-com:office:office">
-                    <w:pict>
-                        <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
-                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
-                            <v:textpath on="t" fitshape="t"/>
-                            <o:lock v:ext="edit" text="t" shapetype="t"/>
-                        </v:shapetype>
-                        <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
-                                 style="position:absolute;margin-left:20pt;width:15pt;height:700pt;rotation:270;z-index:-251658240;mso-position-horizontal:absolute;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
-                                 fillcolor="#8B0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:6.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
-                        </v:shape>
-                    </w:pict>
-                </w:r>
-                '''
-                vml_run = parse_xml(vml_xml)
-                header_p._p.append(vml_run)
+                # 🟢 1. Generate the forensic stamp as a high-res transparent PNG image
+                font_size = 22
+                try:
+                    # Attempt to load a standard font
+                    font = ImageFont.truetype("arial.ttf", font_size)
+                except IOError:
+                    try:
+                        font = ImageFont.truetype("DejaVuSans.ttf", font_size) # Linux fallback
+                    except IOError:
+                        font = ImageFont.load_default()
+
+                # Calculate text dimensions
+                dummy_img = Image.new('RGBA', (1, 1), (255, 255, 255, 0))
+                draw = ImageDraw.Draw(dummy_img)
+                try:
+                    bbox = draw.textbbox((0, 0), vertical_stamp_text, font=font)
+                    txt_width = bbox[2] - bbox[0]
+                    txt_height = bbox[3] - bbox[1]
+                except AttributeError:
+                    txt_width, txt_height = draw.textsize(vertical_stamp_text, font=font)
+
+                # Create image and draw text in Dark Red
+                img = Image.new('RGBA', (txt_width + 40, txt_height + 20), (255, 255, 255, 0))
+                draw = ImageDraw.Draw(img)
+                draw.text((20, 10), vertical_stamp_text, fill=(139, 0, 0, 255), font=font)
+                
+                # Rotate image 90 degrees so it reads bottom-to-top
+                img = img.rotate(90, expand=True)
+                
+                img_stream = io.BytesIO()
+                img.save(img_stream, format='PNG')
+                img_stream.seek(0)
+
+                # 🟢 2. Insert image into the header and convert to floating anchor
+                header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+                run = header_p.add_run()
+                
+                # Add picture inline first (height spans ~9 inches of the margin)
+                picture = run.add_picture(img_stream, height=Inches(9.0))
+                
+                # 🟢 3. XML Magic: Convert inline picture to absolute floating watermark
+                drawing_elem = run._r.find('.//w:drawing', namespaces=run._r.nsmap)
+                inline_elem = drawing_elem.find('.//wp:inline', namespaces=run._r.nsmap)
+                
+                if inline_elem is not None:
+                    extent = inline_elem.find('.//wp:extent', namespaces=run._r.nsmap)
+                    cx, cy = extent.get('cx'), extent.get('cy')
+                    graphic_elem = inline_elem.find('.//a:graphic', namespaces=run._r.nsmap)
+                    
+                    # behindDoc="1" pushes the image behind the letterhead and text
+                    # posOffset=288000 pins it roughly 0.3 inches from the absolute left edge of the paper
+                    anchor_xml = f'''
+                    <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                               xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                               xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
+                               distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="0"
+                               behindDoc="1" locked="1" layoutInCell="0" allowOverlap="1">
+                        <wp:simplePos x="0" y="0"/>
+                        <wp:positionH relativeFrom="page">
+                            <wp:posOffset>288000</wp:posOffset>
+                        </wp:positionH>
+                        <wp:positionV relativeFrom="page">
+                            <wp:posOffset>720000</wp:posOffset>
+                        </wp:positionV>
+                        <wp:extent cx="{cx}" cy="{cy}"/>
+                        <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                        <wp:wrapNone/>
+                        <wp:docPr id="1001" name="Forensic_Stamp"/>
+                        <wp:cNvGraphicFramePr/>
+                    </wp:anchor>
+                    '''
+                    anchor_elem = parse_xml(anchor_xml)
+                    anchor_elem.append(graphic_elem)
+                    
+                    # Swap inline for floating anchor
+                    drawing_elem.remove(inline_elem)
+                    drawing_elem.append(anchor_elem)
+
             except Exception as e:
-                print(f"Failed to inject VML left margin watermark: {e}")
+                print(f"Failed to inject floating image watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
