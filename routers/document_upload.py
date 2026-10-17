@@ -322,33 +322,33 @@ def download_archive_file(
             try:
                 # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
-                    # SCENARIO 1: LIVE VIEWER (Read Button - Clean Horizontal Stamp)
-                    # Sized to ~8cm length (225pt) and ~2cm width (55pt), placed opposite the addressee block.
+                    # SCENARIO 1: LIVE VIEWER (Read Button - Compact 5cm Horizontal Stamp)
+                    # Width set to 140pt (~5cm) to safely fit inside the margin without being pushed out.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
                             <v:rect id="LiveViewStamp" 
-                                    style="position:absolute;left:330pt;top:220pt;width:225pt;height:55pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                    strokecolor="#CC0000" strokeweight="1.5pt" filled="f">
+                                    style="position:absolute;left:380pt;top:220pt;width:140pt;height:65pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    strokecolor="#CC0000" strokeweight="1.2pt" filled="f">
                                 <v:textbox inset="2pt,2pt,2pt,2pt">
                                     <w:txbxContent>
                                         <w:p>
                                             <w:pPr>
                                                 <w:jc w:val="center"/>
-                                                <w:spacing w:line="150" w:lineRule="auto"/>
+                                                <w:spacing w:line="120" w:lineRule="auto"/>
                                             </w:pPr>
                                             <w:r>
                                                 <w:rPr>
                                                     <w:color w:val="CC0000"/>
                                                     <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                    <w:sz w:val="12"/>
+                                                    <w:sz w:val="11"/>
                                                     <w:b/>
                                                 </w:rPr>
-                                                <w:t>RESTRICTED LAW ENFORCEMENT RECORD</w:t><w:br/>
-                                                <w:t>ACCESS BY: {officer_signature}</w:t><w:br/>
-                                                <w:t>STAMP ID: {stamp_id}</w:t><w:br/>
+                                                <w:t>RESTRICTED RECORD</w:t><w:br/>
+                                                <w:t>BY: {officer_signature}</w:t><w:br/>
+                                                <w:t>ID: {stamp_id}</w:t><w:br/>
                                                 <w:t>TIME: {timestamp_eat}</w:t>
                                             </w:r>
                                         </w:p>
