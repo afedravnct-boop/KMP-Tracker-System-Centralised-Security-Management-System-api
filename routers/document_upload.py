@@ -330,7 +330,7 @@ def download_archive_file(
                          xmlns:o="urn:schemas-microsoft-com:office:office"
                          xmlns:w10="urn:schemas-microsoft-com:office:word">
                         <w:pict>
-                            <v:shape id="LiveViewStamp" style="position:absolute;margin-left:360pt;margin-top:220pt;width:200pt;height:85pt;z-index:251657216" 
+                            <v:shape id="LiveViewStamp" style="position:absolute;margin-left:320pt;margin-top:220pt;width:200pt;height:85pt;z-index:251657216" 
                                      coordsize="21600,21600" o:spt="202" fillcolor="white" strokecolor="#CC0000" strokeweight="1.5pt">
                                 <v:textbox inset="3pt,3pt,3pt,3pt">
                                     <w:txbxContent>
