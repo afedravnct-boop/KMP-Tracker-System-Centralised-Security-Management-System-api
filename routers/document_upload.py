@@ -323,16 +323,17 @@ def download_archive_file(
                 # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
                     # SCENARIO 1: LIVE VIEWER (Read Button)
+                    # Maintains the narrow 25pt box, forces CSS vertical writing mode, and reduces font to 5pt.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
-                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
                             <v:rect id="LiveViewStamp" 
                                     style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
-                                <v:textbox inset="0,0,0,0">
+                                <!-- Added CSS writing-mode and RTL direction to force bottom-to-top rendering on the web -->
+                                <v:textbox style="mso-layout-flow-alt:bottom-to-top; writing-mode:vertical-rl; direction:rtl;" inset="0,0,0,0">
                                     <w:txbxContent>
                                         <w:p>
                                             <w:pPr>
@@ -343,7 +344,8 @@ def download_archive_file(
                                                 <w:rPr>
                                                     <w:color w:val="CC0000"/>
                                                     <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                    <w:sz w:val="14"/>
+                                                    <!-- Reduced font size to 5pt (val 10) so it fits neatly inside the 25pt box -->
+                                                    <w:sz w:val="10"/>
                                                     <w:b/>
                                                 </w:rPr>
                                                 <w:t>{vertical_stamp_text}</w:t>
@@ -357,12 +359,12 @@ def download_archive_file(
                     '''
                 else:
                     # SCENARIO 2: PHYSICAL DOWNLOAD (MS Word Desktop)
+                    # This remains EXACTLY the same, as it executes perfectly in MS Word.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
-                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
                             <v:rect id="DownloadStamp" 
                                     style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
@@ -391,8 +393,9 @@ def download_archive_file(
 
                 vml_run = parse_xml(vml_xml)
                 header_p._p.append(vml_run)
+                
             except Exception as e:
-                print(f"Failed to inject DOCX watermark: {e}")
+                print(f"Failed to inject DOCX header watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
