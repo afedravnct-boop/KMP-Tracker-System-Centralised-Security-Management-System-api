@@ -362,19 +362,20 @@ def download_archive_file(
             
             try:
                 # 🟢 Live-Viewer Compatible Vertical Text Box (No VML shape rotation used)
+                # 🟢 Vertical Left Margin Stamp (Mimicking the X marks)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
                      xmlns:o="urn:schemas-microsoft-com:office:office">
                     <w:pict>
                         <v:rect id="LeftMarginAuditStamp" 
-                                style="position:absolute;left:10pt;top:100pt;width:25pt;height:600pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                style="position:absolute;left:5pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                 strokecolor="#CC0000" stroked="f" filled="f">
                             <v:textbox inset="0,0,0,0">
                                 <w:txbxContent>
                                     <w:p>
                                         <w:pPr>
-                                            <w:textDirection w:val="btLr"/> <!-- Forces text vertical (Bottom-to-Top) natively -->
+                                            <w:textDirection w:val="btLr"/>
                                             <w:jc w:val="center"/>
                                         </w:pPr>
                                         <w:r>
@@ -392,7 +393,7 @@ def download_archive_file(
                         </v:rect>
                     </w:pict>
                 </w:r>
-                '''
+                '''                
                 vml_run = parse_xml(vml_xml)
                 header_p._p.append(vml_run)
             except Exception as e:
