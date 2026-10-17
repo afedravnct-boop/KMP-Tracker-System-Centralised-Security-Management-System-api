@@ -377,10 +377,11 @@ def download_archive_file(
                 # 🟢 1. Generate the forensic stamp as a high-res transparent PNG image
                 font_size = 22
                 try:
+                    # Attempt to load a standard font
                     font = ImageFont.truetype("arial.ttf", font_size)
                 except IOError:
                     try:
-                        font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+                        font = ImageFont.truetype("DejaVuSans.ttf", font_size) # Linux fallback
                     except IOError:
                         font = ImageFont.load_default()
 
@@ -410,9 +411,10 @@ def download_archive_file(
                 header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
                 run = header_p.add_run()
                 
+                # Add picture inline first (height spans ~9 inches of the margin)
                 picture = run.add_picture(img_stream, height=Inches(9.0))
                 
-                # 🟢 3. Convert inline picture to absolute floating watermark
+                # 🟢 3. XML Magic: Convert inline picture to absolute floating watermark
                 drawing_elem = run._r.find('.//w:drawing', namespaces=run._r.nsmap)
                 inline_elem = drawing_elem.find('.//wp:inline', namespaces=run._r.nsmap)
                 
@@ -421,6 +423,8 @@ def download_archive_file(
                     cx, cy = extent.get('cx'), extent.get('cy')
                     graphic_elem = inline_elem.find('.//a:graphic', namespaces=run._r.nsmap)
                     
+                    # behindDoc="1" pushes the image behind the letterhead and text
+                    # posOffset=288000 pins it roughly 0.3 inches from the absolute left edge of the paper
                     anchor_xml = f'''
                     <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
                                xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -444,6 +448,7 @@ def download_archive_file(
                     anchor_elem = parse_xml(anchor_xml)
                     anchor_elem.append(graphic_elem)
                     
+                    # Swap inline for floating anchor
                     drawing_elem.remove(inline_elem)
                     drawing_elem.append(anchor_elem)
 
@@ -535,16 +540,16 @@ def download_archive_file(
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
-            # 🟢 S3 CACHING BLOCK STRIPPED OF "INLINE" TO PREVENT BROWSER DOWNLOAD PROMPT BUG
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
                 Body=final_bytes,
                 ContentType=content_type,
+                ContentDisposition="inline", 
                 ServerSideEncryption="AES256"
             )
             
-            # 🟢 S3 Consistency Waiter to prevent "file wasn't available" viewer error
+            # 🟢 FIX: S3 Waiter forces Google Docs Viewer to wait until the file is ready
             try:
                 waiter = s3_client.get_waiter('object_exists')
                 waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
@@ -556,7 +561,8 @@ def download_archive_file(
                 'get_object',
                 Params={
                     'Bucket': BUCKET_NAME, 
-                    'Key': temp_s3_key
+                    'Key': temp_s3_key,
+                    'ResponseContentDisposition': 'inline'
                 },
                 ExpiresIn=3600
             )
