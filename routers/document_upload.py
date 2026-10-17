@@ -356,34 +356,26 @@ def download_archive_file(
             section = word_doc.sections[0]
             header = section.header
             
-            # Clear any messy paragraphs from previous attempts
             for p in header.paragraphs:
                 p.text = ""
-
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
-            # Format the text into 4 distinct lines for the ink stamp
-            stamp_line1 = "RESTRICTED LAW ENFORCEMENT RECORD"
-            stamp_line2 = f"ACCESS BY: {officer_signature}"
-            stamp_line3 = f"STAMP ID: {stamp_id}"
-            stamp_line4 = f"TIME: {timestamp_eat}"
-            
             try:
-                # 🟢 Boxed "Ink Stamp" placed on the Right Margin opposite Addressee
+                # 🟢 Live-Viewer Compatible Vertical Text Box (No VML shape rotation used)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
                      xmlns:o="urn:schemas-microsoft-com:office:office">
                     <w:pict>
-                        <v:rect id="RightMarginAuditStamp" 
-                                style="position:absolute;left:340pt;top:220pt;width:210pt;height:60pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                strokecolor="#CC0000" strokeweight="1.5pt" filled="f">
-                            <v:textbox inset="2pt,2pt,2pt,2pt">
+                        <v:rect id="LeftMarginAuditStamp" 
+                                style="position:absolute;left:10pt;top:100pt;width:25pt;height:600pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                strokecolor="#CC0000" stroked="f" filled="f">
+                            <v:textbox inset="0,0,0,0">
                                 <w:txbxContent>
                                     <w:p>
                                         <w:pPr>
+                                            <w:textDirection w:val="btLr"/> <!-- Forces text vertical (Bottom-to-Top) natively -->
                                             <w:jc w:val="center"/>
-                                            <w:spacing w:line="200" w:lineRule="auto"/>
                                         </w:pPr>
                                         <w:r>
                                             <w:rPr>
@@ -392,10 +384,7 @@ def download_archive_file(
                                                 <w:sz w:val="14"/>
                                                 <w:b/>
                                             </w:rPr>
-                                            <w:t>{stamp_line1}</w:t><w:br/>
-                                            <w:t>{stamp_line2}</w:t><w:br/>
-                                            <w:t>{stamp_line3}</w:t><w:br/>
-                                            <w:t>{stamp_line4}</w:t>
+                                            <w:t>{vertical_stamp_text}</w:t>
                                         </w:r>
                                     </w:p>
                                 </w:txbxContent>
@@ -407,7 +396,7 @@ def download_archive_file(
                 vml_run = parse_xml(vml_xml)
                 header_p._p.append(vml_run)
             except Exception as e:
-                print(f"Failed to inject boxed right margin stamp: {e}")
+                print(f"Failed to inject VML left margin watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -417,6 +406,7 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
+                    # Restored exact PyMuPDF left margin vertical positioning
                     page.insert_text(
                         pymupdf.Point(20, rect.height - 50),
                         vertical_stamp_text,
@@ -444,9 +434,9 @@ def download_archive_file(
             
             for ws in wb.worksheets:
                 if hasattr(ws, 'sheet_footer'): 
-                    ws.sheet_footer.left.text = vertical_stamp_text
+                    ws.sheet_footer.left.text = f"&\"Courier New,Bold\"&7&KCC0000{vertical_stamp_text}"
                 elif hasattr(ws, 'odd_footer'): 
-                    ws.odd_footer.left.text = vertical_stamp_text
+                    ws.odd_footer.left.text = f"&\"Courier New,Bold\"&7&KCC0000{vertical_stamp_text}"
             wb.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -461,7 +451,8 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    left_box = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
+                    # To rotate in PPTX without shifting off-screen, we adjust the center pivot point
+                    left_box = slide.shapes.add_textbox(Inches(-3.5), Inches(3.25), Inches(8), Inches(1))
                     left_box.rotation = 270 
                     p_left = left_box.text_frame.add_paragraph()
                     p_left.text = vertical_stamp_text
