@@ -355,13 +355,15 @@ def download_archive_file(
 
             section = word_doc.sections[0]
             header = section.header
-            if not header.paragraphs:
-                header_p = header.add_paragraph()
-            else:
-                header_p = header.paragraphs[0]
+            
+            # Clear any messy paragraphs from previous attempts
+            for p in header.paragraphs:
+                p.text = ""
+
+            header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
             try:
-                # 🟢 Restored original VML structure mapped cleanly to the left margin
+                # 🟢 Restored YOUR exact original VML structure
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -470,6 +472,7 @@ def download_archive_file(
         if return_url:
             temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
             
+            # 🟢 RESTORED `inline` parameters so Google Docs Viewer renders it instead of downloading
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
@@ -479,6 +482,14 @@ def download_archive_file(
                 ServerSideEncryption="AES256"
             )
             
+            # 🟢 S3 Consistency Waiter: Prevents "file wasn't available" viewer error
+            try:
+                waiter = s3_client.get_waiter('object_exists')
+                waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
+            except Exception:
+                import time
+                time.sleep(1.5)
+
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
                 Params={
