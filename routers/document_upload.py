@@ -369,23 +369,17 @@ def download_archive_file(
             section = word_doc.sections[0]
             header = section.header
             
-            # Clear any messy paragraphs from previous attempts
-            for p in header.paragraphs:
-                p.text = ""
-
             try:
                 # 🟢 1. Generate the forensic stamp as a high-res transparent PNG image
                 font_size = 22
                 try:
-                    # Attempt to load a standard font
                     font = ImageFont.truetype("arial.ttf", font_size)
                 except IOError:
                     try:
-                        font = ImageFont.truetype("DejaVuSans.ttf", font_size) # Linux fallback
+                        font = ImageFont.truetype("DejaVuSans.ttf", font_size)
                     except IOError:
                         font = ImageFont.load_default()
 
-                # Calculate text dimensions
                 dummy_img = Image.new('RGBA', (1, 1), (255, 255, 255, 0))
                 draw = ImageDraw.Draw(dummy_img)
                 try:
@@ -395,7 +389,6 @@ def download_archive_file(
                 except AttributeError:
                     txt_width, txt_height = draw.textsize(vertical_stamp_text, font=font)
 
-                # Create image and draw text in Dark Red
                 img = Image.new('RGBA', (txt_width + 40, txt_height + 20), (255, 255, 255, 0))
                 draw = ImageDraw.Draw(img)
                 draw.text((20, 10), vertical_stamp_text, fill=(139, 0, 0, 255), font=font)
@@ -407,14 +400,17 @@ def download_archive_file(
                 img.save(img_stream, format='PNG')
                 img_stream.seek(0)
 
-                # 🟢 2. Insert image into the header and convert to floating anchor
-                header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
-                run = header_p.add_run()
+                # 🟢 2. DEDICATED LEFT-ALIGNED PARAGRAPH
+                # By creating a new paragraph before the letterhead and forcing left alignment,
+                # we prevent Google Docs from dragging the image into the center.
+                stamp_p = header.insert_paragraph_before("")
+                stamp_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                run = stamp_p.add_run()
                 
                 # Add picture inline first (height spans ~9 inches of the margin)
                 picture = run.add_picture(img_stream, height=Inches(9.0))
                 
-                # 🟢 3. XML Magic: Convert inline picture to absolute floating watermark
+                # 🟢 3. Convert inline picture to absolute floating watermark
                 drawing_elem = run._r.find('.//w:drawing', namespaces=run._r.nsmap)
                 inline_elem = drawing_elem.find('.//wp:inline', namespaces=run._r.nsmap)
                 
@@ -423,8 +419,9 @@ def download_archive_file(
                     cx, cy = extent.get('cx'), extent.get('cy')
                     graphic_elem = inline_elem.find('.//a:graphic', namespaces=run._r.nsmap)
                     
-                    # behindDoc="1" pushes the image behind the letterhead and text
-                    # posOffset=288000 pins it roughly 0.3 inches from the absolute left edge of the paper
+                    # behindDoc="1" pushes the image behind the text
+                    # posOffset=228600 pins it exactly 0.25 inches from the left edge of the paper
+                    # posOffset=1000000 pins it ~1 inch down from the top edge
                     anchor_xml = f'''
                     <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
                                xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -433,10 +430,10 @@ def download_archive_file(
                                behindDoc="1" locked="1" layoutInCell="0" allowOverlap="1">
                         <wp:simplePos x="0" y="0"/>
                         <wp:positionH relativeFrom="page">
-                            <wp:posOffset>288000</wp:posOffset>
+                            <wp:posOffset>228600</wp:posOffset>
                         </wp:positionH>
                         <wp:positionV relativeFrom="page">
-                            <wp:posOffset>720000</wp:posOffset>
+                            <wp:posOffset>1000000</wp:posOffset>
                         </wp:positionV>
                         <wp:extent cx="{cx}" cy="{cy}"/>
                         <wp:effectExtent l="0" t="0" r="0" b="0"/>
@@ -448,7 +445,6 @@ def download_archive_file(
                     anchor_elem = parse_xml(anchor_xml)
                     anchor_elem.append(graphic_elem)
                     
-                    # Swap inline for floating anchor
                     drawing_elem.remove(inline_elem)
                     drawing_elem.append(anchor_elem)
 
