@@ -221,6 +221,7 @@ def download_general_document(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
+            # 🟢 INJECTING INTO THE HEADER
             section = word_doc.sections[0]
             header = section.header
             
@@ -238,8 +239,9 @@ def download_general_document(
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
+                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
                             <v:rect id="LiveViewStamp" 
-                                    style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
                                 <v:textbox inset="0,0,0,0">
                                     <w:txbxContent>
@@ -265,30 +267,28 @@ def download_general_document(
                     </w:r>
                     '''
                 else:
-                    # 🟢 SCENARIO 2: PHYSICAL DOWNLOAD (MS Word Native)
-                    # Positive z-index (251657216) ensures it sits ON TOP of the document and isn't hidden behind the white page background.
+                    # SCENARIO 2: PHYSICAL DOWNLOAD (MS Word Desktop)
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
+                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
                             <v:rect id="DownloadStamp" 
-                                    style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
-                                <v:textbox inset="0,0,0,0">
+                                <v:textbox style="mso-layout-flow-alt:bottom-to-top" inset="0,0,0,0">
                                     <w:txbxContent>
                                         <w:p>
                                             <w:pPr>
-                                                <!-- MS Word's native internal vertical text tag (Bottom-to-Top) -->
-                                                <w:textDirection w:val="btLr"/>
                                                 <w:jc w:val="center"/>
                                             </w:pPr>
                                             <w:r>
                                                 <w:rPr>
                                                     <w:color w:val="CC0000"/>
+                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
                                                     <w:sz w:val="14"/>
                                                     <w:b/>
-                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
                                                 </w:rPr>
                                                 <w:t>{vertical_stamp_text}</w:t>
                                             </w:r>
@@ -302,8 +302,9 @@ def download_general_document(
 
                 vml_run = parse_xml(vml_xml)
                 header_p._p.append(vml_run)
+                
             except Exception as e:
-                print(f"Failed to inject split-logic DOCX watermark: {e}")
+                print(f"Failed to inject DOCX header watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"

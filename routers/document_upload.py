@@ -309,6 +309,7 @@ def download_archive_file(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
+            # 🟢 INJECTING INTO THE HEADER
             section = word_doc.sections[0]
             header = section.header
             
@@ -321,82 +322,69 @@ def download_archive_file(
             try:
                 # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
-                    # SCENARIO 1: LIVE VIEWER (Read Button - Uses Modern DrawingML)
-                    vml_xml = f'''
-                    <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
-                         xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" 
-                         xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" 
-                         xmlns:wps="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
-                        <w:drawing>
-                            <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="0" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">
-                                <wp:simplePos x="0" y="0"/>
-                                
-                                <!-- X Position: 10pt from left margin -->
-                                <wp:positionH relativeFrom="page"><wp:posOffset>127000</wp:posOffset></wp:positionH>
-                                
-                                <!-- Y Position: Centered vertically -->
-                                <wp:positionV relativeFrom="page"><wp:posOffset>5080000</wp:posOffset></wp:positionV>
-                                
-                                <wp:extent cx="8255000" cy="381000"/>
-                                <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                                <wp:wrapNone/>
-                                <wp:docPr id="1" name="LiveViewStamp"/>
-                                <wp:cNvGraphicFramePr/>
-                                
-                                <a:graphic>
-                                    <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
-                                        <wps:wsp>
-                                            <wps:cNvSpPr/>
-                                            <wps:spPr>
-                                                <!-- Exact 270-degree rotation matrix applied to a 650pt wide bounding box -->
-                                                <a:xfrm rot="16200000">
-                                                    <a:off x="0" y="0"/>
-                                                    <a:ext cx="8255000" cy="381000"/>
-                                                </a:xfrm>
-                                                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
-                                                <a:noFill/>
-                                                <a:ln><a:noFill/></a:ln>
-                                            </wps:spPr>
-                                            <wps:txbx>
-                                                <w:txbxContent>
-                                                    <w:p>
-                                                        <w:pPr><w:jc w:val="center"/></w:pPr>
-                                                        <w:r>
-                                                            <w:rPr>
-                                                                <w:color w:val="CC0000"/>
-                                                                <w:sz w:val="14"/>
-                                                                <w:b/>
-                                                                <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                            </w:rPr>
-                                                            <w:t>{vertical_stamp_text}</w:t>
-                                                        </w:r>
-                                                    </w:p>
-                                                </w:txbxContent>
-                                            </wps:txbx>
-                                        </wps:wsp>
-                                    </a:graphicData>
-                                </a:graphic>
-                            </wp:anchor>
-                        </w:drawing>
-                    </w:r>
-                    '''
-                else:
-                    # SCENARIO 2: DOWNLOAD (Download Button - Uses MS Word WordArt)
+                    # SCENARIO 1: LIVE VIEWER (Read Button)
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
-                            <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
-                                <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
-                                <v:textpath on="t" fitshape="t"/>
-                                <o:lock v:ext="edit" text="t" shapetype="t"/>
-                            </v:shapetype>
-                            <v:shape id="DownloadStamp" type="#_x0000_t136" 
-                                     style="position:absolute;left:-300pt;top:350pt;width:650pt;height:20pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                     fillcolor="#CC0000" stroked="f">
-                                <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
-                            </v:shape>
+                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
+                            <v:rect id="LiveViewStamp" 
+                                    style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    strokecolor="#CC0000" stroked="f" filled="f">
+                                <v:textbox inset="0,0,0,0">
+                                    <w:txbxContent>
+                                        <w:p>
+                                            <w:pPr>
+                                                <w:textDirection w:val="btLr"/>
+                                                <w:jc w:val="center"/>
+                                            </w:pPr>
+                                            <w:r>
+                                                <w:rPr>
+                                                    <w:color w:val="CC0000"/>
+                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                    <w:sz w:val="14"/>
+                                                    <w:b/>
+                                                </w:rPr>
+                                                <w:t>{vertical_stamp_text}</w:t>
+                                            </w:r>
+                                        </w:p>
+                                    </w:txbxContent>
+                                </v:textbox>
+                            </v:rect>
+                        </w:pict>
+                    </w:r>
+                    '''
+                else:
+                    # SCENARIO 2: PHYSICAL DOWNLOAD (MS Word Desktop)
+                    vml_xml = f'''
+                    <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                         xmlns:v="urn:schemas-microsoft-com:vml" 
+                         xmlns:o="urn:schemas-microsoft-com:office:office">
+                        <w:pict>
+                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
+                            <v:rect id="DownloadStamp" 
+                                    style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    strokecolor="#CC0000" stroked="f" filled="f">
+                                <v:textbox style="mso-layout-flow-alt:bottom-to-top" inset="0,0,0,0">
+                                    <w:txbxContent>
+                                        <w:p>
+                                            <w:pPr>
+                                                <w:jc w:val="center"/>
+                                            </w:pPr>
+                                            <w:r>
+                                                <w:rPr>
+                                                    <w:color w:val="CC0000"/>
+                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                    <w:sz w:val="14"/>
+                                                    <w:b/>
+                                                </w:rPr>
+                                                <w:t>{vertical_stamp_text}</w:t>
+                                            </w:r>
+                                        </w:p>
+                                    </w:txbxContent>
+                                </v:textbox>
+                            </v:rect>
                         </w:pict>
                     </w:r>
                     '''
@@ -479,6 +467,7 @@ def download_archive_file(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
+        # 🟢 Record DOWNLOAD activity
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
