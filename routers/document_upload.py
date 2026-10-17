@@ -355,17 +355,13 @@ def download_archive_file(
 
             section = word_doc.sections[0]
             header = section.header
-            
-            # Clear any messy paragraphs from previous attempts
-            for p in header.paragraphs:
-                p.text = ""
-
-            header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+            if not header.paragraphs:
+                header_p = header.add_paragraph()
+            else:
+                header_p = header.paragraphs[0]
             
             try:
-                # 🟢 Restored ORIGINAL VML structure mapped cleanly to the left margin
-                # Modified left offset to 30pt (~0.4 inches) to sit safely in printable area
-                # z-index:-251658240 pushes it BEHIND text so letterheads are completely unaffected
+                # 🟢 Restored YOUR EXACT original VML structure
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -377,7 +373,7 @@ def download_archive_file(
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
-                                 style="position:absolute;left:30pt;top:80pt;width:20pt;height:650pt;rotation:270;z-index:-251658240;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                 style="position:absolute;left:10pt;top:80pt;width:20pt;height:650pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                  fillcolor="#CC0000" stroked="f">
                             <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
@@ -441,11 +437,12 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    left_box = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
+                    # 🟢 Restored YOUR exact correct PPTX coordinates to fix the centering bug
+                    left_box = slide.shapes.add_textbox(Inches(-3.4), Inches(3.5), Inches(8), Inches(0.5))
                     left_box.rotation = 270 
                     p_left = left_box.text_frame.add_paragraph()
                     p_left.text = vertical_stamp_text
-                    p_left.font.size = PPTXPt(6.5)
+                    p_left.font.size = PPTXPt(7)
                     p_left.font.bold = True
                     p_left.font.name = 'Courier New'
                     p_left.font.color.rgb = PPTXRGBColor(139, 0, 0)
@@ -483,7 +480,7 @@ def download_archive_file(
                 ServerSideEncryption="AES256"
             )
             
-            # 🟢 S3 Consistency Waiter: Pauses slightly to ensure Google Docs Viewer finds the file
+            # 🟢 S3 Consistency Waiter: Fixes the Google Docs Viewer "file wasn't available" bug
             try:
                 waiter = s3_client.get_waiter('object_exists')
                 waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
