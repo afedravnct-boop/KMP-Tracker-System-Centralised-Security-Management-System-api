@@ -1,12 +1,30 @@
 import io
 import os
+import json
+import base64
 import urllib.parse
+import re
 from datetime import datetime
 from typing import Optional, List
+import hmac
+import hashlib
+
 import boto3
+import openpyxl
+import pymupdf
+import pytz
+from docx import Document
+from docx.shared import Pt
+from docx.oxml import parse_xml
+from pptx import Presentation
+from pptx.util import Inches, Pt as PPTXPt
+from pptx.dml.color import RGBColor as PPTXRGBColor
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+
 from app import models
 from app.database import get_db, get_logs_db
 from auth import get_current_user
@@ -131,3 +149,269 @@ async def upload_general_document(
         logs_db.rollback()
         print(f"Fetch error: {e}")
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
+
+
+# 🟢 DEDICATED GENERAL DOCUMENTS DOWNLOAD ROUTE
+@router.get("/general-documents/download/{doc_id}")
+@router.get("/general-docs/download/{doc_id}")
+def download_general_document(
+    doc_id: int, 
+    return_url: bool = False,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user = Depends(get_current_user)
+):
+    Model = get_general_doc_model()
+    doc_record = db.query(Model).filter(Model.id == doc_id).first()
+
+    if not doc_record:
+        raise HTTPException(status_code=404, detail="General Document not found in system database.")
+        
+    file_path = getattr(doc_record, 'file_path', getattr(doc_record, 'url', ''))
+    file_name = getattr(doc_record, 'file_name', getattr(doc_record, 'name', 'document'))
+
+    if not str(file_path).startswith("http"):
+        raise HTTPException(status_code=404, detail="File path invalid or missing S3 storage link.")
+
+    parsed_url = urllib.parse.urlparse(file_path)
+    original_s3_key = parsed_url.path.lstrip('/') 
+    file_extension = file_name.lower().split('.')[-1] if '.' in file_name else "bin"
+
+    try:
+        file_stream = io.BytesIO()
+        s3_client.download_fileobj(BUCKET_NAME, original_s3_key, file_stream)
+        file_stream.seek(0)
+        raw_bytes = file_stream.getvalue()
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+        timestamp_eat = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+
+        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "OFFICER").strip().upper()
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
+        officer_signature = f"{officer_fnum} {officer_rank} {officer_name}"
+        command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
+        stamp_id = f"KMP-GEN-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
+
+        # 🟢 SECURE FORENSIC TOKEN (HMAC-SHA256)
+        FORENSIC_SECRET = os.getenv("FORENSIC_SIGNING_SECRET", "super_secret_kmp_key_2026").encode('utf-8')
+        
+        compact_payload = {"f": officer_fnum, "s": stamp_id}
+        payload_str = json.dumps(compact_payload)
+        
+        signature = hmac.new(FORENSIC_SECRET, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        secure_token_data = f"{payload_str}::{signature}"
+        encoded_token = base64.b64encode(secure_token_data.encode('utf-8')).decode('utf-8')
+
+        keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
+        comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
+
+        vertical_stamp_text = f"RESTRICTED LAW ENFORCEMENT RECORD  |  ACCESS BY: {officer_signature}  |  STAMP ID: {stamp_id}  |  TIME: {timestamp_eat}"
+
+        output_stream = io.BytesIO()
+        content_type = "application/octet-stream"
+
+        if file_extension == 'docx':
+            word_doc = Document(io.BytesIO(raw_bytes))
+            core_props = word_doc.core_properties
+            core_props.author = officer_signature
+            core_props.last_modified_by = officer_signature
+            core_props.keywords = keywords_str
+            core_props.comments = comments_str
+            core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
+
+            section = word_doc.sections[0]
+            header = section.header
+            
+            for p in header.paragraphs:
+                p.text = ""
+
+            header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
+            
+            try:
+                # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
+                if return_url:
+                    # SCENARIO 1: LIVE VIEWER (Read Button - Uses CSS Text Direction)
+                    vml_xml = f'''
+                    <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                         xmlns:v="urn:schemas-microsoft-com:vml" 
+                         xmlns:o="urn:schemas-microsoft-com:office:office">
+                        <w:pict>
+                            <v:rect id="LiveViewStamp" 
+                                    style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    strokecolor="#CC0000" stroked="f" filled="f">
+                                <v:textbox inset="0,0,0,0">
+                                    <w:txbxContent>
+                                        <w:p>
+                                            <w:pPr>
+                                                <w:textDirection w:val="btLr"/>
+                                                <w:jc w:val="center"/>
+                                            </w:pPr>
+                                            <w:r>
+                                                <w:rPr>
+                                                    <w:color w:val="CC0000"/>
+                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                    <w:sz w:val="14"/>
+                                                    <w:b/>
+                                                </w:rPr>
+                                                <w:t>{vertical_stamp_text}</w:t>
+                                            </w:r>
+                                        </w:p>
+                                    </w:txbxContent>
+                                </v:textbox>
+                            </v:rect>
+                        </w:pict>
+                    </w:r>
+                    '''
+                else:
+                    # SCENARIO 2: DOWNLOAD (Download Button - Uses MS Word WordArt)
+                    vml_xml = f'''
+                    <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                         xmlns:v="urn:schemas-microsoft-com:vml" 
+                         xmlns:o="urn:schemas-microsoft-com:office:office">
+                        <w:pict>
+                            <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
+                                <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
+                                <v:textpath on="t" fitshape="t"/>
+                                <o:lock v:ext="edit" text="t" shapetype="t"/>
+                            </v:shapetype>
+                            <v:shape id="DownloadStamp" type="#_x0000_t136" 
+                                     style="position:absolute;left:-300pt;top:350pt;width:650pt;height:20pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                     fillcolor="#CC0000" stroked="f">
+                                <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                            </v:shape>
+                        </w:pict>
+                    </w:r>
+                    '''
+
+                vml_run = parse_xml(vml_xml)
+                header_p._p.append(vml_run)
+            except Exception as e:
+                print(f"Failed to inject split-logic DOCX watermark: {e}")
+            
+            word_doc.save(output_stream)
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+        elif file_extension == 'pdf':
+            try:
+                pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
+                for page in pdf_doc:
+                    rect = page.rect
+                    page.insert_text(
+                        pymupdf.Point(20, rect.height - 50),
+                        vertical_stamp_text,
+                        fontsize=7,
+                        fontname="courier-bold",
+                        color=(0.545, 0, 0), 
+                        rotate=90,
+                        overlay=True
+                    )
+                stamped_pdf_bytes = pdf_doc.tobytes()
+                output_stream = io.BytesIO(stamped_pdf_bytes)
+                content_type = "application/pdf"
+            except Exception as pdf_err:
+                print(f"PDF watermarking notice: {pdf_err}")
+                output_stream.write(raw_bytes)
+                content_type = "application/pdf"
+
+        elif file_extension in ['xlsx', 'xls']:
+            wb = openpyxl.load_workbook(io.BytesIO(raw_bytes))
+            wb.properties.creator = officer_signature
+            wb.properties.lastModifiedBy = officer_signature
+            wb.properties.keywords = keywords_str
+            wb.properties.description = comments_str
+            wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+            
+            for ws in wb.worksheets:
+                if hasattr(ws, 'sheet_footer'): 
+                    ws.sheet_footer.left.text = f"&\"Courier New,Bold\"&7&KCC0000{vertical_stamp_text}"
+                elif hasattr(ws, 'odd_footer'): 
+                    ws.odd_footer.left.text = f"&\"Courier New,Bold\"&7&KCC0000{vertical_stamp_text}"
+            wb.save(output_stream)
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        elif file_extension in ['pptx', 'ppt']:
+            try:
+                prs = Presentation(io.BytesIO(raw_bytes))
+                prs.core_properties.author = officer_signature
+                prs.core_properties.last_modified_by = officer_signature
+                prs.core_properties.keywords = keywords_str
+                prs.core_properties.comments = comments_str
+                prs.core_properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
+                
+                if prs.slides:
+                    slide = prs.slides[0]
+                    left_box = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
+                    left_box.rotation = 270 
+                    p_left = left_box.text_frame.add_paragraph()
+                    p_left.text = vertical_stamp_text
+                    p_left.font.size = PPTXPt(6.5)
+                    p_left.font.bold = True
+                    p_left.font.name = 'Courier New'
+                    p_left.font.color.rgb = PPTXRGBColor(139, 0, 0)
+
+                prs.save(output_stream)
+                content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            except Exception:
+                output_stream.write(raw_bytes)
+                content_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+        else:
+            output_stream.write(raw_bytes)
+
+        output_stream.seek(0)
+        final_bytes = output_stream.getvalue()
+
+        # 🟢 Record DOWNLOAD activity
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="GENERAL_DOCUMENTS",
+            target_id=str(doc_id),
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded and watermarked document titled \"{file_name}\"."
+        )
+
+        if return_url:
+            safe_file_name = re.sub(r'[^a-zA-Z0-9.]', '_', file_name)
+            safe_file_name = re.sub(r'_+', '_', safe_file_name)
+            
+            temp_s3_key = f"forensic_cache/{stamp_id}_{safe_file_name}"
+            
+            s3_client.put_object(
+                Bucket=BUCKET_NAME,
+                Key=temp_s3_key,
+                Body=final_bytes,
+                ContentType=content_type,
+                ContentDisposition=f'inline; filename="{safe_file_name}"', 
+                ServerSideEncryption="AES256"
+            )
+            
+            try:
+                waiter = s3_client.get_waiter('object_exists')
+                waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
+            except Exception:
+                import time
+                time.sleep(1.5)
+            
+            presigned_url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': BUCKET_NAME, 
+                    'Key': temp_s3_key,
+                    'ResponseContentDisposition': f'inline; filename="{safe_file_name}"',
+                    'ResponseContentType': content_type
+                },
+                ExpiresIn=3600
+            )
+            return JSONResponse(content={"url": presigned_url})
+
+        return StreamingResponse(
+            io.BytesIO(final_bytes),
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{file_name}"'}
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"General Document Download Error: {str(e)}")

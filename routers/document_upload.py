@@ -3,8 +3,11 @@ import os
 import json
 import base64
 import urllib.parse
+import re
 from datetime import datetime
 from typing import Optional, List
+import hmac
+import hashlib
 
 import boto3
 import openpyxl
@@ -12,7 +15,7 @@ import pymupdf
 import pytz
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt
 from docx.oxml import parse_xml
 from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
@@ -21,7 +24,7 @@ from pptx.dml.color import RGBColor as PPTXRGBColor
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, status
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text, or_, func
+from sqlalchemy import text, or_
 
 from app import models
 from app.database import get_db, get_logs_db
@@ -61,18 +64,6 @@ def get_doc_archive_model():
             return getattr(models, model_name)
     raise HTTPException(status_code=500, detail="Document Archive database model is not configured.")
 
-def get_template_model():
-    for model_name in ['CommandTemplate', 'Command_Template', 'command_template', 'command_templates']:
-        if hasattr(models, model_name):
-            return getattr(models, model_name)
-    return None
-
-def get_general_doc_model():
-    for name in ['GeneralDocuments', 'General_Documents', 'general_documents']:
-        if hasattr(models, name):
-            return getattr(models, name)
-    return None
-
 @router.get("/reports/archive")
 def get_document_archive(
     search: Optional[str] = Query(default=None),
@@ -97,48 +88,34 @@ def get_document_archive(
             if search_conds:
                 query = query.filter(or_(*search_conds))
 
-        docs = query.all()
-        if not docs:
-            raw_result = db.execute(text("SELECT id, file_name, doc_type, file_size, file_path, region, station, uploaded_by, upload_date FROM document_archive ORDER BY id DESC")).fetchall()
-            results = [
-                {
-                    "id": row[0],
-                    "name": row[1] or "document",
-                    "type": row[2] or "General Document",
-                    "date": str(row[8]).split(' ')[0] if row[8] else "",
-                    "size": row[3] or "N/A",
-                    "file_path": row[4] or "",
-                    "region": row[5] or "KMP HEADQUARTERS",
-                    "station": row[6] or "KMP HEADQUARTERS"
-                } for row in raw_result
-            ]
-        else:
-            results = []
-            for doc in docs:
-                file_name = getattr(doc, 'file_name', getattr(doc, 'filename', 'document'))
-                doc_type = getattr(doc, 'doc_type', getattr(doc, 'doctype', 'General Document'))
-                file_size = getattr(doc, 'file_size', getattr(doc, 'filesize', 'N/A'))
-                file_path = getattr(doc, 'file_path', getattr(doc, 'filepath', ''))
-                region = getattr(doc, 'region', 'KMP HEADQUARTERS')
-                station = getattr(doc, 'station', 'KMP HEADQUARTERS')
-                upload_date = getattr(doc, 'upload_date', getattr(doc, 'uploaded_at', None))
-                
-                date_str = ""
-                if isinstance(upload_date, datetime):
-                    date_str = upload_date.strftime("%Y-%m-%d")
-                elif upload_date:
-                    date_str = str(upload_date).split(' ')[0]
+        docs = query.order_by(ArchiveModel.id.desc()).all()
+        
+        results = []
+        for doc in docs:
+            file_name = getattr(doc, 'file_name', getattr(doc, 'filename', 'document'))
+            doc_type = getattr(doc, 'doc_type', getattr(doc, 'doctype', 'General Document'))
+            file_size = getattr(doc, 'file_size', getattr(doc, 'filesize', 'N/A'))
+            file_path = getattr(doc, 'file_path', getattr(doc, 'filepath', ''))
+            region = getattr(doc, 'region', 'KMP HEADQUARTERS')
+            station = getattr(doc, 'station', 'KMP HEADQUARTERS')
+            upload_date = getattr(doc, 'upload_date', getattr(doc, 'uploaded_at', None))
+            
+            date_str = ""
+            if isinstance(upload_date, datetime):
+                date_str = upload_date.strftime("%Y-%m-%d")
+            elif upload_date:
+                date_str = str(upload_date).split(' ')[0]
 
-                results.append({
-                    "id": getattr(doc, 'id', getattr(doc, 'sn', 1)),
-                    "name": file_name,
-                    "type": doc_type or "General Document",
-                    "date": date_str,
-                    "size": file_size or "N/A",
-                    "file_path": file_path,
-                    "region": region,
-                    "station": station
-                })
+            results.append({
+                "id": getattr(doc, 'id', getattr(doc, 'sn', 1)),
+                "name": file_name,
+                "type": doc_type or "General Document",
+                "date": date_str,
+                "size": file_size or "N/A",
+                "file_path": file_path,
+                "region": region,
+                "station": station
+            })
 
         if search:
             summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched document archive for query: \"{search}\" (Returned {len(results)} matches)."
@@ -157,19 +134,7 @@ def get_document_archive(
         return results
     except Exception as e:
         print(f"Archive fetch error: {str(e)}")
-        try:
-            raw_result = db.execute(text("SELECT id, file_name, doc_type, file_size, file_path, region, station, upload_date FROM document_archive ORDER BY id DESC")).fetchall()
-            return [
-                {
-                    "id": row[0], "name": row[1] or "document", "type": row[2] or "General Document",
-                    "date": str(row[7]).split(' ')[0] if row[7] else "", "size": row[3] or "N/A",
-                    "file_path": row[4] or "", "region": row[5] or "KMP HEADQUARTERS", "station": row[6] or "KMP HEADQUARTERS"
-                } for row in raw_result
-            ]
-        except Exception as inner_err:
-            print(f"Raw SQL fallback failed: {inner_err}")
-            return []
-
+        return []
 
 @router.post("/reports/upload-word-report")
 async def upload_word_report(
@@ -276,37 +241,20 @@ async def upload_word_report(
         raise HTTPException(status_code=500, detail=f"Failed to process document intake: {str(e)}")
 
 
+# 🟢 DEDICATED REPORT DOWNLOAD ROUTE ONLY
 @router.get("/reports/download/{doc_id}")
-@router.get("/templates/download/{doc_id}")
-@router.get("/general-docs/download/{doc_id}") 
 def download_archive_file(
     doc_id: int, 
     return_url: bool = False,
-    category: Optional[str] = None, 
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user = Depends(get_current_user)
 ):
     ArchiveModel = get_doc_archive_model()
-    TemplateModel = get_template_model()
-    GeneralDocModel = get_general_doc_model()
-    
-    doc_record = None
-    
-    if category == 'templates' and TemplateModel:
-        doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
-    elif category == 'general_doc' and GeneralDocModel:
-        doc_record = db.query(GeneralDocModel).filter(GeneralDocModel.id == doc_id).first()
-    elif category == 'weekly_report' and ArchiveModel:
-        doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
-        
-    if not doc_record:
-        if ArchiveModel: doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
-        if not doc_record and TemplateModel: doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
-        if not doc_record and GeneralDocModel: doc_record = db.query(GeneralDocModel).filter(GeneralDocModel.id == doc_id).first()
+    doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
 
     if not doc_record:
-        raise HTTPException(status_code=404, detail="Document record not found in system database.")
+        raise HTTPException(status_code=404, detail="Document record not found in system archive database.")
         
     file_path = getattr(doc_record, 'file_path', getattr(doc_record, 'url', ''))
     file_name = getattr(doc_record, 'file_name', getattr(doc_record, 'name', 'document'))
@@ -334,8 +282,16 @@ def download_archive_file(
         command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
         stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
 
+        # 🟢 SECURE FORENSIC TOKEN (HMAC-SHA256)
+        FORENSIC_SECRET = os.getenv("FORENSIC_SIGNING_SECRET", "super_secret_kmp_key_2026").encode('utf-8')
+        
         compact_payload = {"f": officer_fnum, "s": stamp_id}
-        encoded_token = base64.b64encode(json.dumps(compact_payload).encode('utf-8')).decode('utf-8')
+        payload_str = json.dumps(compact_payload)
+        
+        signature = hmac.new(FORENSIC_SECRET, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        secure_token_data = f"{payload_str}::{signature}"
+        encoded_token = base64.b64encode(secure_token_data.encode('utf-8')).decode('utf-8')
+        
         keywords_str = f"KMP_AUDIT;{encoded_token}"[:250]
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
@@ -356,88 +312,72 @@ def download_archive_file(
             section = word_doc.sections[0]
             header = section.header
             
+            # Clear messy paragraphs
             for p in header.paragraphs:
                 p.text = ""
+
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
             try:
-                # 🟢 CRASH-FREE NATIVE VERTICAL TEXTBOX (No WordArt, No Rotation)
-                # 🟢 FULLY NATIVE DRAWINGML (Explicit Shape Rotation + Explicit Text Direction)
-                drawing_xml = f'''
-                <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
-                     xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" 
-                     xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" 
-                     xmlns:wps="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
-                    <w:drawing>
-                        <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="0" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">
-                            <wp:simplePos x="0" y="0"/>
-                            
-                            <!-- Position: 10pt from the left edge -->
-                            <wp:positionH relativeFrom="page">
-                                <wp:posOffset>127000</wp:posOffset>
-                            </wp:positionH>
-                            
-                            <!-- Position: Centered vertically on the page -->
-                            <wp:positionV relativeFrom="page">
-                                <wp:posOffset>5080000</wp:posOffset>
-                            </wp:positionV>
-                            
-                            <wp:extent cx="8255000" cy="381000"/>
-                            <wp:effectExtent l="0" t="0" r="0" b="0"/>
-                            <wp:wrapNone/>
-                            <wp:docPr id="1" name="VerticalLeftStamp"/>
-                            <wp:cNvGraphicFramePr/>
-                            
-                            <a:graphic>
-                                <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
-                                    <wps:wsp>
-                                        <wps:cNvSpPr/>
-                                        <wps:spPr>
-                                            <a:xfrm rot="16200000">
-                                                <a:off x="0" y="0"/>
-                                                <a:ext cx="8255000" cy="381000"/>
-                                            </a:xfrm>
-                                            <a:prstGeom prst="rect">
-                                                <a:avLst/>
-                                            </a:prstGeom>
-                                            <a:noFill/>
-                                            <a:ln><a:noFill/></a:ln>
-                                        </wps:spPr>
-                                        
-                                        <!-- 🟢 NEW: Explicitly tells the text body to flow Bottom-to-Top (270 degrees) -->
-                                        <wps:bodyPr vert="vert270" wrap="none" lIns="0" tIns="0" rIns="0" bIns="0"/>
-                                        
-                                        <wps:txbx>
-                                            <w:txbxContent>
-                                                <w:p>
-                                                    <w:pPr>
-                                                        <w:jc w:val="center"/>
-                                                        <!-- 🟢 NEW: Secondary fallback for Word's internal text direction -->
-                                                        <w:textDirection w:val="btLr"/>
-                                                    </w:pPr>
-                                                    <w:r>
-                                                        <w:rPr>
-                                                            <w:color w:val="CC0000"/>
-                                                            <w:sz w:val="15"/>
-                                                            <w:b/>
-                                                            <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                        </w:rPr>
-                                                        <w:t>{vertical_stamp_text}</w:t>
-                                                    </w:r>
-                                                </w:p>
-                                            </w:txbxContent>
-                                        </wps:txbx>
-                                    </wps:wsp>
-                                </a:graphicData>
-                            </a:graphic>
-                        </wp:anchor>
-                    </w:drawing>
-                </w:r>
-                '''
-                drawing_run = parse_xml(drawing_xml)
-                header_p._p.append(drawing_run)
+                # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
+                if return_url:
+                    # SCENARIO 1: LIVE VIEWER (Read Button - Uses CSS Text Direction)
+                    vml_xml = f'''
+                    <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                         xmlns:v="urn:schemas-microsoft-com:vml" 
+                         xmlns:o="urn:schemas-microsoft-com:office:office">
+                        <w:pict>
+                            <v:rect id="LiveViewStamp" 
+                                    style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    strokecolor="#CC0000" stroked="f" filled="f">
+                                <v:textbox inset="0,0,0,0">
+                                    <w:txbxContent>
+                                        <w:p>
+                                            <w:pPr>
+                                                <w:textDirection w:val="btLr"/>
+                                                <w:jc w:val="center"/>
+                                            </w:pPr>
+                                            <w:r>
+                                                <w:rPr>
+                                                    <w:color w:val="CC0000"/>
+                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                    <w:sz w:val="14"/>
+                                                    <w:b/>
+                                                </w:rPr>
+                                                <w:t>{vertical_stamp_text}</w:t>
+                                            </w:r>
+                                        </w:p>
+                                    </w:txbxContent>
+                                </v:textbox>
+                            </v:rect>
+                        </w:pict>
+                    </w:r>
+                    '''
+                else:
+                    # SCENARIO 2: DOWNLOAD (Download Button - Uses MS Word WordArt)
+                    vml_xml = f'''
+                    <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                         xmlns:v="urn:schemas-microsoft-com:vml" 
+                         xmlns:o="urn:schemas-microsoft-com:office:office">
+                        <w:pict>
+                            <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
+                                <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
+                                <v:textpath on="t" fitshape="t"/>
+                                <o:lock v:ext="edit" text="t" shapetype="t"/>
+                            </v:shapetype>
+                            <v:shape id="DownloadStamp" type="#_x0000_t136" 
+                                     style="position:absolute;left:-300pt;top:350pt;width:650pt;height:20pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                     fillcolor="#CC0000" stroked="f">
+                                <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                            </v:shape>
+                        </w:pict>
+                    </w:r>
+                    '''
+
+                vml_run = parse_xml(vml_xml)
+                header_p._p.append(vml_run)
             except Exception as e:
-                print(f"Failed to inject VML left margin watermark: {e}")
+                print(f"Failed to inject DOCX watermark: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -447,7 +387,6 @@ def download_archive_file(
                 pdf_doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
                 for page in pdf_doc:
                     rect = page.rect
-                    # Restored exact PyMuPDF left margin vertical positioning
                     page.insert_text(
                         pymupdf.Point(20, rect.height - 50),
                         vertical_stamp_text,
@@ -492,8 +431,7 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    # To rotate in PPTX without shifting off-screen, we adjust the center pivot point
-                    left_box = slide.shapes.add_textbox(Inches(-3.5), Inches(3.25), Inches(8), Inches(1))
+                    left_box = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
                     left_box.rotation = 270 
                     p_left = left_box.text_frame.add_paragraph()
                     p_left.text = vertical_stamp_text
@@ -524,19 +462,20 @@ def download_archive_file(
         )
 
         if return_url:
-            temp_s3_key = f"forensic_cache/{stamp_id}_{file_name}"
+            safe_file_name = re.sub(r'[^a-zA-Z0-9.]', '_', file_name)
+            safe_file_name = re.sub(r'_+', '_', safe_file_name)
             
-            # 🟢 RESTORED `inline` parameters so Google Docs Viewer renders it instead of downloading
+            temp_s3_key = f"forensic_cache/{stamp_id}_{safe_file_name}"
+            
             s3_client.put_object(
                 Bucket=BUCKET_NAME,
                 Key=temp_s3_key,
                 Body=final_bytes,
                 ContentType=content_type,
-                ContentDisposition="inline", 
+                ContentDisposition=f'inline; filename="{safe_file_name}"', 
                 ServerSideEncryption="AES256"
             )
             
-            # 🟢 S3 Consistency Waiter: Prevents "file wasn't available" viewer error
             try:
                 waiter = s3_client.get_waiter('object_exists')
                 waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
@@ -549,7 +488,8 @@ def download_archive_file(
                 Params={
                     'Bucket': BUCKET_NAME, 
                     'Key': temp_s3_key,
-                    'ResponseContentDisposition': 'inline'
+                    'ResponseContentDisposition': f'inline; filename="{safe_file_name}"',
+                    'ResponseContentType': content_type
                 },
                 ExpiresIn=3600
             )
@@ -576,6 +516,7 @@ async def verify_forensic_stamp(file: UploadFile = File(...)):
         keywords = ""
         comments = ""
         token_data = {}
+        is_verified = False
 
         if filename.endswith(('.xlsx', '.xls')):
             wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
@@ -591,26 +532,38 @@ async def verify_forensic_stamp(file: UploadFile = File(...)):
             keywords = props.keywords or ""
             comments = props.comments or ""
 
-        if "TOKEN:" in keywords:
+        # 🟢 STRICT HMAC-SHA256 FORENSIC VERIFICATION
+        if "TOKEN:" in keywords or "KMP_AUDIT;" in keywords:
             try:
-                raw_token = keywords.split("TOKEN:")[1].split(";")[0]
-                token_data = json.loads(base64.b64decode(raw_token).decode("utf-8"))
+                prefix = "TOKEN:" if "TOKEN:" in keywords else "KMP_AUDIT;"
+                raw_token = keywords.split(prefix)[1].split(";")[0]
+                
+                decoded_data = base64.b64decode(raw_token).decode("utf-8")
+                payload_str, provided_signature = decoded_data.split("::")
+                
+                FORENSIC_SECRET = os.getenv("FORENSIC_SIGNING_SECRET", "super_secret_kmp_key_2026").encode('utf-8')
+                expected_signature = hmac.new(FORENSIC_SECRET, payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+                
+                if hmac.compare_digest(expected_signature, provided_signature):
+                    token_data = json.loads(payload_str)
+                    is_verified = True
+                else:
+                    print("Forensic signature mismatch: Document metadata was tampered with.")
+                    is_verified = False
             except Exception:
-                pass
-
-        is_verified = "KMP_CSDMS_AUDIT_STAMP" in keywords or "KMP-STAMP" in comments or bool(token_data)
+                is_verified = False
+        else:
+            # Fallback legacy checks if no token is present
+            is_verified = "KMP_CSDMS_AUDIT_STAMP" in keywords or "KMP-STAMP" in comments
 
         return {
             "verified": is_verified,
             "inspected_filename": file.filename,
-            "downloaded_by_fnum": token_data.get("fnum", "N/A"),
-            "downloaded_by_officer": token_data.get("signature", author),
-            "officer_rank": token_data.get("rank", "N/A"),
-            "originating_station": token_data.get("station", "N/A"),
-            "originating_region": token_data.get("region", "N/A"),
+            "downloaded_by_fnum": token_data.get("f", "N/A"),
+            "downloaded_by_officer": author,
             "export_timestamp": token_data.get("timestamp", "N/A"),
-            "forensic_stamp_id": token_data.get("stamp_id", "N/A"),
-            "security_classification": "RESTRICTED / ENCRYPTED LAW ENFORCEMENT RECORD" if is_verified else "UNVERIFIED"
+            "forensic_stamp_id": token_data.get("s", "N/A"),
+            "security_classification": "RESTRICTED / SECURE LAW ENFORCEMENT RECORD" if is_verified else "UNVERIFIED"
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Forensic inspection failed: {str(e)}")
@@ -626,14 +579,7 @@ def delete_archive_file(
         raise HTTPException(status_code=403, detail="Command clearance required to delete official records.")
         
     ArchiveModel = get_doc_archive_model()
-    TemplateModel = get_template_model()
-    GeneralDocModel = get_general_doc_model()
-    
     doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
-    if not doc_record and TemplateModel:
-        doc_record = db.query(TemplateModel).filter(TemplateModel.id == doc_id).first()
-    if not doc_record and GeneralDocModel:
-        doc_record = db.query(GeneralDocModel).filter(GeneralDocModel.id == doc_id).first()
 
     if not doc_record:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -648,7 +594,6 @@ def delete_archive_file(
             except Exception as s3_err:
                 print(f"S3 Delete warning: {s3_err}")
             
-            doc_record = None
             db.delete(doc_record)
             db.commit()
 
