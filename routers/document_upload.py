@@ -321,36 +321,63 @@ def download_archive_file(
             try:
                 # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
-                    # SCENARIO 1: LIVE VIEWER (Read Button - Uses CSS Text Direction)
+                    # SCENARIO 1: LIVE VIEWER (Read Button - Uses Modern DrawingML)
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
-                         xmlns:v="urn:schemas-microsoft-com:vml" 
-                         xmlns:o="urn:schemas-microsoft-com:office:office">
-                        <w:pict>
-                            <v:rect id="LiveViewStamp" 
-                                    style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                    strokecolor="#CC0000" stroked="f" filled="f">
-                                <v:textbox inset="0,0,0,0">
-                                    <w:txbxContent>
-                                        <w:p>
-                                            <w:pPr>
-                                                <w:textDirection w:val="btLr"/>
-                                                <w:jc w:val="center"/>
-                                            </w:pPr>
-                                            <w:r>
-                                                <w:rPr>
-                                                    <w:color w:val="CC0000"/>
-                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                    <w:sz w:val="14"/>
-                                                    <w:b/>
-                                                </w:rPr>
-                                                <w:t>{vertical_stamp_text}</w:t>
-                                            </w:r>
-                                        </w:p>
-                                    </w:txbxContent>
-                                </v:textbox>
-                            </v:rect>
-                        </w:pict>
+                         xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" 
+                         xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" 
+                         xmlns:wps="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
+                        <w:drawing>
+                            <wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="0" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1">
+                                <wp:simplePos x="0" y="0"/>
+                                
+                                <!-- X Position: 10pt from left margin -->
+                                <wp:positionH relativeFrom="page"><wp:posOffset>127000</wp:posOffset></wp:positionH>
+                                
+                                <!-- Y Position: Centered vertically -->
+                                <wp:positionV relativeFrom="page"><wp:posOffset>5080000</wp:posOffset></wp:positionV>
+                                
+                                <wp:extent cx="8255000" cy="381000"/>
+                                <wp:effectExtent l="0" t="0" r="0" b="0"/>
+                                <wp:wrapNone/>
+                                <wp:docPr id="1" name="LiveViewStamp"/>
+                                <wp:cNvGraphicFramePr/>
+                                
+                                <a:graphic>
+                                    <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingShape">
+                                        <wps:wsp>
+                                            <wps:cNvSpPr/>
+                                            <wps:spPr>
+                                                <!-- Exact 270-degree rotation matrix applied to a 650pt wide bounding box -->
+                                                <a:xfrm rot="16200000">
+                                                    <a:off x="0" y="0"/>
+                                                    <a:ext cx="8255000" cy="381000"/>
+                                                </a:xfrm>
+                                                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+                                                <a:noFill/>
+                                                <a:ln><a:noFill/></a:ln>
+                                            </wps:spPr>
+                                            <wps:txbx>
+                                                <w:txbxContent>
+                                                    <w:p>
+                                                        <w:pPr><w:jc w:val="center"/></w:pPr>
+                                                        <w:r>
+                                                            <w:rPr>
+                                                                <w:color w:val="CC0000"/>
+                                                                <w:sz w:val="14"/>
+                                                                <w:b/>
+                                                                <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                            </w:rPr>
+                                                            <w:t>{vertical_stamp_text}</w:t>
+                                                        </w:r>
+                                                    </w:p>
+                                                </w:txbxContent>
+                                            </wps:txbx>
+                                        </wps:wsp>
+                                    </a:graphicData>
+                                </a:graphic>
+                            </wp:anchor>
+                        </w:drawing>
                     </w:r>
                     '''
                 else:

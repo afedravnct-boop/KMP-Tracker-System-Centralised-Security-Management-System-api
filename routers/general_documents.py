@@ -265,22 +265,35 @@ def download_general_document(
                     </w:r>
                     '''
                 else:
-                    # SCENARIO 2: DOWNLOAD (Download Button - Uses MS Word WordArt)
+                    # 🟢 SCENARIO 2: PHYSICAL DOWNLOAD (Download Button)
+                    # Uses MS Word's native vertical text flow. No rotation offsets needed, immune to clipping.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
-                            <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
-                                <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
-                                <v:textpath on="t" fitshape="t"/>
-                                <o:lock v:ext="edit" text="t" shapetype="t"/>
-                            </v:shapetype>
-                            <v:shape id="DownloadStamp" type="#_x0000_t136" 
-                                     style="position:absolute;left:-300pt;top:350pt;width:650pt;height:20pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                     fillcolor="#CC0000" stroked="f">
-                                <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
-                            </v:shape>
+                            <!-- Pinned perfectly to the left margin -->
+                            <v:rect id="DownloadStamp" 
+                                    style="position:absolute;margin-left:10pt;margin-top:50pt;width:25pt;height:700pt;z-index:-251657216;mso-position-horizontal:left;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
+                                    strokecolor="#CC0000" stroked="f" filled="f">
+                                <!-- Natively forces Bottom-to-Top text inside MS Word -->
+                                <v:textbox style="layout-flow:vertical;mso-layout-flow-alt:bottom-to-top;writing-mode:tb-rl" inset="0,0,0,0">
+                                    <w:txbxContent>
+                                        <w:p>
+                                            <w:pPr><w:jc w:val="center"/></w:pPr>
+                                            <w:r>
+                                                <w:rPr>
+                                                    <w:color w:val="CC0000"/>
+                                                    <w:sz w:val="14"/>
+                                                    <w:b/>
+                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                </w:rPr>
+                                                <w:t>{vertical_stamp_text}</w:t>
+                                            </w:r>
+                                        </w:p>
+                                    </w:txbxContent>
+                                </v:textbox>
+                            </v:rect>
                         </w:pict>
                     </w:r>
                     '''
