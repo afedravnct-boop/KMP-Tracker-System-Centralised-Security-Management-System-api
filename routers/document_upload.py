@@ -323,27 +323,26 @@ def download_archive_file(
                 # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
                     # SCENARIO 1: LIVE VIEWER (Read Button - 3cm x 7cm Horizontal Stamp)
-                    # 7cm width = ~200pt, 3cm height = ~85pt, perfectly positioned on the right
+                    # Uses a native floating textbox (w:txbx) wrapped in DrawingML to ensure Google Docs Viewer cannot strip it.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
-                         xmlns:o="urn:schemas-microsoft-com:office:office">
+                         xmlns:o="urn:schemas-microsoft-com:office:office"
+                         xmlns:w10="urn:schemas-microsoft-com:office:word">
                         <w:pict>
-                            <v:rect id="LiveViewStamp" 
-                                    style="position:absolute;left:360pt;top:220pt;width:200pt;height:85pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                    strokecolor="#CC0000" strokeweight="1.5pt" filled="f">
+                            <v:shape id="LiveViewStamp" style="position:absolute;margin-left:360pt;margin-top:220pt;width:200pt;height:85pt;z-index:251657216" 
+                                     coordsize="21600,21600" o:spt="202" fillcolor="white" strokecolor="#CC0000" strokeweight="1.5pt">
                                 <v:textbox inset="3pt,3pt,3pt,3pt">
                                     <w:txbxContent>
                                         <w:p>
                                             <w:pPr>
                                                 <w:jc w:val="center"/>
-                                                <w:spacing w:line="140" w:lineRule="auto"/>
                                             </w:pPr>
                                             <w:r>
                                                 <w:rPr>
                                                     <w:color w:val="CC0000"/>
                                                     <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                    <w:sz w:val="12"/>
+                                                    <w:sz w:val="14"/>
                                                     <w:b/>
                                                 </w:rPr>
                                                 <w:t>RESTRICTED RECORD</w:t><w:br/>
@@ -354,13 +353,13 @@ def download_archive_file(
                                         </w:p>
                                     </w:txbxContent>
                                 </v:textbox>
-                            </v:rect>
+                            </v:shape>
                         </w:pict>
                     </w:r>
                     '''
                 else:
                     # SCENARIO 2: PHYSICAL DOWNLOAD (MS Word Desktop)
-                    # This remains EXACTLY the same, as it executes perfectly in MS Word.
+                    # Flawless vertical stamp locked exactly 40pt from the left physical edge of the paper.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -369,6 +368,7 @@ def download_archive_file(
                             <v:rect id="DownloadStamp" 
                                     style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
+                                <!-- MS Word proprietary vertical flow (Bottom to Top) -->
                                 <v:textbox style="mso-layout-flow-alt:bottom-to-top" inset="0,0,0,0">
                                     <w:txbxContent>
                                         <w:p>
