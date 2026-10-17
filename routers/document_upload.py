@@ -322,14 +322,15 @@ def download_archive_file(
             try:
                 # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
-                    # SCENARIO 1: LIVE VIEWER (Read Button - Stable Horizontal Stamp)
+                    # SCENARIO 1: LIVE VIEWER (Read Button - 3cm x 7cm Horizontal Stamp)
+                    # 7cm width = ~200pt, 3cm height = ~85pt, perfectly positioned on the right
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
                             <v:rect id="LiveViewStamp" 
-                                    style="position:absolute;left:360pt;top:220pt;width:180pt;height:75pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    style="position:absolute;left:360pt;top:220pt;width:200pt;height:85pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" strokeweight="1.5pt" filled="f">
                                 <v:textbox inset="3pt,3pt,3pt,3pt">
                                     <w:txbxContent>
