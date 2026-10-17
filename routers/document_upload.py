@@ -361,36 +361,19 @@ def download_archive_file(
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
             try:
-                # 🟢 Live-Viewer Compatible Vertical Text Box (No VML shape rotation used)
-                # 🟢 Vertical Left Margin Stamp (Mimicking the X marks)
+                # 🟢 Live-Viewer Compatible: Bottom-to-Top Text Path (Bypasses Rotation Constraints)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
                      xmlns:o="urn:schemas-microsoft-com:office:office">
                     <w:pict>
-                        <v:rect id="LeftMarginAuditStamp" 
-                                style="position:absolute;left:5pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                strokecolor="#CC0000" stroked="f" filled="f">
-                            <v:textbox inset="0,0,0,0">
-                                <w:txbxContent>
-                                    <w:p>
-                                        <w:pPr>
-                                            <w:textDirection w:val="btLr"/>
-                                            <w:jc w:val="center"/>
-                                        </w:pPr>
-                                        <w:r>
-                                            <w:rPr>
-                                                <w:color w:val="CC0000"/>
-                                                <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                <w:sz w:val="14"/>
-                                                <w:b/>
-                                            </w:rPr>
-                                            <w:t>{vertical_stamp_text}</w:t>
-                                        </w:r>
-                                    </w:p>
-                                </w:txbxContent>
-                            </v:textbox>
-                        </v:rect>
+                        <v:line id="LeftMarginAuditStamp" 
+                                from="15pt,750pt" to="15pt,50pt" 
+                                style="position:absolute;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                strokecolor="#CC0000" stroked="f">
+                            <v:path textpathok="t"/>
+                            <v:textpath on="t" style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                        </v:line>
                     </w:pict>
                 </w:r>
                 '''                
