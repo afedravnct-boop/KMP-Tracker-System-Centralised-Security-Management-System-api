@@ -2,7 +2,8 @@ import io
 import json
 import re
 from datetime import datetime, date, timedelta
-from typing import Optional, List
+from typing import Optional, List, Union
+from urllib.parse import unquote
 
 import openpyxl
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
@@ -11,8 +12,9 @@ import pyzipper
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-from app import models
+from app import models, schemas
 from app.database import get_db, get_logs_db
 from auth import get_current_user
 from routers.activity_logger import record_neon_activity
@@ -78,12 +80,6 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
-def get_model_safe(*names):
-    for name in names:
-        if hasattr(models, name):
-            return getattr(models, name)
-    return None
-
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     start_str = str(start_dt)
@@ -104,110 +100,113 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS (Safe Tuple Fetching)
+    # 🟢 1. CRIME REPORTS (Using COUNT(id) and SUM(suspects))
     try:
-        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
-        if CrimeModel:
-            col_names = ['region', 'station', 'category', 'offence', 'suspects']
-            cols = [getattr(CrimeModel, c) for c in col_names if hasattr(CrimeModel, c)]
-            
-            if cols:
-                crimes = db.query(*cols).filter(CrimeModel.date >= start_str, CrimeModel.date <= end_str).all()
-                for r in crimes:
-                    row_dict = r._mapping if hasattr(r, '_mapping') else dict(zip([c.key for c in cols], r))
-                    
-                    stn = clean_str(row_dict.get('station', ''))
-                    reg = fast_get_region(stn, row_dict.get('region', ''))
+        crime_query = text("""
+            SELECT region, station, category, offence, 
+                   COUNT(id) as total_cases, 
+                   SUM(NULLIF(regexp_replace(suspects::text, '[^0-9]', '', 'g'), '')::numeric) as total_suspects
+            FROM crime_reports 
+            WHERE date >= :start_date AND date <= :end_date
+            GROUP BY region, station, category, offence
+        """)
+        crimes = db.execute(crime_query, {"start_date": start_str, "end_date": end_str}).fetchall()
 
-                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+        for r in crimes:
+            row_dict = r._mapping if hasattr(r, '_mapping') else r
+            stn = clean_str(row_dict.get('station', ''))
+            reg = fast_get_region(stn, row_dict.get('region', ''))
 
-                    category = clean_str(row_dict.get('category', 'GENERAL CRIMES'))
-                    offence = clean_str(row_dict.get('offence', 'UNSPECIFIED INCIDENT'))
-                    
-                    off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
-                    if "LOCK-UP TOTAL" in off: continue
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-                    try:
-                        suspects = int(row_dict.get('suspects', 0) or 0)
-                    except ValueError:
-                        suspects = 0
+            category = clean_str(row_dict.get('category', 'GENERAL CRIMES'))
+            offence = clean_str(row_dict.get('offence', 'UNSPECIFIED INCIDENT'))
+            off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
+            if "LOCK-UP TOTAL" in off: continue
 
-                    if reg not in crime_regional: crime_regional[reg] = {}
-                    if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-                    
-                    # Grouping & Summing Data
-                    crime_regional[reg][off]["cases"] += 1
-                    crime_regional[reg][off]["suspects"] += suspects
+            cases = int(row_dict.get('total_cases', 0) or 0)
+            suspects = int(row_dict.get('total_suspects', 0) or 0)
 
-                    if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
-                    crime_regional_totals[reg]["cases"] += 1
-                    crime_regional_totals[reg]["suspects"] += suspects
+            if reg not in crime_regional: crime_regional[reg] = {}
+            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+            crime_regional[reg][off]["cases"] += cases
+            crime_regional[reg][off]["suspects"] += suspects
 
-                    if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-                    crime_general[off]["cases"] += 1
-                    crime_general[off]["suspects"] += suspects
+            if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
+            crime_regional_totals[reg]["cases"] += cases
+            crime_regional_totals[reg]["suspects"] += suspects
 
-                    grand_crime_cases += 1
-                    grand_crime_suspects += suspects
+            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+            crime_general[off]["cases"] += cases
+            crime_general[off]["suspects"] += suspects
+
+            grand_crime_cases += cases
+            grand_crime_suspects += suspects
     except Exception as e:
-        print(f"ERROR in Crime Reports Tuple Fetch: {e}")
+        print(f"ERROR in Raw SQL crime reports fetch: {e}")
 
-    # 🟢 2. OPERATIONAL STATISTICS (Safe Tuple Fetching)
+    # 🟢 2. OPERATIONAL STATISTICS (Using Database SUM() for all numeric columns)
     try:
-        StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
-        if StatsModel:
-            col_names = ['region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
-            cols = [getattr(StatsModel, c) for c in col_names if hasattr(StatsModel, c)]
+        ops_query = text("""
+            SELECT region, station, 
+                   SUM(NULLIF(regexp_replace(arrested::text, '[^0-9]', '', 'g'), '')::numeric) as arrested,
+                   SUM(NULLIF(regexp_replace(given_bond::text, '[^0-9]', '', 'g'), '')::numeric) as given_bond,
+                   SUM(NULLIF(regexp_replace(cautioned::text, '[^0-9]', '', 'g'), '')::numeric) as cautioned,
+                   SUM(NULLIF(regexp_replace(pending_court::text, '[^0-9]', '', 'g'), '')::numeric) as pending_court,
+                   SUM(NULLIF(regexp_replace(taken_to_court::text, '[^0-9]', '', 'g'), '')::numeric) as taken_to_court,
+                   SUM(NULLIF(regexp_replace(released::text, '[^0-9]', '', 'g'), '')::numeric) as released,
+                   SUM(NULLIF(regexp_replace(remanded::text, '[^0-9]', '', 'g'), '')::numeric) as remanded,
+                   SUM(NULLIF(regexp_replace(convicted::text, '[^0-9]', '', 'g'), '')::numeric) as convicted
+            FROM operational_statistics 
+            WHERE date >= :start_date AND date <= :end_date
+            GROUP BY region, station
+        """)
+        stats = db.execute(ops_query, {"start_date": start_str, "end_date": end_str}).fetchall()
+
+        for s in stats:
+            row_dict = s._mapping if hasattr(s, '_mapping') else s
+            stn = clean_str(row_dict.get('station', ''))
+            reg = fast_get_region(stn, row_dict.get('region', ''))
+
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+            if reg not in ops_regional: 
+                ops_regional[reg] = {k: 0 for k in ops_general.keys()}
             
-            if cols:
-                stats = db.query(*cols).filter(StatsModel.date >= start_str, StatsModel.date <= end_str).all()
-                for s in stats:
-                    row_dict = s._mapping if hasattr(s, '_mapping') else dict(zip([c.key for c in cols], s))
-                    
-                    stn = clean_str(row_dict.get('station', ''))
-                    reg = fast_get_region(stn, row_dict.get('region', ''))
-
-                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
-
-                    if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-                    
-                    # Summing the arrays
-                    for key in ops_general.keys():
-                        try:
-                            val = int(row_dict.get(key, 0) or 0)
-                        except ValueError:
-                            val = 0
-                        ops_regional[reg][key] += val
-                        ops_general[key] += val
+            for key in ops_general.keys():
+                val = int(row_dict.get(key, 0) or 0)
+                ops_regional[reg][key] += val
+                ops_general[key] += val
     except Exception as e:
-        print(f"ERROR in Ops Stats Tuple Fetch: {e}")
+        print(f"ERROR in Raw SQL operational stats fetch: {e}")
 
-    # 🟢 3. SUCCESS STORIES (Safe Tuple Fetching)
+    # 🟢 3. SUCCESS STORIES (Fixed: using COUNT(sn) instead of COUNT(id))
     try:
-        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
-        if StoryModel:
-            col_names = ['region', 'station']
-            cols = [getattr(StoryModel, c) for c in col_names if hasattr(StoryModel, c)]
-            
-            if cols:
-                stories = db.query(*cols).filter(StoryModel.date >= start_str, StoryModel.date <= end_str).all()
-                for st in stories:
-                    row_dict = st._mapping if hasattr(st, '_mapping') else dict(zip([c.key for c in cols], st))
-                    
-                    stn = clean_str(row_dict.get('station', ''))
-                    reg = fast_get_region(stn, row_dict.get('region', ''))
+        story_query = text("""
+            SELECT region, station, COUNT(sn) as story_count
+            FROM success_stories 
+            WHERE date >= :start_date AND date <= :end_date
+            GROUP BY region, station
+        """)
+        stories = db.execute(story_query, {"start_date": start_str, "end_date": end_str}).fetchall()
 
-                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+        for st in stories:
+            row_dict = st._mapping if hasattr(st, '_mapping') else st
+            stn = clean_str(row_dict.get('station', ''))
+            reg = fast_get_region(stn, row_dict.get('region', ''))
 
-                    story_regional[reg] = story_regional.get(reg, 0) + 1
-                    grand_stories += 1
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+            story_count = int(row_dict.get('story_count', 0) or 0)
+            story_regional[reg] = story_regional.get(reg, 0) + story_count
+            grand_stories += story_count
     except Exception as e:
-        print(f"ERROR in Success Stories Tuple Fetch: {e}")
+        print(f"ERROR in Raw SQL success stories fetch: {e}")
 
-    # Ensure all mapping structures exist
+    # Ensure all regions exist in mapping even if empty
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
@@ -239,7 +238,6 @@ def get_consolidated_ledger(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    print("🚨🚨🚨 HIT CONSOLIDATED_LEDGER.PY EXECUTING 🚨🚨🚨")
     try:
         today = date.today()
         default_start = today - timedelta(days=6)
