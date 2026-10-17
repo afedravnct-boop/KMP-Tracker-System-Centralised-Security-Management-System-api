@@ -12,7 +12,7 @@ import pyzipper
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_, text
+from sqlalchemy import text
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -80,16 +80,6 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
-def get_model_safe(*names):
-    for name in names:
-        if hasattr(models, name):
-            return getattr(models, name)
-    return None
-
-# 🟢 HELPER: Extracts ONLY the needed columns to prevent memory bloat
-def get_query_cols(model, col_names):
-    return [getattr(model, c) for c in col_names if hasattr(model, c)]
-
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     start_str = str(start_dt)
@@ -110,121 +100,106 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # --- 1. CRIME REPORTS (Targeted Memory-Safe Fetching) ---
+    # 🟢 1. CRIME REPORTS (RAW SQL / NOMINAL ROLL LOGIC)
     try:
-        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
-        if CrimeModel:
-            target_cols = get_query_cols(CrimeModel, ['region', 'station', 'category', 'offence', 'suspects'])
+        crime_query = text("""
+            SELECT region, station, category, offence, suspects 
+            FROM crime_reports 
+            WHERE date >= :start_date AND date <= :end_date
+        """)
+        crimes = db.execute(crime_query, {"start_date": start_str, "end_date": end_str}).fetchall()
+
+        for r in crimes:
+            row_dict = r._mapping if hasattr(r, '_mapping') else r
+            stn = clean_str(row_dict.get('station', ''))
+            reg = fast_get_region(stn, row_dict.get('region', ''))
+
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+            category = clean_str(row_dict.get('category', 'GENERAL CRIMES'))
+            offence = clean_str(row_dict.get('offence', 'UNSPECIFIED INCIDENT'))
             
-            # Select ONLY specific columns instead of fetching full heavy database objects
-            if target_cols:
-                crimes = db.query(*target_cols).filter(
-                    CrimeModel.date >= start_str,
-                    CrimeModel.date <= end_str
-                ).all()
+            if category == 'AGRIC_CRIME':
+                off = f"AGRIC: {offence}"
             else:
-                crimes = db.query(CrimeModel).filter(
-                    CrimeModel.date >= start_str, CrimeModel.date <= end_str
-                ).all()
+                off = offence
 
-            for r in crimes:
-                stn = clean_str(getattr(r, 'station', ''))
-                reg = fast_get_region(stn, getattr(r, 'region', ''))
+            if "LOCK-UP TOTAL" in off: continue
 
-                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            suspects_val = row_dict.get('suspects')
+            suspects = int(suspects_val) if suspects_val else 0
 
-                category = clean_str(getattr(r, 'category', 'GENERAL CRIMES'))
-                offence = clean_str(getattr(r, 'offence', 'UNSPECIFIED INCIDENT'))
-                
-                if category == 'AGRIC_CRIME':
-                    off = f"AGRIC: {offence}"
-                else:
-                    off = offence
+            if reg not in crime_regional: crime_regional[reg] = {}
+            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+            crime_regional[reg][off]["cases"] += 1
+            crime_regional[reg][off]["suspects"] += suspects
 
-                if "LOCK-UP TOTAL" in off: continue
+            if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
+            crime_regional_totals[reg]["cases"] += 1
+            crime_regional_totals[reg]["suspects"] += suspects
 
-                suspects = int(getattr(r, 'suspects', 0) or 0)
+            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+            crime_general[off]["cases"] += 1
+            crime_general[off]["suspects"] += suspects
 
-                if reg not in crime_regional: crime_regional[reg] = {}
-                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-                crime_regional[reg][off]["cases"] += 1
-                crime_regional[reg][off]["suspects"] += suspects
-
-                if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
-                crime_regional_totals[reg]["cases"] += 1
-                crime_regional_totals[reg]["suspects"] += suspects
-
-                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-                crime_general[off]["cases"] += 1
-                crime_general[off]["suspects"] += suspects
-
-                grand_crime_cases += 1
-                grand_crime_suspects += suspects
+            grand_crime_cases += 1
+            grand_crime_suspects += suspects
     except Exception as e:
-        print(f"ERROR in crime reports fetch: {e}")
+        print(f"ERROR in Raw SQL crime reports fetch: {e}")
 
-    # --- 2. OPERATIONAL STATISTICS (Targeted Memory-Safe Fetching) ---
+    # 🟢 2. OPERATIONAL STATISTICS (RAW SQL / NOMINAL ROLL LOGIC)
     try:
-        StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
-        if StatsModel:
-            target_cols = get_query_cols(StatsModel, ['region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
+        ops_query = text("""
+            SELECT region, station, arrested, given_bond, cautioned, pending_court, 
+                   taken_to_court, released, remanded, convicted 
+            FROM operational_statistics 
+            WHERE date >= :start_date AND date <= :end_date
+        """)
+        stats = db.execute(ops_query, {"start_date": start_str, "end_date": end_str}).fetchall()
+
+        for s in stats:
+            row_dict = s._mapping if hasattr(s, '_mapping') else s
+            stn = clean_str(row_dict.get('station', ''))
+            reg = fast_get_region(stn, row_dict.get('region', ''))
+
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+            if reg not in ops_regional: 
+                ops_regional[reg] = {k: 0 for k in ops_general.keys()}
             
-            if target_cols:
-                stats = db.query(*target_cols).filter(
-                    StatsModel.date >= start_str,
-                    StatsModel.date <= end_str
-                ).all()
-            else:
-                stats = db.query(StatsModel).filter(
-                    StatsModel.date >= start_str, StatsModel.date <= end_str
-                ).all()
-
-            for s in stats:
-                stn = clean_str(getattr(s, 'station', ''))
-                reg = fast_get_region(stn, getattr(s, 'region', ''))
-
-                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
-
-                if reg not in ops_regional: 
-                    ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-                
-                for key in ops_general.keys():
-                    val = int(getattr(s, key, 0) or 0)
-                    ops_regional[reg][key] += val
-                    ops_general[key] += val
+            for key in ops_general.keys():
+                val_raw = row_dict.get(key)
+                val = int(val_raw) if val_raw else 0
+                ops_regional[reg][key] += val
+                ops_general[key] += val
     except Exception as e:
-        print(f"ERROR in operational stats fetch: {e}")
+        print(f"ERROR in Raw SQL operational stats fetch: {e}")
 
-    # --- 3. SUCCESS STORIES (Targeted Memory-Safe Fetching) ---
+    # 🟢 3. SUCCESS STORIES (RAW SQL / NOMINAL ROLL LOGIC)
     try:
-        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
-        if StoryModel:
-            target_cols = get_query_cols(StoryModel, ['region', 'station'])
-            
-            if target_cols:
-                stories = db.query(*target_cols).filter(
-                    StoryModel.date >= start_str,
-                    StoryModel.date <= end_str
-                ).all()
-            else:
-                stories = db.query(StoryModel).filter(
-                    StoryModel.date >= start_str, StoryModel.date <= end_str
-                ).all()
+        story_query = text("""
+            SELECT region, station 
+            FROM success_stories 
+            WHERE date >= :start_date AND date <= :end_date
+        """)
+        stories = db.execute(story_query, {"start_date": start_str, "end_date": end_str}).fetchall()
 
-            for st in stories:
-                stn = clean_str(getattr(st, 'station', ''))
-                reg = fast_get_region(stn, getattr(st, 'region', ''))
+        for st in stories:
+            row_dict = st._mapping if hasattr(st, '_mapping') else st
+            stn = clean_str(row_dict.get('station', ''))
+            reg = fast_get_region(stn, row_dict.get('region', ''))
 
-                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-                story_regional[reg] = story_regional.get(reg, 0) + 1
-                grand_stories += 1
+            story_regional[reg] = story_regional.get(reg, 0) + 1
+            grand_stories += 1
     except Exception as e:
-        print(f"ERROR in success stories fetch: {e}")
+        print(f"ERROR in Raw SQL success stories fetch: {e}")
 
+    # Ensure all regions exist in mapping even if empty
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
