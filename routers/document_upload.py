@@ -361,7 +361,7 @@ def download_archive_file(
                 header_p = header.paragraphs[0]
             
             try:
-                # 🟢 Restored YOUR EXACT original VML structure
+                # 🟢 Restored original VML structure mapped cleanly to the left margin
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
@@ -437,12 +437,11 @@ def download_archive_file(
                 
                 if prs.slides:
                     slide = prs.slides[0]
-                    # 🟢 Restored YOUR exact correct PPTX coordinates to fix the centering bug
-                    left_box = slide.shapes.add_textbox(Inches(-3.4), Inches(3.5), Inches(8), Inches(0.5))
+                    left_box = slide.shapes.add_textbox(Inches(0.2), Inches(0.2), Inches(8), Inches(1))
                     left_box.rotation = 270 
                     p_left = left_box.text_frame.add_paragraph()
                     p_left.text = vertical_stamp_text
-                    p_left.font.size = PPTXPt(7)
+                    p_left.font.size = PPTXPt(6.5)
                     p_left.font.bold = True
                     p_left.font.name = 'Courier New'
                     p_left.font.color.rgb = PPTXRGBColor(139, 0, 0)
@@ -480,14 +479,6 @@ def download_archive_file(
                 ServerSideEncryption="AES256"
             )
             
-            # 🟢 S3 Consistency Waiter: Fixes the Google Docs Viewer "file wasn't available" bug
-            try:
-                waiter = s3_client.get_waiter('object_exists')
-                waiter.wait(Bucket=BUCKET_NAME, Key=temp_s3_key, WaiterConfig={'Delay': 1, 'MaxAttempts': 5})
-            except Exception:
-                import time
-                time.sleep(1.5)
-
             presigned_url = s3_client.generate_presigned_url(
                 'get_object',
                 Params={
