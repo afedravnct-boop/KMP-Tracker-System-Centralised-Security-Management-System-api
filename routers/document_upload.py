@@ -362,30 +362,52 @@ def download_archive_file(
 
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
+            # Format the text into 4 distinct lines for the ink stamp
+            stamp_line1 = "RESTRICTED LAW ENFORCEMENT RECORD"
+            stamp_line2 = f"ACCESS BY: {officer_signature}"
+            stamp_line3 = f"STAMP ID: {stamp_id}"
+            stamp_line4 = f"TIME: {timestamp_eat}"
+            
             try:
-                # 🟢 Corrected VML Structure for Vertical Left Margin Alignment
+                # 🟢 Boxed "Ink Stamp" placed on the Right Margin opposite Addressee
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
                      xmlns:o="urn:schemas-microsoft-com:office:office">
                     <w:pict>
-                        <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
-                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
-                            <v:textpath on="t" fitshape="t"/>
-                            <o:lock v:ext="edit" text="t" shapetype="t"/>
-                        </v:shapetype>
-                        <v:shape id="LeftMarginWatermark" type="#_x0000_t136" 
-                                 style="position:absolute;left:-300pt;top:350pt;width:650pt;height:20pt;rotation:270;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                 fillcolor="#CC0000" stroked="f">
-                            <v:textpath style="font-family:'Courier New';font-size:7pt;font-weight:bold" string="{vertical_stamp_text}"/>
-                        </v:shape>
+                        <v:rect id="RightMarginAuditStamp" 
+                                style="position:absolute;left:340pt;top:220pt;width:210pt;height:60pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                strokecolor="#CC0000" strokeweight="1.5pt" filled="f">
+                            <v:textbox inset="2pt,2pt,2pt,2pt">
+                                <w:txbxContent>
+                                    <w:p>
+                                        <w:pPr>
+                                            <w:jc w:val="center"/>
+                                            <w:spacing w:line="200" w:lineRule="auto"/>
+                                        </w:pPr>
+                                        <w:r>
+                                            <w:rPr>
+                                                <w:color w:val="CC0000"/>
+                                                <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                <w:sz w:val="14"/>
+                                                <w:b/>
+                                            </w:rPr>
+                                            <w:t>{stamp_line1}</w:t><w:br/>
+                                            <w:t>{stamp_line2}</w:t><w:br/>
+                                            <w:t>{stamp_line3}</w:t><w:br/>
+                                            <w:t>{stamp_line4}</w:t>
+                                        </w:r>
+                                    </w:p>
+                                </w:txbxContent>
+                            </v:textbox>
+                        </v:rect>
                     </w:pict>
                 </w:r>
                 '''
                 vml_run = parse_xml(vml_xml)
                 header_p._p.append(vml_run)
             except Exception as e:
-                print(f"Failed to inject VML left margin watermark: {e}")
+                print(f"Failed to inject boxed right margin stamp: {e}")
             
             word_doc.save(output_stream)
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
