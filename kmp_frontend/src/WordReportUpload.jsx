@@ -436,7 +436,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                   <div className="space-y-2">
                     {files.map((f, idx) => (
                       <div key={idx} className="text-xs font-mono text-sky-950 dark:text-sky-200 bg-sky-50 dark:bg-sky-950/40 p-3.5 rounded-xl border border-sky-200 dark:border-sky-900 flex justify-between items-center shadow-inner">
-                        <span className="flex items-center"><FileText className="w-4 h-4 mr-2 shrink-0 text-sky-600 dark:text-sky-400" /> <strong className="truncate max-w-[450px]">{f.name}</strong></span>
+                        <span className="flex items-center"><FileText className="w-4 h-4 mr-2 shrink-0 text-sky-600 dark:text-sky-400" /> <strong className="truncate max-w-[250px]">{f.name}</strong></span>
                         <span className="text-sky-700 dark:text-sky-300 font-bold shrink-0 ml-2">{Math.round(f.size / 1024)} KB</span>
                       </div>
                     ))}

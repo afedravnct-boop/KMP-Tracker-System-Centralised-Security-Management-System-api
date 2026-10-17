@@ -86,6 +86,10 @@ def get_model_safe(*names):
             return getattr(models, name)
     return None
 
+# 🟢 HELPER: Extracts ONLY the needed columns to prevent memory bloat
+def get_query_cols(model, col_names):
+    return [getattr(model, c) for c in col_names if hasattr(model, c)]
+
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
     start_str = str(start_dt)
@@ -106,14 +110,22 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # --- 1. CRIME REPORTS & AGRICULTURAL CRIMES (Mapped explicitly to Crime_Reports model) ---
+    # --- 1. CRIME REPORTS (Targeted Memory-Safe Fetching) ---
     try:
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
         if CrimeModel:
-            crimes = db.query(CrimeModel).filter(
-                CrimeModel.date >= start_str,
-                CrimeModel.date <= end_str
-            ).all()
+            target_cols = get_query_cols(CrimeModel, ['region', 'station', 'category', 'offence', 'suspects'])
+            
+            # Select ONLY specific columns instead of fetching full heavy database objects
+            if target_cols:
+                crimes = db.query(*target_cols).filter(
+                    CrimeModel.date >= start_str,
+                    CrimeModel.date <= end_str
+                ).all()
+            else:
+                crimes = db.query(CrimeModel).filter(
+                    CrimeModel.date >= start_str, CrimeModel.date <= end_str
+                ).all()
 
             for r in crimes:
                 stn = clean_str(getattr(r, 'station', ''))
@@ -125,7 +137,6 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
                 category = clean_str(getattr(r, 'category', 'GENERAL CRIMES'))
                 offence = clean_str(getattr(r, 'offence', 'UNSPECIFIED INCIDENT'))
                 
-                # Distinguish standard offences vs agricultural security reports
                 if category == 'AGRIC_CRIME':
                     off = f"AGRIC: {offence}"
                 else:
@@ -153,14 +164,21 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
     except Exception as e:
         print(f"ERROR in crime reports fetch: {e}")
 
-    # --- 2. OPERATIONAL STATISTICS ---
+    # --- 2. OPERATIONAL STATISTICS (Targeted Memory-Safe Fetching) ---
     try:
         StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
         if StatsModel:
-            stats = db.query(StatsModel).filter(
-                StatsModel.date >= start_str,
-                StatsModel.date <= end_str
-            ).all()
+            target_cols = get_query_cols(StatsModel, ['region', 'station', 'arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted'])
+            
+            if target_cols:
+                stats = db.query(*target_cols).filter(
+                    StatsModel.date >= start_str,
+                    StatsModel.date <= end_str
+                ).all()
+            else:
+                stats = db.query(StatsModel).filter(
+                    StatsModel.date >= start_str, StatsModel.date <= end_str
+                ).all()
 
             for s in stats:
                 stn = clean_str(getattr(s, 'station', ''))
@@ -179,14 +197,21 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
     except Exception as e:
         print(f"ERROR in operational stats fetch: {e}")
 
-    # --- 3. SUCCESS STORIES ---
+    # --- 3. SUCCESS STORIES (Targeted Memory-Safe Fetching) ---
     try:
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         if StoryModel:
-            stories = db.query(StoryModel).filter(
-                StoryModel.date >= start_str,
-                StoryModel.date <= end_str
-            ).all()
+            target_cols = get_query_cols(StoryModel, ['region', 'station'])
+            
+            if target_cols:
+                stories = db.query(*target_cols).filter(
+                    StoryModel.date >= start_str,
+                    StoryModel.date <= end_str
+                ).all()
+            else:
+                stories = db.query(StoryModel).filter(
+                    StoryModel.date >= start_str, StoryModel.date <= end_str
+                ).all()
 
             for st in stories:
                 stn = clean_str(getattr(st, 'station', ''))

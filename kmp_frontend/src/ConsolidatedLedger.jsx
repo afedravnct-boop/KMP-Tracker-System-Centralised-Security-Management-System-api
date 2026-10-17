@@ -23,7 +23,6 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
-  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [ledgerData, setLedgerData] = useState(null);
 
   const userRoleClean = cleanStr(currentUser?.role);
@@ -43,28 +42,13 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
 
-  // Progressive Fetching Engine
+  // 🟢 Optimized Single-Fetch Engine (Removes double-DB hit)
   useEffect(() => {
     let isMounted = true;
 
     const fetchLedgerData = async () => {
       setLoading(true);
       try {
-        const recentStart = new Date(endDate);
-        recentStart.setDate(recentStart.getDate() - 1);
-        const recentStartStr = recentStart.toISOString().split('T')[0];
-
-        if (new Date(startDate) < recentStart) {
-          const fastUrl = `/api/v1/reports/consolidated-ledger?start_date=${recentStartStr}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
-          const fastRes = await authFetch(fastUrl);
-          if (fastRes.ok && isMounted) {
-            const fastResult = await fastRes.json();
-            setLedgerData(fastResult.data);
-            setLoading(false);
-            setIsBackgroundSyncing(true);
-          }
-        }
-
         const fullUrl = `/api/v1/reports/consolidated-ledger?start_date=${startDate}&end_date=${endDate}&region=${encodeURIComponent(filterRegion)}&station=${encodeURIComponent(filterStation)}`;
         const fullRes = await authFetch(fullUrl);
         if (fullRes.ok && isMounted) {
@@ -76,7 +60,6 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
       } finally {
         if (isMounted) {
           setLoading(false);
-          setIsBackgroundSyncing(false);
         }
       }
     };
@@ -137,8 +120,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
           <h2 className="text-xl font-extrabold text-slate-800 dark:text-white flex items-center">
             <Eye size={20} className="mr-2 text-blue-600"/> 
             Command Master Ledger 
-            {loading && <span className="ml-3 text-xs text-blue-500 animate-pulse">(Initialising...)</span>}
-            {isBackgroundSyncing && <span className="ml-3 text-[10px] text-amber-600 dark:text-amber-400 animate-pulse tracking-wider">(SYNCING OLDER HISTORICAL RECORDS IN BACKGROUND...)</span>}
+            {loading && <span className="ml-3 text-xs text-blue-500 animate-pulse">(Compiling Secure Ledger...)</span>}
           </h2>
         </div>
 
