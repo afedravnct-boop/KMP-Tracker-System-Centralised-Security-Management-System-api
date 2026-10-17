@@ -361,27 +361,29 @@ def download_archive_file(
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
             try:
-                # 🟢 Live-Viewer & Word Compatible: Custom Vertical Path Shape (No Rotation Needed)
+                # 🟢 NATIVE WORD WATERMARK SCHEMA (Fully Supported by Web Viewers)
                 vml_xml = f'''
                 <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                      xmlns:v="urn:schemas-microsoft-com:vml" 
                      xmlns:o="urn:schemas-microsoft-com:office:office">
                     <w:pict>
-                        <!-- Define a custom shape path that physically travels Bottom-to-Top -->
-                        <v:shapetype id="VerticalPathShape" coordsize="21600,21600" o:spt="1" path="m 0,21600 l 0,0 e">
-                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="0,0;0,21600"/>
-                            <!-- Changed fitshape to "f" to prevent letter squishing/distortion -->
-                            <v:textpath on="t" fitshape="f"/>
+                        <!-- Standard WordArt TextPath Schema -->
+                        <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
+                            <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
+                            <v:textpath on="t" fitshape="t"/>
                             <o:lock v:ext="edit" text="t" shapetype="t"/>
                         </v:shapetype>
                         
-                        <!-- Apply the vertical shape to the left margin -->
-                        <!-- Increased height to 820pt, width to 60pt, and adjusted top to 10pt -->
-                        <v:shape id="LeftMarginAuditStamp" type="#VerticalPathShape" 
-                                 style="position:absolute;left:10pt;top:10pt;width:60pt;height:820pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                        <!-- 
+                          1. left:0pt prevents Google Docs from clipping the shape out of existence.
+                          2. width:650pt prevents the barcode text-wrapping effect.
+                          3. rotation:270 stands the text up vertically.
+                          4. margin and mso-position lock it flush to the left edge.
+                        -->
+                        <v:shape id="LeftMarginAuditStamp" type="#_x0000_t136" 
+                                 style="position:absolute;left:0pt;text-align:left;margin-left:15pt;margin-top:350pt;width:650pt;height:20pt;rotation:270;z-index:251657216;mso-position-horizontal:left;mso-position-vertical:center;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                  fillcolor="#CC0000" stroked="f">
-                            <!-- Shrunk font to 6pt to ensure it fits cleanly on a single line -->
-                            <v:textpath style="font-family:'Courier New';font-size:6pt;font-weight:bold" string="{vertical_stamp_text}"/>
+                            <v:textpath style="font-family:'Courier New';font-size:7.5pt;font-weight:bold" string="{vertical_stamp_text}"/>
                         </v:shape>
                     </w:pict>
                 </w:r>
