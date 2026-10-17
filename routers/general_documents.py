@@ -265,22 +265,24 @@ def download_general_document(
                     </w:r>
                     '''
                 else:
-                    # 🟢 SCENARIO 2: PHYSICAL DOWNLOAD (Download Button)
-                    # Uses MS Word's native vertical text flow. No rotation offsets needed, immune to clipping.
+                    # 🟢 SCENARIO 2: PHYSICAL DOWNLOAD (MS Word Native)
+                    # Positive z-index (251657216) ensures it sits ON TOP of the document and isn't hidden behind the white page background.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
-                            <!-- Pinned perfectly to the left margin -->
                             <v:rect id="DownloadStamp" 
-                                    style="position:absolute;margin-left:10pt;margin-top:50pt;width:25pt;height:700pt;z-index:-251657216;mso-position-horizontal:left;mso-position-horizontal-relative:page;mso-position-vertical:center;mso-position-vertical-relative:page" 
+                                    style="position:absolute;left:10pt;top:50pt;width:25pt;height:700pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
-                                <!-- Natively forces Bottom-to-Top text inside MS Word -->
-                                <v:textbox style="layout-flow:vertical;mso-layout-flow-alt:bottom-to-top;writing-mode:tb-rl" inset="0,0,0,0">
+                                <v:textbox inset="0,0,0,0">
                                     <w:txbxContent>
                                         <w:p>
-                                            <w:pPr><w:jc w:val="center"/></w:pPr>
+                                            <w:pPr>
+                                                <!-- MS Word's native internal vertical text tag (Bottom-to-Top) -->
+                                                <w:textDirection w:val="btLr"/>
+                                                <w:jc w:val="center"/>
+                                            </w:pPr>
                                             <w:r>
                                                 <w:rPr>
                                                     <w:color w:val="CC0000"/>
