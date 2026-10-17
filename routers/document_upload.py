@@ -341,18 +341,6 @@ def download_archive_file(
         comments_str = f"Export: {officer_signature} [{command_post}]. ID: {stamp_id}"
 
         vertical_stamp_text = f"RESTRICTED LAW ENFORCEMENT RECORD  |  ACCESS BY: {officer_signature}  |  STAMP ID: {stamp_id}  |  TIME: {timestamp_eat}"
-        
-        receipt_text = (
-            "========================================================\n"
-            "         KAMPALA METROPOLITAN POLICE HEADQUARTERS        \n"
-            "         CSDMS SECURE DOCUMENT ACCESS        \n"
-            "--------------------------------------------------------\n"
-            f"ACCESSED BY    : {officer_signature}\n"
-            f"CLEARANCE      : {current_user.role} | STATION: {current_user.station}\n"
-            f"AUDIT STAMP ID : {stamp_id}\n"
-            f"TIMESTAMP      : {timestamp_eat}\n"
-            "========================================================"
-        )
 
         output_stream = io.BytesIO()
         content_type = "application/octet-stream"
@@ -368,18 +356,22 @@ def download_archive_file(
 
             section = word_doc.sections[0]
             header = section.header
+            
+            for p in header.paragraphs:
+                p.text = ""
 
             try:
-                # 1. Generate the forensic stamp as a high-res transparent PNG image
+                # 🟢 1. Generate the forensic stamp as a high-res transparent PNG image
                 font_size = 22
                 try:
                     font = ImageFont.truetype("arial.ttf", font_size)
                 except IOError:
                     try:
-                        font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+                        font = ImageFont.truetype("DejaVuSans.ttf", font_size) # Linux fallback
                     except IOError:
                         font = ImageFont.load_default()
 
+                # Calculate text dimensions
                 dummy_img = Image.new('RGBA', (1, 1), (255, 255, 255, 0))
                 draw = ImageDraw.Draw(dummy_img)
                 try:
@@ -389,6 +381,7 @@ def download_archive_file(
                 except AttributeError:
                     txt_width, txt_height = draw.textsize(vertical_stamp_text, font=font)
 
+                # Create image and draw text in Dark Red
                 img = Image.new('RGBA', (txt_width + 40, txt_height + 20), (255, 255, 255, 0))
                 draw = ImageDraw.Draw(img)
                 draw.text((20, 10), vertical_stamp_text, fill=(139, 0, 0, 255), font=font)
@@ -400,14 +393,14 @@ def download_archive_file(
                 img.save(img_stream, format='PNG')
                 img_stream.seek(0)
 
-                # 2. Attach the run to the EXISTING first paragraph so Google Docs Viewer doesn't delete it
+                # 🟢 2. Insert image into the header and convert to floating anchor
                 header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
                 run = header_p.add_run()
                 
-                # Add picture inline first
+                # Add picture inline first (height spans ~9 inches of the margin)
                 picture = run.add_picture(img_stream, height=Inches(9.0))
                 
-                # 3. Convert inline picture to absolute floating watermark using native alignment tags
+                # 🟢 3. XML Magic: Convert inline picture to absolute floating watermark
                 drawing_elem = run._r.find('.//w:drawing', namespaces=run._r.nsmap)
                 inline_elem = drawing_elem.find('.//wp:inline', namespaces=run._r.nsmap)
                 
@@ -416,20 +409,20 @@ def download_archive_file(
                     cx, cy = extent.get('cx'), extent.get('cy')
                     graphic_elem = inline_elem.find('.//a:graphic', namespaces=run._r.nsmap)
                     
-                    # Using <wp:align>left</wp:align> overrides the paragraph's center alignment
-                    # relativeFrom="page" snaps it to the absolute edge of the physical paper
+                    # behindDoc="1" pushes the image behind the letterhead and text
+                    # posOffset=288000 pins it roughly 0.3 inches from the absolute left edge of the paper
                     anchor_xml = f'''
                     <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
                                xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
                                xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
-                               distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="251658240"
+                               distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="0"
                                behindDoc="1" locked="1" layoutInCell="0" allowOverlap="1">
                         <wp:simplePos x="0" y="0"/>
                         <wp:positionH relativeFrom="page">
-                            <wp:align>left</wp:align>
+                            <wp:posOffset>288000</wp:posOffset>
                         </wp:positionH>
                         <wp:positionV relativeFrom="page">
-                            <wp:align>center</wp:align>
+                            <wp:posOffset>720000</wp:posOffset>
                         </wp:positionV>
                         <wp:extent cx="{cx}" cy="{cy}"/>
                         <wp:effectExtent l="0" t="0" r="0" b="0"/>
@@ -441,6 +434,7 @@ def download_archive_file(
                     anchor_elem = parse_xml(anchor_xml)
                     anchor_elem.append(graphic_elem)
                     
+                    # Swap inline for floating anchor
                     drawing_elem.remove(inline_elem)
                     drawing_elem.append(anchor_elem)
 
@@ -537,7 +531,6 @@ def download_archive_file(
                 Key=temp_s3_key,
                 Body=final_bytes,
                 ContentType=content_type,
-                ContentDisposition="inline", 
                 ServerSideEncryption="AES256"
             )
             
@@ -553,8 +546,7 @@ def download_archive_file(
                 'get_object',
                 Params={
                     'Bucket': BUCKET_NAME, 
-                    'Key': temp_s3_key,
-                    'ResponseContentDisposition': 'inline'
+                    'Key': temp_s3_key
                 },
                 ExpiresIn=3600
             )
