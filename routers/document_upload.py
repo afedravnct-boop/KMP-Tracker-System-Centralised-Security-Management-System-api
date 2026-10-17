@@ -322,33 +322,34 @@ def download_archive_file(
             try:
                 # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
-                    # SCENARIO 1: LIVE VIEWER (Read Button)
-                    # Maintains the narrow 25pt box, forces CSS vertical writing mode, and reduces font to 5pt.
+                    # SCENARIO 1: LIVE VIEWER (Read Button - Clean Horizontal Stamp)
+                    # Sized to ~8cm length (225pt) and ~2cm width (55pt), placed opposite the addressee block.
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
                             <v:rect id="LiveViewStamp" 
-                                    style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
-                                    strokecolor="#CC0000" stroked="f" filled="f">
-                                <!-- Added CSS writing-mode and RTL direction to force bottom-to-top rendering on the web -->
-                                <v:textbox style="mso-layout-flow-alt:bottom-to-top; writing-mode:vertical-rl; direction:rtl;" inset="0,0,0,0">
+                                    style="position:absolute;left:330pt;top:220pt;width:225pt;height:55pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
+                                    strokecolor="#CC0000" strokeweight="1.5pt" filled="f">
+                                <v:textbox inset="2pt,2pt,2pt,2pt">
                                     <w:txbxContent>
                                         <w:p>
                                             <w:pPr>
-                                                <w:textDirection w:val="btLr"/>
                                                 <w:jc w:val="center"/>
+                                                <w:spacing w:line="150" w:lineRule="auto"/>
                                             </w:pPr>
                                             <w:r>
                                                 <w:rPr>
                                                     <w:color w:val="CC0000"/>
                                                     <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                    <!-- Reduced font size to 5pt (val 10) so it fits neatly inside the 25pt box -->
-                                                    <w:sz w:val="10"/>
+                                                    <w:sz w:val="12"/>
                                                     <w:b/>
                                                 </w:rPr>
-                                                <w:t>{vertical_stamp_text}</w:t>
+                                                <w:t>RESTRICTED LAW ENFORCEMENT RECORD</w:t><w:br/>
+                                                <w:t>ACCESS BY: {officer_signature}</w:t><w:br/>
+                                                <w:t>STAMP ID: {stamp_id}</w:t><w:br/>
+                                                <w:t>TIME: {timestamp_eat}</w:t>
                                             </w:r>
                                         </w:p>
                                     </w:txbxContent>
