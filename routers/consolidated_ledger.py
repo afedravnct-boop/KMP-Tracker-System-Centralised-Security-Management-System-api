@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+from app import models
 from app.database import get_db, get_logs_db
 from auth import get_current_user
 from routers.activity_logger import record_neon_activity
@@ -24,6 +25,7 @@ def clean_str(val) -> str:
     return str(val).strip().upper()
 
 def safe_int(val) -> int:
+    """Ultra-fast integer extraction without crashing the loop on bad data."""
     if val is None: return 0
     if isinstance(val, (int, float)): return int(val)
     s = str(val).strip()
@@ -32,6 +34,7 @@ def safe_int(val) -> int:
     return int(digits) if digits else 0
 
 def fast_parse_date(val) -> Optional[date]:
+    """Lightning-fast native Python date parser. Handles everything Python-side."""
     if not val: return None
     if isinstance(val, date): return val if not isinstance(val, datetime) else val.date()
     
@@ -44,6 +47,20 @@ def fast_parse_date(val) -> Optional[date]:
             if 1900 <= d.year <= 2100: return d
         except ValueError:
             pass
+            
+    try:
+        import pandas as pd
+        if s.replace('.', '', 1).isdigit():
+            float_val = float(s)
+            if 1000 < float_val < 73050:
+                dt = pd.to_datetime(float_val, unit='D', origin='1899-12-30', errors='coerce')
+                if pd.notna(dt) and 1900 <= dt.year <= 2100: return dt.date()
+        
+        parsed = pd.to_datetime(s, dayfirst=True, errors='coerce')
+        if pd.notna(parsed):
+            py_dt = parsed.to_pydatetime()
+            if 1900 <= py_dt.year <= 2100: return py_dt.date()
+    except Exception: pass
     return None
 
 def normalize_region_name(region_str) -> str:
@@ -119,37 +136,28 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    def extract_val(row_dict, *keys):
-        """Checks multiple variations of a column name to prevent KeyError drops."""
-        for key in keys:
-            if key in row_dict: return row_dict[key]
-            if key.capitalize() in row_dict: return row_dict[key.capitalize()]
-            if key.upper() in row_dict: return row_dict[key.upper()]
-        return None
-
-    # 🟢 1. CRIME REPORTS (Crash-Proof Raw Dictionary Parse)
+    # 🟢 1. CRIME REPORTS: 100% Python-Driven (No SQL Date Filtering)
     try:
-        crimes = db.execute(text("SELECT * FROM crime_reports")).fetchall()
+        crimes_query = "SELECT region, station, category, offence, suspects, date FROM crime_reports"
+        crimes = db.execute(text(crimes_query)).fetchall()
 
-        for r in crimes:
-            row_dict = r._mapping if hasattr(r, '_mapping') else dict(r)
-            
-            row_date = fast_parse_date(extract_val(row_dict, 'date', 'Date'))
+        for row in crimes:
+            row_date = fast_parse_date(row[5])
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(extract_val(row_dict, 'station', 'Station'))
-            reg = fast_get_region(stn, extract_val(row_dict, 'region', 'Region'))
+            stn = clean_str(str(row[1] or ''))
+            reg = fast_get_region(stn, str(row[0] or ''))
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-            category = clean_str(extract_val(row_dict, 'category', 'Category', 'GENERAL CRIMES'))
-            offence = clean_str(extract_val(row_dict, 'offence', 'Offence', 'UNSPECIFIED INCIDENT'))
+            category = clean_str(str(row[2] or 'GENERAL CRIMES'))
+            offence = clean_str(str(row[3] or 'UNSPECIFIED INCIDENT'))
             off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
             if "LOCK-UP TOTAL" in off: continue
 
-            suspects = safe_int(extract_val(row_dict, 'suspects', 'Suspects'))
+            suspects = safe_int(row[4])
 
             if reg not in crime_regional: crime_regional[reg] = {}
             if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
@@ -168,48 +176,47 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             grand_crime_cases += 1
             grand_crime_suspects += suspects
     except Exception as e:
-        print(f"CRIMES DICT ERROR: {str(e)}")
+        print(f"CRIMES PYTHON PARSE ERROR: {str(e)}")
 
-    # 🟢 2. OPERATIONAL STATISTICS
+    # 🟢 2. OPERATIONAL STATISTICS: 100% Python-Driven
     try:
-        stats = db.execute(text("SELECT * FROM operational_statistics")).fetchall()
+        ops_query = "SELECT region, station, arrested, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted, date FROM operational_statistics"
+        stats = db.execute(text(ops_query)).fetchall()
+        
         ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
         
-        for s in stats:
-            row_dict = s._mapping if hasattr(s, '_mapping') else dict(s)
-            
-            row_date = fast_parse_date(extract_val(row_dict, 'date', 'Date'))
+        for row in stats:
+            row_date = fast_parse_date(row[10])
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(extract_val(row_dict, 'station', 'Station'))
-            reg = fast_get_region(stn, extract_val(row_dict, 'region', 'Region'))
+            stn = clean_str(str(row[1] or ''))
+            reg = fast_get_region(stn, str(row[0] or ''))
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
             if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
             
-            for key in ops_keys:
-                val = safe_int(extract_val(row_dict, key, key.replace('_', ' ')))
+            for idx, key in enumerate(ops_keys, start=2):
+                val = safe_int(row[idx])
                 ops_regional[reg][key] += val
                 ops_general[key] += val
     except Exception as e:
-        print(f"OPS DICT ERROR: {str(e)}")
+        print(f"OPS PYTHON PARSE ERROR: {str(e)}")
 
-    # 🟢 3. SUCCESS STORIES
+    # 🟢 3. SUCCESS STORIES: 100% Python-Driven
     try:
-        stories = db.execute(text("SELECT * FROM success_stories")).fetchall()
+        story_query = "SELECT region, station, date FROM success_stories"
+        stories = db.execute(text(story_query)).fetchall()
 
-        for st in stories:
-            row_dict = st._mapping if hasattr(st, '_mapping') else dict(st)
-
-            row_date = fast_parse_date(extract_val(row_dict, 'date', 'Date'))
+        for row in stories:
+            row_date = fast_parse_date(row[2])
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(extract_val(row_dict, 'station', 'Station'))
-            reg = fast_get_region(stn, extract_val(row_dict, 'region', 'Region'))
+            stn = clean_str(str(row[1] or ''))
+            reg = fast_get_region(stn, str(row[0] or ''))
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
@@ -217,9 +224,9 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             story_regional[reg] = story_regional.get(reg, 0) + 1
             grand_stories += 1
     except Exception as e:
-        print(f"STORIES DICT ERROR: {str(e)}")
+        print(f"STORIES PYTHON PARSE ERROR: {str(e)}")
 
-    # Ensure all mapping structures exist
+    # Ensure all mapping structures exist to prevent frontend rendering bugs
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
