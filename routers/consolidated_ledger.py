@@ -11,9 +11,8 @@ import pyzipper
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
-from app import models, schemas
+from app import models
 from app.database import get_db, get_logs_db
 from auth import get_current_user
 from routers.activity_logger import record_neon_activity
@@ -25,14 +24,30 @@ def clean_str(val) -> str:
     return str(val).strip().upper()
 
 def safe_int(val) -> int:
-    """Guarantees a safe integer extraction without crashing the loop."""
+    """Ultra-fast integer extraction without crashing the loop on bad data."""
     if val is None: return 0
-    if isinstance(val, int): return val
-    if isinstance(val, float): return int(val)
+    if isinstance(val, (int, float)): return int(val)
     s = str(val).strip()
     if not s: return 0
     digits = re.sub(r'[^0-9]', '', s)
     return int(digits) if digits else 0
+
+def fast_parse_date(val) -> Optional[date]:
+    """Lightning-fast native Python date parser. Strips out heavy Pandas overhead."""
+    if not val: return None
+    if isinstance(val, date): return val if not isinstance(val, datetime) else val.date()
+    
+    s = str(val).strip().split('T')[0].split(' ')[0]
+    if not s or s.lower() in ['nan', 'none', 'null', 'nil', 'n/a', '0', '-']: return None
+    
+    # Check standard officer input formats
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y', '%d-%b-%Y', '%d %b %Y'):
+        try:
+            d = datetime.strptime(s, fmt).date()
+            if 1900 <= d.year <= 2100: return d
+        except ValueError:
+            pass
+    return None
 
 def normalize_region_name(region_str) -> str:
     if not region_str: return "KMP HEADQUARTERS"
@@ -89,44 +104,6 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
-def parse_safe_date(val) -> Optional[date]:
-    if val is None: return None
-    if isinstance(val, date) and not isinstance(val, datetime):
-        return val if 1900 <= val.year <= 2100 else None
-    if isinstance(val, datetime):
-        return val.date() if 1900 <= val.year <= 2100 else None
-    
-    val_str = str(val).strip()
-    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']: return None
-    if ' ' in val_str: val_str = val_str.split(' ')[0]
-    if 'T' in val_str: val_str = val_str.split('T')[0]
-    val_str = val_str.strip()
-    if not val_str: return None
-    
-    # Prioritize fast native Python parsing
-    for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y', '%d-%b-%y', '%d-%b-%Y'):
-        try:
-            d = datetime.strptime(val_str, fmt).date()
-            if 1900 <= d.year <= 2100: return d
-        except ValueError:
-            continue
-            
-    # Pandas fallback for weird Excel float formats
-    try:
-        import pandas as pd
-        if val_str.replace('.', '', 1).isdigit():
-            float_val = float(val_str)
-            if 1000 < float_val < 73050:
-                dt = pd.to_datetime(float_val, unit='D', origin='1899-12-30', errors='coerce')
-                if pd.notna(dt) and 1900 <= dt.year <= 2100: return dt.date()
-        
-        parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-        if pd.notna(parsed):
-            py_dt = parsed.to_pydatetime()
-            if 1900 <= py_dt.year <= 2100: return py_dt.date()
-    except Exception: pass
-    return None
-
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
 
@@ -145,36 +122,31 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 SQL PRE-FILTER: Only fetch rows containing the target years to prevent memory overload
-    years = list(set([str(start_dt.year), str(end_dt.year)]))
-    year_conditions = " OR ".join([f"date LIKE '%{y}%'" for y in years])
-
-    # 🟢 1. CRIME REPORTS
+    # 🟢 1. CRIME REPORTS (Safe Tuple Fetching via Models to bypass raw SQL syntax errors)
     try:
-        crimes_query = f"""
-            SELECT region, station, category, offence, suspects, date 
-            FROM crime_reports 
-            WHERE {year_conditions}
-        """
-        crimes = db.execute(text(crimes_query)).fetchall()
+        CrimeModel = models.Crime_Reports
+        crimes = db.query(
+            CrimeModel.region, CrimeModel.station, CrimeModel.category, 
+            CrimeModel.offence, CrimeModel.suspects, CrimeModel.date
+        ).all()
 
         for row in crimes:
-            row_date = parse_safe_date(row[5])
+            row_date = fast_parse_date(row.date)
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+            stn = clean_str(row.station)
+            reg = fast_get_region(stn, row.region)
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-            category = clean_str(str(row[2] or 'GENERAL CRIMES'))
-            offence = clean_str(str(row[3] or 'UNSPECIFIED INCIDENT'))
+            category = clean_str(row.category or 'GENERAL CRIMES')
+            offence = clean_str(row.offence or 'UNSPECIFIED INCIDENT')
             off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
             if "LOCK-UP TOTAL" in off: continue
 
-            suspects = safe_int(row[4])
+            suspects = safe_int(row.suspects)
 
             if reg not in crime_regional: crime_regional[reg] = {}
             if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
@@ -193,54 +165,51 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             grand_crime_cases += 1
             grand_crime_suspects += suspects
     except Exception as e:
-        print(f"CRIMES RAW SQL ERROR: {e}")
+        print(f"CRIMES FETCH ERROR: {str(e)}")
 
     # 🟢 2. OPERATIONAL STATISTICS
     try:
-        ops_query = f"""
-            SELECT region, station, arrested, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted, date 
-            FROM operational_statistics 
-            WHERE {year_conditions}
-        """
-        stats = db.execute(text(ops_query)).fetchall()
+        OpsModel = models.Operational_Statistics
+        stats = db.query(
+            OpsModel.region, OpsModel.station, OpsModel.arrested, OpsModel.given_bond, 
+            OpsModel.cautioned, OpsModel.pending_court, OpsModel.taken_to_court, 
+            OpsModel.released, OpsModel.remanded, OpsModel.convicted, OpsModel.date
+        ).all()
+
         ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
         
         for row in stats:
-            row_date = parse_safe_date(row[10])
+            row_date = fast_parse_date(row.date)
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+            stn = clean_str(row.station)
+            reg = fast_get_region(stn, row.region)
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
             if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
             
-            for idx, key in enumerate(ops_keys, start=2):
-                val = safe_int(row[idx])
+            for key in ops_keys:
+                val = safe_int(getattr(row, key))
                 ops_regional[reg][key] += val
                 ops_general[key] += val
     except Exception as e:
-        print(f"OPS RAW SQL ERROR: {e}")
+        print(f"OPS FETCH ERROR: {str(e)}")
 
     # 🟢 3. SUCCESS STORIES
     try:
-        story_query = f"""
-            SELECT region, station, date 
-            FROM success_stories 
-            WHERE {year_conditions}
-        """
-        stories = db.execute(text(story_query)).fetchall()
+        StoryModel = models.Success_Stories
+        stories = db.query(StoryModel.region, StoryModel.station, StoryModel.date).all()
 
         for row in stories:
-            row_date = parse_safe_date(row[2])
+            row_date = fast_parse_date(row.date)
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+            stn = clean_str(row.station)
+            reg = fast_get_region(stn, row.region)
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
@@ -248,8 +217,9 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             story_regional[reg] = story_regional.get(reg, 0) + 1
             grand_stories += 1
     except Exception as e:
-        print(f"STORIES RAW SQL ERROR: {e}")
+        print(f"STORIES FETCH ERROR: {str(e)}")
 
+    # Ensure all mapping structures exist
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
