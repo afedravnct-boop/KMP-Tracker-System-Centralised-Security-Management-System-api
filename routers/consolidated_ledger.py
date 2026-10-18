@@ -11,10 +11,9 @@ import pyzipper
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import text
 
 from app.database import get_db, get_logs_db
-from app import models
 from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
@@ -79,10 +78,24 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
+# 🟢 BULLETPROOF DATE PARSER (Mimics nominal_roll logic to bypass String comparison errors)
+def parse_safe_date(val_str) -> Optional[date]:
+    if not val_str: return None
+    s = str(val_str).strip()
+    if s.lower() in ['nan', 'nat', 'none', 'null', '', 'n/a', 'nil', '0']: return None
+    if ' ' in s: s = s.split(' ')[0]
+    if 'T' in s: s = s.split('T')[0]
+    
+    # Try all common entry formats from officers
+    for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y', '%d-%b-%y', '%d-%b-%Y'):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    return None
+
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
-    start_str = str(start_dt)
-    end_str = str(end_dt)
 
     crime_regional, crime_general = {}, {}
     crime_regional_totals = {}
@@ -99,37 +112,31 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS (Safe Tuple Projection)
+    # 🟢 1. CRIME REPORTS (Exact Nominal Roll Parsing Logic)
     try:
-        CrimeModel = models.Crime_Reports
-        # Fetching only exactly required columns as raw tuples
-        crimes = db.query(
-            CrimeModel.region, 
-            CrimeModel.station, 
-            CrimeModel.category, 
-            CrimeModel.offence, 
-            CrimeModel.suspects
-        ).filter(
-            CrimeModel.date >= start_str, 
-            CrimeModel.date <= end_str
-        ).all()
+        # We drop the SQL WHERE clause to avoid String vs Date comparison failures
+        crimes_query = "SELECT region, station, category, offence, suspects, date FROM crime_reports"
+        crimes = db.execute(text(crimes_query)).fetchall()
 
         for row in crimes:
-            stn = clean_str(row.station)
-            reg = fast_get_region(stn, row.region)
+            row_date = parse_safe_date(row[5])
+            # Python natively checks mathematical boundaries
+            if not row_date or row_date < start_dt or row_date > end_dt:
+                continue
+
+            stn = clean_str(str(row[1] or ''))
+            reg = fast_get_region(stn, str(row[0] or ''))
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-            category = clean_str(row.category or 'GENERAL CRIMES')
-            offence = clean_str(row.offence or 'UNSPECIFIED INCIDENT')
+            category = clean_str(str(row[2] or 'GENERAL CRIMES'))
+            offence = clean_str(str(row[3] or 'UNSPECIFIED INCIDENT'))
             off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
             if "LOCK-UP TOTAL" in off: continue
 
-            try:
-                suspects = int(row.suspects or 0)
-            except Exception:
-                suspects = 0
+            susp_str = str(row[4] or '0')
+            suspects = int(re.sub(r'[^0-9]', '', susp_str) or 0)
 
             if reg not in crime_regional: crime_regional[reg] = {}
             if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
@@ -148,49 +155,47 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             grand_crime_cases += 1
             grand_crime_suspects += suspects
     except Exception as e:
-        print(f"ERROR fetching Crime Reports tuples: {e}")
+        print(f"CRIMES RAW SQL ERROR: {e}")
 
-    # 🟢 2. OPERATIONAL STATISTICS (Safe Tuple Projection)
+    # 🟢 2. OPERATIONAL STATISTICS (Exact Nominal Roll Parsing Logic)
     try:
-        OpsModel = models.Operational_Statistics
-        ops_data = db.query(
-            OpsModel.region, OpsModel.station, 
-            OpsModel.arrested, OpsModel.given_bond, OpsModel.cautioned, 
-            OpsModel.pending_court, OpsModel.taken_to_court, OpsModel.released, 
-            OpsModel.remanded, OpsModel.convicted
-        ).filter(
-            OpsModel.date >= start_str, 
-            OpsModel.date <= end_str
-        ).all()
+        ops_query = "SELECT region, station, arrested, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted, date FROM operational_statistics"
+        stats = db.execute(text(ops_query)).fetchall()
+        ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
+        
+        for row in stats:
+            row_date = parse_safe_date(row[10])
+            if not row_date or row_date < start_dt or row_date > end_dt:
+                continue
 
-        for row in ops_data:
-            stn = clean_str(row.station)
-            reg = fast_get_region(stn, row.region)
+            stn = clean_str(str(row[1] or ''))
+            reg = fast_get_region(stn, str(row[0] or ''))
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
             if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
             
-            ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
-            for key in ops_keys:
-                val = int(getattr(row, key) or 0)
+            for idx, key in enumerate(ops_keys, start=2):
+                val_raw = str(row[idx] or '0')
+                val = int(re.sub(r'[^0-9]', '', val_raw) or 0)
                 ops_regional[reg][key] += val
                 ops_general[key] += val
     except Exception as e:
-        print(f"ERROR fetching Ops Stats tuples: {e}")
+        print(f"OPS RAW SQL ERROR: {e}")
 
-    # 🟢 3. SUCCESS STORIES (Safe Tuple Projection)
+    # 🟢 3. SUCCESS STORIES (Exact Nominal Roll Parsing Logic)
     try:
-        StoryModel = models.Success_Stories
-        stories = db.query(StoryModel.region, StoryModel.station).filter(
-            StoryModel.date >= start_str, 
-            StoryModel.date <= end_str
-        ).all()
+        story_query = "SELECT region, station, date FROM success_stories"
+        stories = db.execute(text(story_query)).fetchall()
 
         for row in stories:
-            stn = clean_str(row.station)
-            reg = fast_get_region(stn, row.region)
+            row_date = parse_safe_date(row[2])
+            if not row_date or row_date < start_dt or row_date > end_dt:
+                continue
+
+            stn = clean_str(str(row[1] or ''))
+            reg = fast_get_region(stn, str(row[0] or ''))
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
@@ -198,9 +203,8 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             story_regional[reg] = story_regional.get(reg, 0) + 1
             grand_stories += 1
     except Exception as e:
-        print(f"ERROR fetching Success Stories tuples: {e}")
+        print(f"STORIES RAW SQL ERROR: {e}")
 
-    # Ensure all regions exist in mapping even if empty
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
@@ -230,7 +234,7 @@ def get_consolidated_ledger(
     station: Optional[str] = Query("ALL STATIONS"),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
     try:
         today = date.today()
@@ -265,7 +269,7 @@ def export_consolidated_ledger(
     station: Optional[str] = Query("ALL STATIONS"),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)
+    current_user = Depends(get_current_user)
 ):
     try:
         today = date.today()
