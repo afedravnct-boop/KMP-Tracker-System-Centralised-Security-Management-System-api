@@ -1,18 +1,25 @@
 import io
-import json
+import os
 import re
+import json
+import base64
 from datetime import datetime, date, timedelta
 from typing import Optional, List
+from urllib.parse import unquote
 
+import numpy as np
+import pandas as pd
 import openpyxl
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 import pyzipper
+import pytz
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+from app import models, schemas
 from app.database import get_db, get_logs_db
 from auth import get_current_user
 from routers.activity_logger import record_neon_activity
@@ -78,20 +85,70 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
-# 🟢 BULLETPROOF DATE PARSER (Mimics nominal_roll logic to bypass String comparison errors)
-def parse_safe_date(val_str) -> Optional[date]:
-    if not val_str: return None
-    s = str(val_str).strip()
-    if s.lower() in ['nan', 'nat', 'none', 'null', '', 'n/a', 'nil', '0']: return None
-    if ' ' in s: s = s.split(' ')[0]
-    if 'T' in s: s = s.split('T')[0]
+# 🟢 ROBUST DATE PARSER (Imported directly from Nominal Roll logic)
+def parse_safe_date(val) -> Optional[date]:
+    if pd.isna(val) or val is None: return None
+    if isinstance(val, date) and not isinstance(val, datetime):
+        return val if 1900 <= val.year <= 2100 else None
+    if isinstance(val, datetime):
+        return val.date() if 1900 <= val.year <= 2100 else None
+    if type(val).__name__ == 'Timestamp':
+        try: return val.date() if 1900 <= val.year <= 2100 else None
+        except Exception: return None
     
-    # Try all common entry formats from officers
+    val_str = str(val).strip()
+    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']: return None
+    if ' ' in val_str: val_str = val_str.split(' ')[0]
+    if 'T' in val_str: val_str = val_str.split('T')[0]
+    val_str = val_str.strip()
+    if not val_str: return None
+    
+    try:
+        if val_str.replace('.', '', 1).isdigit():
+            float_val = float(val_str)
+            if 1000 < float_val < 73050:
+                try:
+                    dt = pd.to_datetime(float_val, unit='D', origin='1899-12-30', errors='coerce')
+                    if pd.notna(dt) and 1900 <= dt.year <= 2100: return dt.date()
+                except Exception: pass
+    except Exception: pass
+    
+    clean_str_val = re.sub(r'[\./\\]', '-', val_str)
+    parts = clean_str_val.split('-')
+    if len(parts) == 3:
+        p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        if p0.isdigit() and p1.isdigit() and p2.isdigit():
+            if len(p0) == 4:
+                try:
+                    res_date = date(int(p0), int(p1), int(p2))
+                    if 1900 <= res_date.year <= 2100: return res_date
+                except Exception: pass
+            elif len(p2) == 4:
+                try:
+                    res_date = date(int(p2), int(p1), int(p0))
+                    if 1900 <= res_date.year <= 2100: return res_date
+                except Exception: pass
+            elif len(p0) <= 2 and len(p2) <= 2:
+                for (day_val, month_val, year_val) in [(int(p0), int(p1), int(p2)), (int(p2), int(p1), int(p0))]:
+                    y = year_val
+                    if y < 100: y = 1900 + y if y > 40 else 2000 + y
+                    try:
+                        res_date = date(y, month_val, day_val)
+                        if 1900 <= res_date.year <= 2100: return res_date
+                    except Exception: continue
+                    
     for fmt in ('%Y-%m-%d', '%d-%m-%Y', '%d/%m/%Y', '%Y/%m/%d', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y', '%d-%b-%y', '%d-%b-%Y'):
         try:
-            return datetime.strptime(s, fmt).date()
-        except Exception:
-            continue
+            d = datetime.strptime(val_str, fmt).date()
+            if 1900 <= d.year <= 2100: return d
+        except Exception: continue
+        
+    try:
+        parsed = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+        if pd.notna(parsed):
+            py_dt = parsed.to_pydatetime()
+            if 1900 <= py_dt.year <= 2100: return py_dt.date()
+    except Exception: pass
     return None
 
 def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
@@ -112,15 +169,13 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS (Exact Nominal Roll Parsing Logic)
+    # 🟢 1. CRIME REPORTS (Exact Nominal Roll Logic)
     try:
-        # We drop the SQL WHERE clause to avoid String vs Date comparison failures
         crimes_query = "SELECT region, station, category, offence, suspects, date FROM crime_reports"
         crimes = db.execute(text(crimes_query)).fetchall()
 
         for row in crimes:
             row_date = parse_safe_date(row[5])
-            # Python natively checks mathematical boundaries
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
@@ -135,8 +190,8 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
             if "LOCK-UP TOTAL" in off: continue
 
-            susp_str = str(row[4] or '0')
-            suspects = int(re.sub(r'[^0-9]', '', susp_str) or 0)
+            suspects_raw = str(row[4] or '0')
+            suspects = int(re.sub(r'[^0-9]', '', suspects_raw) or 0)
 
             if reg not in crime_regional: crime_regional[reg] = {}
             if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
@@ -157,7 +212,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
     except Exception as e:
         print(f"CRIMES RAW SQL ERROR: {e}")
 
-    # 🟢 2. OPERATIONAL STATISTICS (Exact Nominal Roll Parsing Logic)
+    # 🟢 2. OPERATIONAL STATISTICS (Exact Nominal Roll Logic)
     try:
         ops_query = "SELECT region, station, arrested, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted, date FROM operational_statistics"
         stats = db.execute(text(ops_query)).fetchall()
@@ -179,12 +234,13 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             for idx, key in enumerate(ops_keys, start=2):
                 val_raw = str(row[idx] or '0')
                 val = int(re.sub(r'[^0-9]', '', val_raw) or 0)
+                
                 ops_regional[reg][key] += val
                 ops_general[key] += val
     except Exception as e:
         print(f"OPS RAW SQL ERROR: {e}")
 
-    # 🟢 3. SUCCESS STORIES (Exact Nominal Roll Parsing Logic)
+    # 🟢 3. SUCCESS STORIES (Exact Nominal Roll Logic)
     try:
         story_query = "SELECT region, station, date FROM success_stories"
         stories = db.execute(text(story_query)).fetchall()
@@ -205,6 +261,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
     except Exception as e:
         print(f"STORIES RAW SQL ERROR: {e}")
 
+    # Ensure all regions exist in mapping even if empty
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
@@ -234,7 +291,7 @@ def get_consolidated_ledger(
     station: Optional[str] = Query("ALL STATIONS"),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user = Depends(get_current_user)
+    current_user: models.Users = Depends(get_current_user)
 ):
     try:
         today = date.today()
@@ -269,7 +326,7 @@ def export_consolidated_ledger(
     station: Optional[str] = Query("ALL STATIONS"),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user = Depends(get_current_user)
+    current_user: models.Users = Depends(get_current_user)
 ):
     try:
         today = date.today()
