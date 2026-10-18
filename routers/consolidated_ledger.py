@@ -11,7 +11,6 @@ import pyzipper
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 from app import models
 from app.database import get_db, get_logs_db
@@ -37,11 +36,12 @@ def fast_parse_date(val) -> Optional[date]:
     """Lightning-fast native Python date parser. Handles everything Python-side."""
     if not val: return None
     if isinstance(val, date): return val if not isinstance(val, datetime) else val.date()
+    if isinstance(val, datetime): return val.date()
     
     s = str(val).strip().split('T')[0].split(' ')[0]
     if not s or s.lower() in ['nan', 'none', 'null', 'nil', 'n/a', '0', '-']: return None
     
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y', '%d-%b-%Y', '%d %b %Y'):
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%m/%d/%Y', '%m-%d-%Y', '%d-%b-%Y', '%d %b %Y', '%d-%b-%y', '%d %b %y', '%Y/%m/%d'):
         try:
             d = datetime.strptime(s, fmt).date()
             if 1900 <= d.year <= 2100: return d
@@ -136,28 +136,34 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS: 100% Python-Driven (No SQL Date Filtering)
+    # 🟢 1. CRIME REPORTS: Safe Tuple Projection
     try:
-        crimes_query = "SELECT region, station, category, offence, suspects, date FROM crime_reports"
-        crimes = db.execute(text(crimes_query)).fetchall()
+        crimes = db.query(
+            models.Crime_Reports.region, 
+            models.Crime_Reports.station, 
+            models.Crime_Reports.category, 
+            models.Crime_Reports.offence, 
+            models.Crime_Reports.suspects, 
+            models.Crime_Reports.date
+        ).all()
 
         for row in crimes:
-            row_date = fast_parse_date(row[5])
+            row_date = fast_parse_date(row.date)
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+            stn = clean_str(row.station)
+            reg = fast_get_region(stn, row.region)
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-            category = clean_str(str(row[2] or 'GENERAL CRIMES'))
-            offence = clean_str(str(row[3] or 'UNSPECIFIED INCIDENT'))
+            category = clean_str(row.category or 'GENERAL CRIMES')
+            offence = clean_str(row.offence or 'UNSPECIFIED INCIDENT')
             off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
             if "LOCK-UP TOTAL" in off: continue
 
-            suspects = safe_int(row[4])
+            suspects = safe_int(row.suspects)
 
             if reg not in crime_regional: crime_regional[reg] = {}
             if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
@@ -176,47 +182,61 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             grand_crime_cases += 1
             grand_crime_suspects += suspects
     except Exception as e:
-        print(f"CRIMES PYTHON PARSE ERROR: {str(e)}")
+        print(f"CRIMES TUPLE FETCH ERROR: {str(e)}")
 
-    # 🟢 2. OPERATIONAL STATISTICS: 100% Python-Driven
+    # 🟢 2. OPERATIONAL STATISTICS: Safe Tuple Projection
     try:
-        ops_query = "SELECT region, station, arrested, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted, date FROM operational_statistics"
-        stats = db.execute(text(ops_query)).fetchall()
+        stats = db.query(
+            models.Operational_Statistics.region, 
+            models.Operational_Statistics.station, 
+            models.Operational_Statistics.arrested, 
+            models.Operational_Statistics.given_bond, 
+            models.Operational_Statistics.cautioned, 
+            models.Operational_Statistics.pending_court, 
+            models.Operational_Statistics.taken_to_court, 
+            models.Operational_Statistics.released, 
+            models.Operational_Statistics.remanded, 
+            models.Operational_Statistics.convicted, 
+            models.Operational_Statistics.date
+        ).all()
         
         ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
         
         for row in stats:
-            row_date = fast_parse_date(row[10])
+            row_date = fast_parse_date(row.date)
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+            stn = clean_str(row.station)
+            reg = fast_get_region(stn, row.region)
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
             if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
             
-            for idx, key in enumerate(ops_keys, start=2):
-                val = safe_int(row[idx])
+            for key in ops_keys:
+                val = safe_int(getattr(row, key, 0))
                 ops_regional[reg][key] += val
                 ops_general[key] += val
     except Exception as e:
-        print(f"OPS PYTHON PARSE ERROR: {str(e)}")
+        print(f"OPS TUPLE FETCH ERROR: {str(e)}")
 
-    # 🟢 3. SUCCESS STORIES: 100% Python-Driven
+    # 🟢 3. SUCCESS STORIES: Safe Tuple Projection
     try:
-        story_query = "SELECT region, station, date FROM success_stories"
-        stories = db.execute(text(story_query)).fetchall()
+        stories = db.query(
+            models.Success_Stories.region, 
+            models.Success_Stories.station, 
+            models.Success_Stories.date
+        ).all()
 
         for row in stories:
-            row_date = fast_parse_date(row[2])
+            row_date = fast_parse_date(row.date)
             if not row_date or row_date < start_dt or row_date > end_dt:
                 continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+            stn = clean_str(row.station)
+            reg = fast_get_region(stn, row.region)
 
             if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
             if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
@@ -224,9 +244,9 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             story_regional[reg] = story_regional.get(reg, 0) + 1
             grand_stories += 1
     except Exception as e:
-        print(f"STORIES PYTHON PARSE ERROR: {str(e)}")
+        print(f"STORIES TUPLE FETCH ERROR: {str(e)}")
 
-    # Ensure all mapping structures exist to prevent frontend rendering bugs
+    # Ensure all mapping structures exist
     for reg in region_order:
         if reg not in crime_regional: crime_regional[reg] = {}
         if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
