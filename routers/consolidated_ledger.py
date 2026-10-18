@@ -1,25 +1,21 @@
 import io
-import os
-import re
 import json
-import base64
+import re
 from datetime import datetime, date, timedelta
 from typing import Optional, List
-from urllib.parse import unquote
 
 import numpy as np
 import pandas as pd
 import openpyxl
 from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 import pyzipper
-import pytz
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import func, or_
 
-from app import models, schemas
+from app import models
 from app.database import get_db, get_logs_db
 from auth import get_current_user
 from routers.activity_logger import record_neon_activity
@@ -29,6 +25,16 @@ router = APIRouter(prefix="/api/v1", tags=["Consolidated Ledger"])
 def clean_str(val) -> str:
     if not val: return ''
     return str(val).strip().upper()
+
+def safe_int(val) -> int:
+    """Guarantees a safe integer extraction without crashing the loop."""
+    if val is None: return 0
+    if isinstance(val, int): return val
+    if isinstance(val, float): return int(val)
+    s = str(val).strip()
+    if not s: return 0
+    digits = re.sub(r'[^0-9]', '', s)
+    return int(digits) if digits else 0
 
 def normalize_region_name(region_str) -> str:
     if not region_str: return "KMP HEADQUARTERS"
@@ -85,7 +91,12 @@ def get_official_region_for_station(station_name: str, db_region: Optional[str] 
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
 
-# 🟢 ROBUST DATE PARSER (Imported directly from Nominal Roll logic)
+def get_model_safe(*names):
+    for name in names:
+        if hasattr(models, name):
+            return getattr(models, name)
+    return None
+
 def parse_safe_date(val) -> Optional[date]:
     if pd.isna(val) or val is None: return None
     if isinstance(val, date) and not isinstance(val, datetime):
@@ -169,97 +180,111 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS (Exact Nominal Roll Logic)
+    # Pre-filter by the targeted years to reduce payload without string inequality bugs
+    target_years = list(set([str(start_dt.year), str(end_dt.year)]))
+
+    # 🟢 1. CRIME REPORTS (Safe Tuple Projection)
     try:
-        crimes_query = "SELECT region, station, category, offence, suspects, date FROM crime_reports"
-        crimes = db.execute(text(crimes_query)).fetchall()
+        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
+        if CrimeModel:
+            year_filters = [CrimeModel.date.ilike(f"%{y}%") for y in target_years]
+            crimes = db.query(
+                CrimeModel.region, CrimeModel.station, CrimeModel.category, 
+                CrimeModel.offence, CrimeModel.suspects, CrimeModel.date
+            ).filter(or_(*year_filters)).all()
 
-        for row in crimes:
-            row_date = parse_safe_date(row[5])
-            if not row_date or row_date < start_dt or row_date > end_dt:
-                continue
+            for row in crimes:
+                row_date = parse_safe_date(row.date)
+                if not row_date or row_date < start_dt or row_date > end_dt:
+                    continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+                stn = clean_str(row.station)
+                reg = fast_get_region(stn, row.region)
 
-            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-            category = clean_str(str(row[2] or 'GENERAL CRIMES'))
-            offence = clean_str(str(row[3] or 'UNSPECIFIED INCIDENT'))
-            off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
-            if "LOCK-UP TOTAL" in off: continue
+                category = clean_str(row.category or 'GENERAL CRIMES')
+                offence = clean_str(row.offence or 'UNSPECIFIED INCIDENT')
+                off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
+                if "LOCK-UP TOTAL" in off: continue
 
-            suspects_raw = str(row[4] or '0')
-            suspects = int(re.sub(r'[^0-9]', '', suspects_raw) or 0)
+                suspects = safe_int(row.suspects)
 
-            if reg not in crime_regional: crime_regional[reg] = {}
-            if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-            
-            crime_regional[reg][off]["cases"] += 1
-            crime_regional[reg][off]["suspects"] += suspects
-
-            if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
-            crime_regional_totals[reg]["cases"] += 1
-            crime_regional_totals[reg]["suspects"] += suspects
-
-            if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-            crime_general[off]["cases"] += 1
-            crime_general[off]["suspects"] += suspects
-
-            grand_crime_cases += 1
-            grand_crime_suspects += suspects
-    except Exception as e:
-        print(f"CRIMES RAW SQL ERROR: {e}")
-
-    # 🟢 2. OPERATIONAL STATISTICS (Exact Nominal Roll Logic)
-    try:
-        ops_query = "SELECT region, station, arrested, given_bond, cautioned, pending_court, taken_to_court, released, remanded, convicted, date FROM operational_statistics"
-        stats = db.execute(text(ops_query)).fetchall()
-        ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
-        
-        for row in stats:
-            row_date = parse_safe_date(row[10])
-            if not row_date or row_date < start_dt or row_date > end_dt:
-                continue
-
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
-
-            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
-
-            if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-            
-            for idx, key in enumerate(ops_keys, start=2):
-                val_raw = str(row[idx] or '0')
-                val = int(re.sub(r'[^0-9]', '', val_raw) or 0)
+                if reg not in crime_regional: crime_regional[reg] = {}
+                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
                 
-                ops_regional[reg][key] += val
-                ops_general[key] += val
-    except Exception as e:
-        print(f"OPS RAW SQL ERROR: {e}")
+                crime_regional[reg][off]["cases"] += 1
+                crime_regional[reg][off]["suspects"] += suspects
 
-    # 🟢 3. SUCCESS STORIES (Exact Nominal Roll Logic)
+                if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
+                crime_regional_totals[reg]["cases"] += 1
+                crime_regional_totals[reg]["suspects"] += suspects
+
+                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                crime_general[off]["cases"] += 1
+                crime_general[off]["suspects"] += suspects
+
+                grand_crime_cases += 1
+                grand_crime_suspects += suspects
+    except Exception as e:
+        print(f"ERROR fetching Crime Reports tuples: {e}")
+
+    # 🟢 2. OPERATIONAL STATISTICS (Safe Tuple Projection)
     try:
-        story_query = "SELECT region, station, date FROM success_stories"
-        stories = db.execute(text(story_query)).fetchall()
+        OpsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+        if OpsModel:
+            year_filters = [OpsModel.date.ilike(f"%{y}%") for y in target_years]
+            stats = db.query(
+                OpsModel.region, OpsModel.station, OpsModel.arrested, OpsModel.given_bond, 
+                OpsModel.cautioned, OpsModel.pending_court, OpsModel.taken_to_court, 
+                OpsModel.released, OpsModel.remanded, OpsModel.convicted, OpsModel.date
+            ).filter(or_(*year_filters)).all()
 
-        for row in stories:
-            row_date = parse_safe_date(row[2])
-            if not row_date or row_date < start_dt or row_date > end_dt:
-                continue
+            ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
+            
+            for row in stats:
+                row_date = parse_safe_date(row.date)
+                if not row_date or row_date < start_dt or row_date > end_dt:
+                    continue
 
-            stn = clean_str(str(row[1] or ''))
-            reg = fast_get_region(stn, str(row[0] or ''))
+                stn = clean_str(row.station)
+                reg = fast_get_region(stn, row.region)
 
-            if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-            if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-            story_regional[reg] = story_regional.get(reg, 0) + 1
-            grand_stories += 1
+                if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+                
+                for key in ops_keys:
+                    val = safe_int(getattr(row, key))
+                    ops_regional[reg][key] += val
+                    ops_general[key] += val
     except Exception as e:
-        print(f"STORIES RAW SQL ERROR: {e}")
+        print(f"ERROR fetching Ops Stats tuples: {e}")
+
+    # 🟢 3. SUCCESS STORIES (Safe Tuple Projection)
+    try:
+        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
+        if StoryModel:
+            year_filters = [StoryModel.date.ilike(f"%{y}%") for y in target_years]
+            stories = db.query(StoryModel.region, StoryModel.station, StoryModel.date).filter(or_(*year_filters)).all()
+
+            for row in stories:
+                row_date = parse_safe_date(row.date)
+                if not row_date or row_date < start_dt or row_date > end_dt:
+                    continue
+
+                stn = clean_str(row.station)
+                reg = fast_get_region(stn, row.region)
+
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+                story_regional[reg] = story_regional.get(reg, 0) + 1
+                grand_stories += 1
+    except Exception as e:
+        print(f"ERROR fetching Success Stories tuples: {e}")
 
     # Ensure all regions exist in mapping even if empty
     for reg in region_order:
