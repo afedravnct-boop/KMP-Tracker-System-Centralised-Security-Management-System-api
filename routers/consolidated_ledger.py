@@ -11,7 +11,7 @@ import pyzipper
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, and_, func, text
 
 from app import models
 from app.database import get_db, get_logs_db
@@ -33,7 +33,7 @@ def safe_int(val) -> int:
     digits = re.sub(r'[^0-9]', '', s)
     return int(digits) if digits else 0
 
-# 🟢 ROBUST DATE PARSER (Imported directly from Nominal Roll)
+# 🟢 ROBUST DATE PARSER (Fallback for Python-level evaluation)
 def parse_safe_date(val) -> Optional[date]:
     if pd.isna(val) or val is None: return None
     if isinstance(val, date) and not isinstance(val, datetime):
@@ -99,6 +99,27 @@ def parse_safe_date(val) -> Optional[date]:
     except Exception: pass
     return None
 
+# 🟢 EXPLICIT STRING-BASED DATE RANGE GENERATOR
+def generate_date_string_range(start_dt: date, end_dt: date) -> list:
+    """Explicitly maps every single date between start and end into a list of strings."""
+    if not start_dt or not end_dt: return []
+    try:
+        if start_dt > end_dt:
+            start_dt, end_dt = end_dt, start_dt
+
+        date_list = []
+        current_dt = start_dt
+        while current_dt <= end_dt:
+            date_list.append(current_dt.strftime("%Y-%m-%d"))
+            date_list.append(current_dt.strftime("%d/%m/%Y")) # Capture alternative DB formats
+            date_list.append(current_dt.strftime("%d-%m-%Y"))
+            current_dt += timedelta(days=1)
+            
+        return date_list
+    except Exception as e:
+        print(f"Date generation error: {str(e)}")
+        return []
+
 def normalize_region_name(region_str) -> str:
     if pd.isna(region_str) or not region_str: return "KMP HEADQUARTERS"
     r = clean_str(region_str)
@@ -118,48 +139,35 @@ REGIONAL_HIERARCHY = {
 }
 
 # 🟢 ADVANCED REGEX STRIPPER: Perfectly normalizes Police Posts and Stations
-def normalize_station_name(station_str) -> str:
-    if pd.isna(station_str) or not station_str: return "UNKNOWN"
-    val = clean_str(station_str)
-    
+def get_base_station_name(stn: str) -> str:
+    if pd.isna(stn) or not stn: return "UNKNOWN"
+    val = clean_str(stn)
     if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"]:
         return "OLD KAMPALA"
     if val in ["CPS KLA", "CPS KAMPALA"]:
         return "CPS KAMPALA"
-
-    # Aggressively strip every possible suffix so Posts group identically with their Stations
-    suffixes = [
-        r'\s+POLICE STATION$', r'\s+POLICE POST$', r'\s+POL STN$', r'\s+P/STN$', 
-        r'\s+P\.STN$', r'\s+P/S$', r'\s+P\.S$', r'\s+PS$', r'\s+P/P$', 
-        r'\s+P\.P$', r'\s+PP$', r'\s+P$', r'\s+DIVISION$', r'\s+SUB-STATION$', 
-        r'\s+SUBSTATION$', r'\s+HQ$', r'\s+HEADQUARTERS$'
-    ]
-    
-    for suffix in suffixes:
-        val = re.sub(suffix, '', val).strip()
-        
-    return val
+    # Strip every possible suffix to find the true root name
+    val = re.sub(r'\s+(P\.?S\.?|P/S|PS|P\s*STN|P/STN|POL\s*STN|POLICE\s*STATION|DIVISION|P\.?P\.?|P/P|P/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$', '', val)
+    return val.strip()
 
 def is_station_equivalent(stat_a, stat_b) -> bool:
-    a = normalize_station_name(stat_a)
-    b = normalize_station_name(stat_b)
-    if not a or not b: return False
-    return a == b
+    base_a = get_base_station_name(stat_a)
+    base_b = get_base_station_name(stat_b)
+    if not base_a or not base_b: return False
+    return base_a == base_b
 
 def get_official_region_for_station(station_name: str, db_region: Optional[str] = None) -> str:
-    clean_station = normalize_station_name(station_name)
+    base_station = get_base_station_name(station_name)
     clean_db_region = normalize_region_name(db_region)
 
-    for region_name, stations_list in REGIONAL_HIERARCHY.items():
-        norm_stations = [normalize_station_name(s) for s in stations_list]
-        if clean_station in norm_stations or clean_db_region in norm_stations:
-            return region_name
-
-    if REGIONAL_HIERARCHY.get(clean_db_region) and clean_station in REGIONAL_HIERARCHY[clean_db_region]:
-        return clean_db_region
+    if REGIONAL_HIERARCHY.get(clean_db_region):
+        base_hier = [get_base_station_name(s) for s in REGIONAL_HIERARCHY[clean_db_region]]
+        if base_station in base_hier:
+            return clean_db_region
 
     for region_name, stations_list in REGIONAL_HIERARCHY.items():
-        if clean_station in stations_list or any(is_station_equivalent(s, clean_station) for s in stations_list):
+        base_hier = [get_base_station_name(s) for s in stations_list]
+        if base_station in base_hier:
             return region_name
 
     return clean_db_region if clean_db_region in REGIONAL_HIERARCHY else (clean_db_region or 'KMP GENERAL')
@@ -170,7 +178,75 @@ def get_model_safe(*names):
             return getattr(models, name)
     return None
 
-def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter_region: str, filter_station: str):
+# 🟢 BULLETPROOF OPSEC SCOPING
+def apply_opsec_scope(current_user, query, ModelClass):
+    if not ModelClass or not current_user:
+        return query.filter(text("1=0"))
+    
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+
+    is_kmp_sys_mgr = (user_role == "SYSTEM_MANAGER" and user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in user_pos)
+    is_kmp_specialist = (user_role == "ASSISTANT_SYSTEM_MANAGER" and user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in user_pos)
+    
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
+        not is_kmp_sys_mgr and not is_kmp_specialist
+    )
+
+    if is_absolute_global or is_kmp_sys_mgr:
+        return query
+        
+    elif is_kmp_specialist and hasattr(ModelClass, 'region'):
+        return query.filter(func.upper(ModelClass.region) == user_reg)
+        
+    elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
+        conds = []
+        if hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == user_reg)
+        
+        if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+            expanded_stns = set()
+            for s in REGIONAL_HIERARCHY[user_reg]:
+                expanded_stns.add(s)
+                expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                expanded_stns.add(s + ' HEADQUARTERS')
+                expanded_stns.add(s + ' HQ')
+            conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
+            
+        if conds: return query.filter(or_(*conds))
+        return query.filter(text("1=0"))
+        
+    elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
+        clean_user_stn = get_base_station_name(user_stn)
+        return query.filter(
+            and_(
+                func.upper(ModelClass.region) == user_reg,
+                or_(
+                    func.upper(ModelClass.station) == user_stn,
+                    func.upper(ModelClass.station).ilike(f"{clean_user_stn}%")
+                )
+            )
+        )
+    return query.filter(text("1=0"))
+
+def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Optional[date], filter_region: str, filter_station: str, current_user: models.Users):
     region_order = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"]
 
     crime_regional, crime_general = {}, {}
@@ -188,24 +264,27 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # Pre-filter by year to bypass massive payloads, letting Python filter exact days
-    target_years = list(set([str(start_dt.year), str(end_dt.year)]))
+    # Generate exact explicit SQL strings for the database to match safely
+    explicit_dates = generate_date_string_range(start_dt, end_dt) if start_dt and end_dt else []
 
-    # 🟢 1. CRIME REPORTS (Safe Tuple Projection)
+    # 🟢 1. CRIME REPORTS (Safe String Mapping)
     try:
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
         if CrimeModel:
-            year_filters = [CrimeModel.date.ilike(f"%{y}%") for y in target_years]
-            crimes = db.query(
+            query = db.query(
                 CrimeModel.region, CrimeModel.station, CrimeModel.category, 
                 CrimeModel.offence, CrimeModel.suspects, CrimeModel.date
-            ).filter(or_(*year_filters)).all()
+            )
+            query = apply_opsec_scope(current_user, query, CrimeModel)
+
+            # Apply Explicit String Date List
+            if explicit_dates and hasattr(CrimeModel, 'date'):
+                date_filters = [CrimeModel.date.ilike(f"{d}%") for d in explicit_dates]
+                query = query.filter(or_(*date_filters))
+
+            crimes = query.all()
 
             for row in crimes:
-                row_date = parse_safe_date(row.date)
-                if not row_date or row_date < start_dt or row_date > end_dt:
-                    continue
-
                 stn = clean_str(row.station)
                 reg = fast_get_region(stn, row.region)
 
@@ -238,24 +317,26 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
     except Exception as e:
         print(f"CRIMES FETCH ERROR: {e}")
 
-    # 🟢 2. OPERATIONAL STATISTICS (Safe Tuple Projection)
+    # 🟢 2. OPERATIONAL STATISTICS
     try:
         OpsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
         if OpsModel:
-            year_filters = [OpsModel.date.ilike(f"%{y}%") for y in target_years]
-            stats = db.query(
+            query = db.query(
                 OpsModel.region, OpsModel.station, OpsModel.arrested, OpsModel.given_bond, 
                 OpsModel.cautioned, OpsModel.pending_court, OpsModel.taken_to_court, 
                 OpsModel.released, OpsModel.remanded, OpsModel.convicted, OpsModel.date
-            ).filter(or_(*year_filters)).all()
+            )
+            query = apply_opsec_scope(current_user, query, OpsModel)
 
+            # Apply Explicit String Date List
+            if explicit_dates and hasattr(OpsModel, 'date'):
+                date_filters = [OpsModel.date.ilike(f"{d}%") for d in explicit_dates]
+                query = query.filter(or_(*date_filters))
+
+            stats = query.all()
             ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
             
             for row in stats:
-                row_date = parse_safe_date(row.date)
-                if not row_date or row_date < start_dt or row_date > end_dt:
-                    continue
-
                 stn = clean_str(row.station)
                 reg = fast_get_region(stn, row.region)
 
@@ -271,18 +352,21 @@ def get_ledger_aggregated_data(db: Session, start_dt: date, end_dt: date, filter
     except Exception as e:
         print(f"OPS FETCH ERROR: {e}")
 
-    # 🟢 3. SUCCESS STORIES (Safe Tuple Projection)
+    # 🟢 3. SUCCESS STORIES
     try:
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         if StoryModel:
-            year_filters = [StoryModel.date.ilike(f"%{y}%") for y in target_years]
-            stories = db.query(StoryModel.region, StoryModel.station, StoryModel.date).filter(or_(*year_filters)).all()
+            query = db.query(StoryModel.region, StoryModel.station, StoryModel.date)
+            query = apply_opsec_scope(current_user, query, StoryModel)
+
+            # Apply Explicit String Date List
+            if explicit_dates and hasattr(StoryModel, 'date'):
+                date_filters = [StoryModel.date.ilike(f"{d}%") for d in explicit_dates]
+                query = query.filter(or_(*date_filters))
+
+            stories = query.all()
 
             for row in stories:
-                row_date = parse_safe_date(row.date)
-                if not row_date or row_date < start_dt or row_date > end_dt:
-                    continue
-
                 stn = clean_str(row.station)
                 reg = fast_get_region(stn, row.region)
 
@@ -327,24 +411,30 @@ def get_consolidated_ledger(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        today = date.today()
-        default_start = today - timedelta(days=6)
-        try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
-        except ValueError:
-            start_dt = default_start
-            end_dt = today
+        invalid_dates = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
+        is_all_time = not start_date or str(start_date).upper() in invalid_dates
 
-        data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station)
+        if is_all_time:
+            start_dt = None
+            end_dt = None
+        else:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
+            except ValueError:
+                start_dt = None
+                end_dt = None
 
+        data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station, current_user)
+
+        time_range = "ALL TIME" if is_all_time else f"{start_dt} to {end_dt}"
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action_type="VIEW",
             module="CONSOLIDATED_LEDGER",
             target_id="MASTER_SUMMARY",
-            changes_summary=f"{current_user.fnum} {current_user.rank} compiled consolidated ledger ({start_dt} to {end_dt})."
+            changes_summary=f"{current_user.fnum} {current_user.rank} compiled consolidated ledger ({time_range})."
         )
 
         return {"status": "success", "data": data}
@@ -362,16 +452,21 @@ def export_consolidated_ledger(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        today = date.today()
-        default_start = today - timedelta(days=6)
-        try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date() if start_date else default_start
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else today
-        except ValueError:
-            start_dt = default_start
-            end_dt = today
+        invalid_dates = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
+        is_all_time = not start_date or str(start_date).upper() in invalid_dates
 
-        data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station)
+        if is_all_time:
+            start_dt = None
+            end_dt = None
+        else:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
+            except ValueError:
+                start_dt = None
+                end_dt = None
+
+        data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station, current_user)
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -380,7 +475,8 @@ def export_consolidated_ledger(
 
         wb.properties.creator = f"{current_user.rank} {current_user.name} (FNUM: {current_user.fnum})"
         wb.properties.title = "KMP Consolidated Master Ledger"
-        wb.properties.subject = f"Jurisdiction: {region} / {station} ({start_dt} to {end_dt})"
+        time_range = "ALL TIME" if is_all_time else f"{start_dt} to {end_dt}"
+        wb.properties.subject = f"Jurisdiction: {region} / {station} ({time_range})"
         wb.properties.company = "Uganda Police Force - Kampala Metropolitan Police"
 
         thin_border = Border(
@@ -394,7 +490,7 @@ def export_consolidated_ledger(
 
         # --- SECTION 1: CRIMES & AGRICULTURAL THEFTS ---
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=5)
-        cell = ws.cell(row=row_idx, column=1, value=f"SUMMARY OF CRIMES & AGRICULTURAL THEFTS REGISTERED FROM {start_dt.strftime('%d %b %Y').upper()} TO {end_dt.strftime('%d %b %Y').upper()}")
+        cell = ws.cell(row=row_idx, column=1, value=f"SUMMARY OF CRIMES & AGRICULTURAL THEFTS REGISTERED ({time_range})")
         cell.fill = PatternFill(start_color="B4C6E7", end_color="B4C6E7", fill_type="solid")
         cell.font = Font(bold=True, size=11, color="000000")
         cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -515,7 +611,7 @@ def export_consolidated_ledger(
 
         # --- SECTION 3: DISRUPTIVE OPERATIONS ---
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=9)
-        cell = ws.cell(row=row_idx, column=1, value=f"SUMMARY OF DISRUPTIVE OPERATIONS FROM {start_dt.strftime('%d %b %Y').upper()} TO {end_dt.strftime('%d %b %Y').upper()}")
+        cell = ws.cell(row=row_idx, column=1, value=f"SUMMARY OF DISRUPTIVE OPERATIONS ({time_range})")
         cell.fill = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
         cell.font = Font(bold=True, size=11)
         cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -553,7 +649,7 @@ def export_consolidated_ledger(
 
         # --- SECTION 4: SUCCESS STORIES ---
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=3)
-        cell = ws.cell(row=row_idx, column=1, value=f"SUMMARY OF SUCCESSFUL OPERATIONS & MILESTONES FROM {start_dt.strftime('%d %b %Y').upper()} TO {end_dt.strftime('%d %b %Y').upper()}")
+        cell = ws.cell(row=row_idx, column=1, value=f"SUMMARY OF SUCCESSFUL OPERATIONS & MILESTONES ({time_range})")
         cell.fill = PatternFill(start_color="FFE699", end_color="FFE699", fill_type="solid")
         cell.font = Font(bold=True, size=11)
         cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -602,7 +698,8 @@ def export_consolidated_ledger(
 
         with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(password_str.encode('utf-8'))
-            zf.writestr(f"KMP_Consolidated_Ledger_{start_dt}_{end_dt}.xlsx", excel_buffer.getvalue())
+            dl_time = "ALL_TIME" if is_all_time else f"{start_dt}_{end_dt}"
+            zf.writestr(f"KMP_Consolidated_Ledger_{dl_time}.xlsx", excel_buffer.getvalue())
 
         zip_buffer.seek(0)
 
@@ -612,13 +709,17 @@ def export_consolidated_ledger(
             action_type="EXPORT",
             module="CONSOLIDATED_LEDGER",
             target_id="MASTER_SUMMARY_ZIP",
-            changes_summary=f"{current_user.fnum} {current_user.rank} exported encrypted consolidated ledger ({start_dt} to {end_dt})."
+            changes_summary=f"{current_user.fnum} {current_user.rank} exported encrypted consolidated ledger ({time_range})."
         )
 
+        filename_time = "ALL_TIME" if is_all_time else f"{start_dt}_{end_dt}"
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename=KMP_Consolidated_Ledger_{start_dt}_{end_dt}.zip"}
+            headers={
+                "Content-Disposition": f"attachment; filename=KMP_Consolidated_Ledger_{filename_time}.zip",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated Ledger Export Failed: {str(e)}")
