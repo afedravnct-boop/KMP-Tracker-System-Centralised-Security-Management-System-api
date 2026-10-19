@@ -25,7 +25,6 @@ def clean_str(val) -> str:
     return str(val).strip().upper()
 
 def safe_int(val) -> int:
-    """Guarantees a safe integer extraction without crashing the loop."""
     if pd.isna(val) or val is None: return 0
     if isinstance(val, (int, float)): return int(val)
     s = str(val).strip()
@@ -118,14 +117,11 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
-# 🟢 ADVANCED STRIPPER: Perfectly normalizes Police Posts and Stations
 def get_base_station_name(stn: str) -> str:
     if pd.isna(stn) or not stn: return "UNKNOWN"
     val = clean_str(stn)
-    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"]:
-        return "OLD KAMPALA"
-    if val in ["CPS KLA", "CPS KAMPALA"]:
-        return "CPS KAMPALA"
+    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"]: return "OLD KAMPALA"
+    if val in ["CPS KLA", "CPS KAMPALA"]: return "CPS KAMPALA"
     val = re.sub(r'\s+(P\.?S\.?|P/S|PS|P\s*STN|P/STN|POL\s*STN|POLICE\s*STATION|DIVISION|P\.?P\.?|P/P|P/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$', '', val)
     return val.strip()
 
@@ -157,7 +153,6 @@ def get_model_safe(*names):
             return getattr(models, name)
     return None
 
-# 🟢 BULLETPROOF OPSEC SCOPING
 def apply_opsec_scope(current_user, query, ModelClass):
     if not ModelClass or not current_user:
         return query.filter(text("1=0"))
@@ -243,113 +238,131 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS
+    # 🟢 1. CRIME REPORTS (Safe Tuple Projection using explicit columns)
     try:
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
         if CrimeModel:
-            query = db.query(
-                CrimeModel.region, CrimeModel.station, CrimeModel.category, 
-                CrimeModel.offence, CrimeModel.suspects, CrimeModel.date
-            )
-            query = apply_opsec_scope(current_user, query, CrimeModel)
-            crimes = query.all()
+            cols = []
+            if hasattr(CrimeModel, 'region'): cols.append(CrimeModel.region)
+            if hasattr(CrimeModel, 'station'): cols.append(CrimeModel.station)
+            if hasattr(CrimeModel, 'category'): cols.append(CrimeModel.category)
+            if hasattr(CrimeModel, 'offence'): cols.append(CrimeModel.offence)
+            if hasattr(CrimeModel, 'suspects'): cols.append(CrimeModel.suspects)
+            if hasattr(CrimeModel, 'date'): cols.append(CrimeModel.date)
+            
+            if cols:
+                query = db.query(*cols)
+                query = apply_opsec_scope(current_user, query, CrimeModel)
+                crimes = query.all()
 
-            for row in crimes:
-                # EXPLICIT DATE FILTERING (No SQL Casts, 100% crash proof)
-                if start_dt and end_dt:
-                    row_date = parse_safe_date(row.date)
-                    if not row_date or row_date < start_dt or row_date > end_dt:
-                        continue
+                for row in crimes:
+                    raw_date = getattr(row, 'date', None)
+                    if start_dt and end_dt:
+                        row_date = parse_safe_date(raw_date)
+                        if not row_date or row_date < start_dt or row_date > end_dt:
+                            continue
 
-                stn = clean_str(row.station)
-                reg = fast_get_region(stn, row.region)
+                    stn = clean_str(getattr(row, 'station', ''))
+                    reg = fast_get_region(stn, getattr(row, 'region', ''))
 
-                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-                category = clean_str(row.category or 'GENERAL CRIMES')
-                offence = clean_str(row.offence or 'UNSPECIFIED INCIDENT')
-                off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
-                if "LOCK-UP TOTAL" in off: continue
+                    category = clean_str(getattr(row, 'category', 'GENERAL CRIMES'))
+                    offence = clean_str(getattr(row, 'offence', 'UNSPECIFIED INCIDENT'))
+                    off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
+                    if "LOCK-UP TOTAL" in off: continue
 
-                suspects = safe_int(row.suspects)
+                    suspects = safe_int(getattr(row, 'suspects', 0))
 
-                if reg not in crime_regional: crime_regional[reg] = {}
-                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-                
-                crime_regional[reg][off]["cases"] += 1
-                crime_regional[reg][off]["suspects"] += suspects
+                    if reg not in crime_regional: crime_regional[reg] = {}
+                    if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+                    
+                    crime_regional[reg][off]["cases"] += 1
+                    crime_regional[reg][off]["suspects"] += suspects
 
-                if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
-                crime_regional_totals[reg]["cases"] += 1
-                crime_regional_totals[reg]["suspects"] += suspects
+                    if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
+                    crime_regional_totals[reg]["cases"] += 1
+                    crime_regional_totals[reg]["suspects"] += suspects
 
-                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-                crime_general[off]["cases"] += 1
-                crime_general[off]["suspects"] += suspects
+                    if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                    crime_general[off]["cases"] += 1
+                    crime_general[off]["suspects"] += suspects
 
-                grand_crime_cases += 1
-                grand_crime_suspects += suspects
+                    grand_crime_cases += 1
+                    grand_crime_suspects += suspects
     except Exception as e:
         print(f"CRIMES FETCH ERROR: {e}")
 
-    # 🟢 2. OPERATIONAL STATISTICS
+    # 🟢 2. OPERATIONAL STATISTICS (Safe Tuple Projection)
     try:
-        OpsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+        OpsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'operationl_statistics', 'Disruptive_Operations', 'Stats')
         if OpsModel:
-            query = db.query(
-                OpsModel.region, OpsModel.station, OpsModel.arrested, OpsModel.given_bond, 
-                OpsModel.cautioned, OpsModel.pending_court, OpsModel.taken_to_court, 
-                OpsModel.released, OpsModel.remanded, OpsModel.convicted, OpsModel.date
-            )
-            query = apply_opsec_scope(current_user, query, OpsModel)
-            stats = query.all()
+            cols = []
+            if hasattr(OpsModel, 'region'): cols.append(OpsModel.region)
+            if hasattr(OpsModel, 'station'): cols.append(OpsModel.station)
+            if hasattr(OpsModel, 'date'): cols.append(OpsModel.date)
             
             ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
-            
-            for row in stats:
-                if start_dt and end_dt:
-                    row_date = parse_safe_date(row.date)
-                    if not row_date or row_date < start_dt or row_date > end_dt:
-                        continue
+            for key in ops_keys:
+                if hasattr(OpsModel, key): cols.append(getattr(OpsModel, key))
 
-                stn = clean_str(row.station)
-                reg = fast_get_region(stn, row.region)
-
-                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
-
-                if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+            if cols:
+                query = db.query(*cols)
+                query = apply_opsec_scope(current_user, query, OpsModel)
+                stats = query.all()
                 
-                for key in ops_keys:
-                    val = safe_int(getattr(row, key))
-                    ops_regional[reg][key] += val
-                    ops_general[key] += val
+                for row in stats:
+                    raw_date = getattr(row, 'date', None)
+                    if start_dt and end_dt:
+                        row_date = parse_safe_date(raw_date)
+                        if not row_date or row_date < start_dt or row_date > end_dt:
+                            continue
+
+                    stn = clean_str(getattr(row, 'station', ''))
+                    reg = fast_get_region(stn, getattr(row, 'region', ''))
+
+                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+                    if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
+                    
+                    for key in ops_keys:
+                        val = safe_int(getattr(row, key, 0))
+                        ops_regional[reg][key] += val
+                        ops_general[key] += val
     except Exception as e:
         print(f"OPS FETCH ERROR: {e}")
 
-    # 🟢 3. SUCCESS STORIES
+    # 🟢 3. SUCCESS STORIES (Safe Tuple Projection ensures NO UndefinedColumn crashes)
     try:
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         if StoryModel:
-            query = db.query(StoryModel.region, StoryModel.station, StoryModel.date)
-            query = apply_opsec_scope(current_user, query, StoryModel)
-            stories = query.all()
+            cols = []
+            if hasattr(StoryModel, 'region'): cols.append(StoryModel.region)
+            if hasattr(StoryModel, 'station'): cols.append(StoryModel.station)
+            if hasattr(StoryModel, 'date'): cols.append(StoryModel.date)
+            
+            if cols:
+                query = db.query(*cols)
+                query = apply_opsec_scope(current_user, query, StoryModel)
+                stories = query.all()
 
-            for row in stories:
-                if start_dt and end_dt:
-                    row_date = parse_safe_date(row.date)
-                    if not row_date or row_date < start_dt or row_date > end_dt:
-                        continue
+                for row in stories:
+                    raw_date = getattr(row, 'date', None)
+                    if start_dt and end_dt:
+                        row_date = parse_safe_date(raw_date)
+                        if not row_date or row_date < start_dt or row_date > end_dt:
+                            continue
 
-                stn = clean_str(row.station)
-                reg = fast_get_region(stn, row.region)
+                    stn = clean_str(getattr(row, 'station', ''))
+                    reg = fast_get_region(stn, getattr(row, 'region', ''))
 
-                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-                story_regional[reg] = story_regional.get(reg, 0) + 1
-                grand_stories += 1
+                    story_regional[reg] = story_regional.get(reg, 0) + 1
+                    grand_stories += 1
     except Exception as e:
         print(f"STORIES FETCH ERROR: {e}")
 
@@ -386,11 +399,8 @@ def get_consolidated_ledger(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        # 🟢 Parses dates robustly using parse_safe_date (handles YYYY-MM-DD or DD/MM/YYYY)
         start_dt = parse_safe_date(start_date)
         end_dt = parse_safe_date(end_date)
-        
-        # If dates couldn't be parsed, it falls back to 'ALL TIME' logic by passing None
         is_all_time = not start_dt or not end_dt
 
         data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station, current_user)
