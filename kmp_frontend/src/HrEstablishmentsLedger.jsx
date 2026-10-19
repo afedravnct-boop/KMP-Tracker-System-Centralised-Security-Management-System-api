@@ -1,4 +1,3 @@
-// src/components/HrEstablishmentsLedger.jsx
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Shield, FileText, Users, Building, Filter, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { stripHtmlTags } from './App';
@@ -314,7 +313,7 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
 
                    <tr className="bg-slate-800 border-t-[3px] border-slate-900">
                       <td colSpan="2" className="p-4 text-center text-[11px] font-black text-yellow-400 uppercase tracking-widest border-r border-slate-700 shadow-inner">
-                          KMP MASTER TOTALS:
+                          {selectedRegion === 'ALL REGIONS' ? 'KMP MASTER TOTALS:' : `${selectedRegion} MASTER TOTALS:`}
                       </td>
                       <td className="p-4 text-center text-base font-bold text-blue-300 border-r border-slate-700">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-base font-bold text-green-400 border-r border-slate-700">{masterTotals.totalNco}</td>

@@ -1,4 +1,3 @@
-# routers/nominal_roll.py
 import io
 import os
 import math
@@ -456,7 +455,6 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     elif is_regional_command:
         return query.filter(func.upper(Model.region) == user_region)
     elif user_station:
-        # 🟢 Station Admin Scope: Matches exact station, parent division, or sub-station/post entries
         station_pattern = f"%{user_station}%"
         return query.filter(
             or_(
@@ -1826,8 +1824,44 @@ def export_filtered_nominal_roll(
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
-        
+        officer_name = (current_user.name or "UNKNOWN").strip().upper()
         officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+        officer_rank = (current_user.rank or "").strip().upper()
+        timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+
+        wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+        wb.properties.title = f"Official Filtered Extract: {f_type} - {f_val}"
+        
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+        thin_border = Border(
+            left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
+            top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
+        )
+
+        headers = ["SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", "IPPS", "NIN", "Station", "Region", "Status"]
+        
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # 🟢 FIX: ACTUALLY WRITE THE ROWS TO THE EXCEL SHEET!
+        for idx, row in enumerate(filtered_rows):
+            row_data = [
+                idx + 1, row["Force Number"], row["Rank"], row["Name"], row["Sex"], 
+                row["Position"], row["Contact"], row["IPPS"], row["NIN"], 
+                row["Station"], row["Region"], row["Status"]
+            ]
+            ws.append(row_data)
+
+        for col in ws.columns:
+            col_letter = col[0].column_letter
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
+
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
         excel_filename = f"{officer_fnum}_Filtered_List_{f_type}_{eat_time.strftime('%Y%m%d')}.xlsx"

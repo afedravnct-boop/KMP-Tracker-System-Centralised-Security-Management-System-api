@@ -433,6 +433,20 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                 );
               })}
             </tbody>
+            {/* 🟢 NEW: Grand Total Row for Disruptive Operations */}
+            <tfoot className="bg-[#e2efda] dark:bg-slate-800 font-extrabold text-slate-900 dark:text-slate-100 border-2 border-slate-400 dark:border-slate-700">
+              <tr>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center uppercase tracking-wider text-xs">GRAND TOTAL</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.arrested}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.given_bond}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.cautioned}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.pending_court}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.taken_to_court}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.released}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-red-700 dark:text-red-400">{dataMapping.opsGeneral.remanded}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-purple-700 dark:text-purple-400">{dataMapping.opsGeneral.convicted}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>

@@ -1,4 +1,3 @@
-// src/components/ExhibitsRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
@@ -387,7 +386,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Because filtering is done on the backend, we just map server data
   const filteredExhibits = useMemo(() => {
     return [...serverExhibits];
   }, [serverExhibits]);
@@ -422,7 +420,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       return;
     }
     
-    setNotification({ type: 'success', text: "⏳ Generating official CSV export from database. Please wait..." });
+    setNotification({ type: 'success', text: "⏳ Generating official Encrypted ZIP export from database. Please wait..." });
     
     try {
       const params = new URLSearchParams();
@@ -446,13 +444,12 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       const url = URL.createObjectURL(blob);
       
       const disposition = response.headers.get('Content-Disposition');
-      let filename = 'KMP_EXHIBITS_EXPORT.csv';
+      let filename = 'KMP_EXHIBITS_ENCRYPTED_EXPORT.zip';
       if (disposition && disposition.indexOf('filename=') !== -1) {
           filename = disposition.split('filename=')[1].replace(/["']/g, '');
       } else {
           const timestamp = new Date().toISOString().split('T')[0];
-          const fileLabel = filterStatus === 'ALL' ? 'ALL_EXHIBITS' : filterStatus.replace(/\s+/g, '_');
-          filename = `KMP_EXHIBITS_${fileLabel}_${timestamp}.csv`;
+          filename = `KMP_EXHIBITS_ENCRYPTED_${timestamp}.zip`;
       }
 
       const link = document.createElement('a');
@@ -718,7 +715,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
 
               <button type="button" onClick={handleExportFilteredData} className="ml-auto px-3 py-1.5 text-[11px] font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-emerald-700 text-white border-emerald-800 hover:bg-emerald-800">
                 <HardDrive className="w-3 h-3 mr-1.5" />
-                Export CSV
+                Export Encrypted ZIP
               </button>
             </div>
 

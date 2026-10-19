@@ -2419,7 +2419,7 @@ const handleExportLogs = async () => {
                           )}
                           <div>
                             <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
-                            <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.station}</span>
+                            <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.role || 'USER'} • {user.station}</span>
                           </div>
                         </div>
                         <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
@@ -2897,7 +2897,6 @@ const App = () => {
           authFetch('/api/v1/establishments', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/nominal-roll', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }).catch(() => null), 
-          // 🟢 THE FIX: Poll the lightweight ping route instead of the full database
           authFetch('/api/v1/communications/ping-unread', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/general-documents', { signal: controller.signal }).catch(() => null)
         ]);
@@ -2909,13 +2908,8 @@ const App = () => {
         if (resArc && resArc.ok) setNominal_Roll_archives(await resArc.json());
         if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
         
-        // 🟢 Store just the boolean indicator
-        if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
-        
-        // 🟢 Store just the boolean indicator
         if (resCommsPing && resCommsPing.ok) setAdminCommsData(await resCommsPing.json());
 
-        // 🟢 RESTORED THE MISSING `if` BLOCK
         if (resUsers && resUsers.ok) {
           const allUsers = await resUsers.json();
           setUsers(allUsers);
@@ -2951,18 +2945,34 @@ const App = () => {
               };
 
               const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
+              
+              // 🟢 SYNC HR TRANSFERS AND ELEVATIONS SEAMLESSLY
+              // This guarantees the UI actively mirrors their latest database Nominal Roll station/region/title
+              const resolvedPosition = me.position || prev.position;
+              const resolvedRegion = me.region || prev.region;
+              const resolvedStation = me.station || prev.station;
+              const resolvedRank = me.rank || prev.rank;
 
               const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prevPerms);
               const roleUnchanged = resolvedRole === prev.role;
+              const positionUnchanged = resolvedPosition === prev.position;
+              const regionUnchanged = resolvedRegion === prev.region;
+              const stationUnchanged = resolvedStation === prev.station;
+              const rankUnchanged = resolvedRank === prev.rank;
 
-              if (permissionsUnchanged && roleUnchanged) {
+              // Abort update only if literally nothing changed
+              if (permissionsUnchanged && roleUnchanged && positionUnchanged && regionUnchanged && stationUnchanged && rankUnchanged) {
                 return prev;
               }
 
               return {
                 ...prev,
                 permissions: mergedPermissions,
-                role: resolvedRole
+                role: resolvedRole,
+                position: resolvedPosition,
+                region: resolvedRegion,
+                station: resolvedStation,
+                rank: resolvedRank
               };
             });
           }

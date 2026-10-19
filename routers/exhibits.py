@@ -1,9 +1,12 @@
-# routers/exhibits.py
 import json
 import re
-import csv
 import io
 from datetime import datetime
+
+import openpyxl
+from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
+import pyzipper
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -213,10 +216,10 @@ def get_exhibits(
         return []
 
 # ====================================================================
-# 1B. EXPORT EXHIBITS TO CSV
+# 1B. SECURE EXPORT EXHIBITS TO ENCRYPTED ZIP (EXCEL)
 # ====================================================================
 @router.get("/export")
-def export_exhibits_csv(
+def export_exhibits_secure(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     case_type: Optional[str] = Query(default=None),
@@ -287,13 +290,38 @@ def export_exhibits_csv(
                 ))
 
         records = query.order_by(Model.id.desc()).all()
-
-        stream = io.StringIO()
-        writer = csv.writer(stream)
-        writer.writerow(["ID", "Identifier (Reg/Serial)", "Category", "Description", "Colour/Features", "Date In", "Case No", "Reason", "Status", "Unit Responsible", "Assorted Items", "Impounded By", "Entered By", "Comment"])
-
         total_records = len(records)
-        for r in records:
+
+        # --- 🟢 1. Initialize Workbook & Inject Metadata ---
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Impounded Exhibits"
+        ws.views.sheetView[0].showGridLines = True
+
+        wb.properties.creator = f"{current_user.rank} {current_user.name} (FNUM: {current_user.fnum})"
+        wb.properties.title = "KMP Secure Exhibits & Impounded Fleet Registry"
+        wb.properties.subject = f"Jurisdiction: {region or 'ALL'} / {station or 'ALL'}"
+        wb.properties.company = "Uganda Police Force - Kampala Metropolitan Police"
+
+        thin_border = Border(
+            left=Side(style='thin', color='A6A6A6'), right=Side(style='thin', color='A6A6A6'),
+            top=Side(style='thin', color='A6A6A6'), bottom=Side(style='thin', color='A6A6A6')
+        )
+
+        # --- 🟢 2. Build Headers ---
+        headers = ["ID", "IDENTIFIER (REG/SERIAL)", "CATEGORY", "DESCRIPTION", "COLOUR/FEATURES", 
+                   "DATE IMPOUNDED", "CASE NO", "REASON", "STATUS", "UNIT RESPONSIBLE", 
+                   "ASSORTED ITEMS", "IMPOUNDED BY", "ENTERED BY", "COMMENT"]
+        
+        for col_num, h in enumerate(headers, 1):
+            c = ws.cell(row=1, column=col_num, value=h)
+            c.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+            c.font = Font(bold=True, size=10)
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = thin_border
+
+        # --- 🟢 3. Populate Rows ---
+        for row_idx, r in enumerate(records, 2):
             cat = getattr(r, 'category', 'MOTOR VEHICLE')
             desc = getattr(r, 'type_make', '')
             
@@ -306,13 +334,13 @@ def export_exhibits_csv(
             if getattr(r, 'impounded_by_rank', None):
                 impounded_by_str = f"{getattr(r, 'impounded_by_rank')} {getattr(r, 'impounded_by_name', '')} ({getattr(r, 'impounded_by_fnum', '')})"
 
-            writer.writerow([
+            row_data = [
                 getattr(r, 'id', ''),
                 getattr(r, 'reg_no', ''),
                 cat,
                 desc,
                 getattr(r, 'colour', ''),
-                getattr(r, 'date_impounded', ''),
+                str(getattr(r, 'date_impounded', '')),
                 getattr(r, 'case_no', ''),
                 getattr(r, 'reason', ''),
                 getattr(r, 'status', ''),
@@ -321,27 +349,55 @@ def export_exhibits_csv(
                 impounded_by_str.strip(),
                 getattr(r, 'entered_by', ''),
                 getattr(r, 'comment', '')
-            ])
+            ]
 
-        response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-        
+            for col_num, val in enumerate(row_data, 1):
+                c = ws.cell(row=row_idx, column=col_num, value=val)
+                c.border = thin_border
+                c.alignment = Alignment(vertical="center", horizontal="left" if col_num in [4, 8, 11, 14] else "center")
+
+        # Auto-adjust column widths
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = openpyxl.utils.get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
+        # --- 🟢 4. Write to Buffer & Encrypt ---
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+
+        password_str = str(current_user.fnum).strip()
+        zip_buffer = io.BytesIO()
+
         file_label = status_filter.replace(" ", "_").upper() if status_filter and status_filter not in ["ALL", "ANY STATUS"] else "ALL_EXHIBITS"
-        timestamp = datetime.now().strftime("%Y-%m-%d")
-        response.headers["Content-Disposition"] = f"attachment; filename=KMP_EXHIBITS_{file_label}_{timestamp}.csv"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        excel_filename = f"KMP_EXHIBITS_{file_label}_{timestamp}.xlsx"
+
+        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(password_str.encode('utf-8'))
+            zf.writestr(excel_filename, excel_buffer.getvalue())
+
+        zip_buffer.seek(0)
         
+        # --- 🟢 5. Log & Stream Response ---
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action_type="EXPORT",
             module="EXHIBITS_REGISTRY",
-            target_id="CSV_EXPORT",
-            changes_summary=f"Officer generated and exported backend CSV containing {total_records} exhibit records (Filter: {file_label})."
+            target_id="SECURE_ZIP_EXPORT",
+            changes_summary=f"{current_user.fnum} {current_user.rank} exported highly secure encrypted AES-256 ZIP containing {total_records} exhibit records (Filter: {file_label})."
         )
 
-        return response
+        return StreamingResponse(
+            zip_buffer,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=KMP_EXHIBITS_ENCRYPTED_{timestamp}.zip"}
+        )
     except Exception as e:
-        print(f"Export error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate CSV export.")
+        print(f"Secure Export error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate secure ZIP export.")
 
 # ====================================================================
 # 2. IMPOUND NEW EXHIBIT

@@ -1,4 +1,3 @@
-// src/components/LockupMatrixLedger.jsx
 import React, { useState, useMemo, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Calendar, Search, Filter, PlusCircle, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Minus, Shield, Users, Save, HardDrive, Edit, X } from 'lucide-react';
 import { authFetch } from './api';
@@ -87,7 +86,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const [registerFilterStation, setRegisterFilterStation] = useState(initialStation);
 
   // Backend Summary State
-  const [stationSummary, setStationSummary] = useState({ todaysTotal: null, lastLoggedDate: 'Never', lastLoggedSuspects: 0 });
+  const [stationSummary, setStationSummary] = useState({ todaysTotal: null, lastLoggedDate: 'Never', lastLoggedTime: 'N/A', lastLoggedSuspects: 0 });
   const [masterLockupHistory, setMasterLockupHistory] = useState([]);
 
   // Form Inputs initialized to user's assigned station/region
@@ -133,6 +132,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
           setStationSummary({
             todaysTotal: data.todays_total,
             lastLoggedDate: data.last_logged_date,
+            lastLoggedTime: data.last_logged_time,
             lastLoggedSuspects: data.last_logged_suspects
           });
         }
@@ -420,7 +420,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 Today's Log: <span className={stationSummary.todaysTotal !== null ? "text-green-300" : "text-red-300"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'MISSING'}</span>
               </span>
               <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
-                Last Logged Date: <span className="text-amber-300">{stationSummary.lastLoggedDate}</span>
+                Last Logged: <span className="text-amber-300">{stationSummary.lastLoggedDate} @ {stationSummary.lastLoggedTime}</span>
               </span>
               <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
                 Number Last Logged: <span className="text-emerald-300">{stationSummary.lastLoggedSuspects} Suspects</span>
@@ -511,7 +511,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
               <div className="flex justify-end pt-2">
                 <button type="submit" className="px-6 py-3 bg-emerald-700 hover:bg-emerald-800 text-white font-black uppercase rounded-xl shadow cursor-pointer text-xs tracking-wider transition">
-                  💾 {matrixOperation === 'update' ? 'Save Changes' : 'Save Census to Ledger'}
+                  {matrixOperation === 'update' ? 'Save Changes' : 'Save Census to Ledger'}
                 </button>
               </div>
             </form>
@@ -594,8 +594,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                   <thead className="bg-amber-100 dark:bg-slate-950 sticky top-0 border-b border-amber-200 dark:border-slate-800 shadow-sm z-20">
                     <tr>
                       <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[10%]">Act</th>
-                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[15%]">S/No</th>
-                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 w-[45%]">Date</th>
+                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[10%]">S/No</th>
+                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 w-[25%]">Date</th>
+                      <th className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 w-[25%]">Time</th>
                       <th className="px-3 py-3 text-[10px] font-black text-white uppercase bg-amber-900 dark:bg-slate-950 text-center w-[30%]">KMP Master Lock</th>
                     </tr>
                   </thead>
@@ -620,6 +621,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                             </td>
                             <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 text-center">{row.sn}</td>
                             <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800">{row.date}</td>
+                            <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800">{row.time || '-'}</td>
                             <td className="px-3 py-3 text-sm font-black text-center border-r border-slate-200 dark:border-slate-800">
                               {row.is_nil ? <span className="text-slate-400 italic">NIL</span> : <span className="text-amber-700 dark:text-amber-400">{row.suspects} Suspects</span>}
                             </td>
@@ -627,7 +629,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                         )
                       })
                     ) : (
-                      <tr><td colSpan="4" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No master lockup records found for this period.</td></tr>
+                      <tr><td colSpan="5" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No master lockup records found for this period.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -640,7 +642,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                     <thead className="bg-amber-100 dark:bg-slate-950 sticky top-0 border-b border-amber-200 dark:border-slate-800 shadow-sm z-20">
                       <tr>
                         <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center w-[4%]">Act</th>
-                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[110px]">Date</th>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[90px]">Date</th>
+                        <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[70px]">Time</th>
                         <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 min-w-[140px]">Station</th>
                         <th rowSpan="2" className="px-3 py-3 text-[10px] font-black text-white uppercase bg-amber-900 dark:bg-slate-950 border-r border-amber-800 dark:border-slate-800 text-center min-w-[90px]">Total Suspects</th>
                         <th colSpan="4" className="px-2 py-2 text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase border-r border-amber-200 dark:border-slate-800 text-center bg-amber-200/50 dark:bg-slate-900">SEX & AGE CATEGORY</th>
@@ -675,6 +678,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                                 )}
                               </td>
                               <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{row.date}</td>
+                              <td className="px-3 py-3 text-xs font-bold text-slate-800 dark:text-slate-200 border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{row.time || '-'}</td>
                               <td className="px-3 py-3 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase border-r border-slate-200 dark:border-slate-800">{row.station}</td>
                               <td className="px-3 py-3 text-sm font-black text-amber-700 dark:text-amber-400 text-center bg-amber-50/30 dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800">{row.suspects}</td>
                               <td className="px-2 py-3 text-xs font-bold text-blue-700 dark:text-blue-400 text-center border-r border-slate-200 dark:border-slate-800 bg-blue-50/20 dark:bg-slate-950">{row.male_count || row.male || 0}</td>
@@ -694,7 +698,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                           );
                         })
                       ) : (
-                        <tr><td colSpan="13" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No independent lock-up records found.</td></tr>
+                        <tr><td colSpan="14" className="px-6 py-12 text-center text-sm text-slate-400 font-bold">No independent lock-up records found.</td></tr>
                       )}
                     </tbody>
                   </table>

@@ -1,4 +1,3 @@
-# routers/lockup_matrix.py
 import json
 import csv
 import io
@@ -115,11 +114,19 @@ def apply_opsec_scope(current_user, query, ModelClass):
         not is_kmp_specialist
     )
 
+    # 🟢 For the Master Lockup, we want EVERYONE to see the Grand Total regardless of rank
+    # So we ALWAYS append "HEADQUARTERS GENERAL TOTAL" to their view scope
+    
     if is_absolute_global or is_kmp_sys_mgr:
         return query
         
     elif is_kmp_specialist and hasattr(ModelClass, 'region'):
-        return query.filter(func.upper(ModelClass.region) == user_reg)
+        return query.filter(
+            or_(
+                func.upper(ModelClass.region) == user_reg,
+                func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL"
+            )
+        )
         
     elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
         conds = []
@@ -141,22 +148,30 @@ def apply_opsec_scope(current_user, query, ModelClass):
             
         if conds:
             return query.filter(or_(*conds))
-        return query.filter(text("1=0"))
+        return query.filter(func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL")
         
     elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
         clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
-            and_(
-                func.upper(ModelClass.region) == user_reg,
-                or_(
-                    func.upper(ModelClass.station) == user_stn,
-                    func.upper(ModelClass.station) == clean_user_stn,
-                    func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+            or_(
+                func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL",
+                and_(
+                    func.upper(ModelClass.region) == user_reg,
+                    or_(
+                        func.upper(ModelClass.station) == user_stn,
+                        func.upper(ModelClass.station) == clean_user_stn,
+                        func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+                    )
                 )
             )
         )
     elif hasattr(ModelClass, 'station'):
-        return query.filter(func.upper(ModelClass.station) == user_stn)
+        return query.filter(
+            or_(
+                func.upper(ModelClass.station) == user_stn,
+                func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL"
+            )
+        )
         
     return query.filter(text("1=0"))
 
@@ -178,12 +193,10 @@ def create_lockup_entry(
         user_role = str(current_user.role or "").strip().upper()
         user_pos = str(current_user.position or "").strip().upper()
 
-        # 🟢 OPSEC CHECK 1: Prevent Police HQ from logging for KMP HQ
         if user_reg == "POLICE HEADQUARTERS" and user_role not in ["SUPER_ADMIN", "ADMIN"]:
             if req_region == "KMP HEADQUARTERS" or station_val in REGIONAL_HIERARCHY.get("KMP HEADQUARTERS", []) + ["KMP HEADQUARTERS", "HEADQUARTERS GENERAL TOTAL"]:
                 raise HTTPException(status_code=403, detail="Clearance Denied: Police Headquarters personnel cannot log records on behalf of KMP Headquarters.")
 
-        # 🟢 OPSEC CHECK 2: Strict authorization for the KMP Master Lockup
         if station_val == "HEADQUARTERS GENERAL TOTAL":
             valid_master_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]
             valid_master_positions = [
@@ -243,17 +256,12 @@ def create_lockup_entry(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to log cell population: {str(e)}")
 
-# 🟢 NEW: Backend Engine for Master Lockup Timeline with NIL Padding
 @router.get("/lockup-matrix/master-history")
 def get_master_lockup_history(
     period: str = Query("WEEK", description="Filter period: TODAY, WEEK, MONTH, YEAR, ALL"),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    """
-    Takes heavy calculation off the frontend. Returns a padded, chronological array
-    of the KMP Master Lockup, automatically filling missing days with NIL.
-    """
     today = date.today()
     days_to_generate = 7
 
@@ -265,7 +273,7 @@ def get_master_lockup_history(
         days_to_generate = 30
     elif period == "YEAR":
         days_to_generate = 365
-    else: # ALL
+    else: 
         days_to_generate = 365 
         
     start_date = today - timedelta(days=days_to_generate - 1)
@@ -291,7 +299,6 @@ def get_master_lockup_history(
     entries_by_date = {r.date if isinstance(r.date, str) else r.date.isoformat(): r for r in records}
     
     results = []
-    # Generate timeline downward from Today -> Past
     for i in range(days_to_generate):
         current_date = (today - timedelta(days=i)).isoformat()
         entry = entries_by_date.get(current_date)
@@ -304,6 +311,7 @@ def get_master_lockup_history(
             results.append({
                 "is_nil": True,
                 "date": current_date,
+                "time": "-",
                 "station": "HEADQUARTERS GENERAL TOTAL",
                 "sn": "-",
                 "suspects": "NIL",
@@ -348,6 +356,7 @@ def get_station_lockup_summary(
         "station": target_station,
         "todays_total": todays_log.suspects if todays_log else None,
         "last_logged_date": latest_log.date if latest_log else "Never",
+        "last_logged_time": latest_log.time if latest_log else "N/A",
         "last_logged_suspects": latest_log.suspects if latest_log else 0
     }
 
@@ -375,21 +384,29 @@ def get_lockup_entries(
     if not is_absolute_global and not is_regional_command:
         user_stn = str(current_user.station or "").strip().upper()
         clean_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        # 🟢 Fallback to ensure users see Master Total
         query = query.filter(
             or_(
                 func.upper(models.LockupMatrix.station) == user_stn,
-                func.upper(models.LockupMatrix.station) == clean_stn
+                func.upper(models.LockupMatrix.station) == clean_stn,
+                func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
             )
         )
     else:
         if region and region.upper() not in ["ALL REGIONS", "ALL"]:
-            query = query.filter(func.upper(models.LockupMatrix.region) == region.upper())
+            query = query.filter(
+                or_(
+                    func.upper(models.LockupMatrix.region) == region.upper(),
+                    func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
+                )
+            )
         if station and station.upper() not in ["ALL STATIONS", "ALL"]:
             clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
             query = query.filter(
                 or_(
                     func.upper(models.LockupMatrix.station) == station.upper(),
-                    func.upper(models.LockupMatrix.station) == clean_stn
+                    func.upper(models.LockupMatrix.station) == clean_stn,
+                    func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
                 )
             )
 
@@ -422,7 +439,6 @@ def update_lockup_entry(
     if not existing_entry:
         raise HTTPException(status_code=404, detail="Lockup matrix entry not found.")
     
-    # 🟢 1. Strict 24-Hour Edit Lock Check
     entry_date = existing_entry.date
     if isinstance(entry_date, str):
         try:
@@ -443,12 +459,10 @@ def update_lockup_entry(
     
     entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
 
-    # 🟢 OPSEC CHECK 1: Prevent Police HQ from modifying KMP data
     if user_reg == "POLICE HEADQUARTERS" and user_role not in ["SUPER_ADMIN", "ADMIN"]:
         if "KMP" in existing_entry.region.upper() or entry_station in REGIONAL_HIERARCHY.get("KMP HEADQUARTERS", []) + ["KMP HEADQUARTERS", "HEADQUARTERS GENERAL TOTAL"]:
             raise HTTPException(status_code=403, detail="Clearance Denied: Police Headquarters personnel are restricted from modifying KMP jurisdictional data.")
 
-    # 🟢 OPSEC CHECK 2: KMP Master Lockup Authorization Check
     if entry_station == "HEADQUARTERS GENERAL TOTAL":
         valid_master_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]
         valid_master_positions = [
@@ -461,7 +475,6 @@ def update_lockup_entry(
         if not has_master_clearance:
             raise HTTPException(status_code=403, detail="Clearance Denied: Only the Office of the Commander KMP can edit the Master Lockup.")
             
-    # 🟢 3. Standard Station User Clearance Check
     else:
         is_global = (
             user_role in ["SUPER_ADMIN", "ADMIN", "RPC", "DEPUTY COMMANDER"] or
@@ -704,13 +717,11 @@ def export_suspect_register_secure(
 
     df = pd.DataFrame(data_rows) if data_rows else pd.DataFrame(columns=["ID", "Name", "Sex", "Age", "Tribe", "Nationality", "Residence", "Contact", "Next of Kin", "Reason for Detention", "Reference", "Date In", "Date Out", "Status", "Station", "Region", "Entered By"])
 
-    # Create Excel workbook with Dual-Sheet Architecture & Officer Metadata Properties
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name="Print Copy", index=False)
         df.to_excel(writer, sheet_name="Full NeonDB Copy", index=False)
         
-        # 🟢 Embed downloading officer's metadata directly into workbook document properties
         workbook = writer.book
         workbook.properties.creator = f"{current_user.fnum} - {current_user.rank} {current_user.name}".strip()
         workbook.properties.lastModifiedBy = f"KMP-CSDMS Audit Engine (F/No: {current_user.fnum})"
@@ -721,7 +732,6 @@ def export_suspect_register_secure(
 
     excel_buffer.seek(0)
 
-    # Package into secure ZIP archive keyed to Officer's Force Number
     officer_fnum = str(current_user.fnum).strip()
     timestamp = datetime.now().strftime("%Y-%m-%d")
     zip_filename = f"KMP_SUSPECT_REGISTER_EXPORT_{timestamp}.zip"
