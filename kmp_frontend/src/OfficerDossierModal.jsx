@@ -1,7 +1,8 @@
+// src/components/OfficerDossierModal.jsx
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, Edit } from 'lucide-react';
 
-const OfficerDossierModal = ({ officer, onClose }) => {
+const OfficerDossierModal = ({ officer, onClose, onEditRequest }) => {
   if (!officer) return null;
 
   // 🟢 BULLETPROOF MAPPING: Covers all 26 Active Columns + 2 Archive Columns
@@ -161,12 +162,21 @@ const OfficerDossierModal = ({ officer, onClose }) => {
 
         </div>
 
-        {/* MODAL FOOTER */}
-        <div className="bg-white p-2 border-t border-slate-200 flex justify-end shrink-0">
+        {/* 🟢 MODAL FOOTER WITH NEW EDIT BUTTON */}
+        <div className="bg-white p-3 border-t border-slate-200 flex justify-end shrink-0 gap-3">
+          {onEditRequest && safeData.status !== 'ARCHIVED' && (
+            <button 
+              type="button" 
+              onClick={onEditRequest} 
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-5 rounded-lg text-xs transition shadow-sm cursor-pointer flex items-center"
+            >
+              <Edit className="w-3.5 h-3.5 mr-1.5" /> Edit Officer Record
+            </button>
+          )}
           <button 
             type="button" 
             onClick={onClose} 
-            className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-6 rounded-xl text-xs transition shadow-sm cursor-pointer"
+            className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-2 px-5 rounded-lg text-xs transition shadow-sm cursor-pointer"
           >
             Close Dossier Viewer
           </button>

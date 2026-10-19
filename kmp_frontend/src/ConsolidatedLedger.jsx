@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Eye, Filter, X, Download } from 'lucide-react';
 import { authFetch } from './api';
 
@@ -15,6 +15,29 @@ const cleanStr = (str) => {
   return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
 };
 
+// 🟢 Aggressive Base Name Extractor (Handles P.P, PS, etc.)
+const getBaseName = (str) => {
+    if (!str) return '';
+    let val = cleanStr(str);
+    if (["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"].includes(val)) return "OLD KAMPALA";
+    return val.replace(/\s+(P\.?S\.?|P\/S|PS|P\s*STN|P\/STN|POL\s*STN|POLICE\s*STATION|DIVISION|P\.?P\.?|P\/P|P\/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$/, '').trim();
+};
+
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+    const baseStation = getBaseName(stationName);
+    const cleanDbRegion = cleanStr(dbRegion);
+
+    if (REGIONAL_HIERARCHY[cleanDbRegion]) {
+        const matches = REGIONAL_HIERARCHY[cleanDbRegion].some(s => getBaseName(s) === baseStation);
+        if (matches) return cleanDbRegion;
+    }
+
+    for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+        if (stationsList.some(s => getBaseName(s) === baseStation)) return regionName;
+    }
+    return cleanDbRegion || 'KMP GENERAL';
+};
+
 const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => {
   const today = new Date();
   const lastWeek = new Date(today);
@@ -23,7 +46,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
-  const [ledgerData, setLedgerData] = useState(null);
+  const [ledgerDataRaw, setLedgerDataRaw] = useState(null); // Stores raw network payload
 
   const userRoleClean = cleanStr(currentUser?.role);
   const userPosClean = cleanStr(currentUser?.position);
@@ -42,7 +65,7 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
 
-  // 🟢 Optimized Single-Fetch Engine (Removes double-DB hit)
+  // 🟢 Intercepts the Raw Network Payload exactly as seen in the screenshot
   useEffect(() => {
     let isMounted = true;
 
@@ -53,20 +76,111 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
         const fullRes = await authFetch(fullUrl);
         if (fullRes.ok && isMounted) {
           const fullResult = await fullRes.json();
-          setLedgerData(fullResult.data);
+          // Saves the raw arrays directly from the network payload
+          setLedgerDataRaw(fullResult);
         }
       } catch (error) {
         console.error("Failed to fetch ledger data:", error);
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchLedgerData();
     return () => { isMounted = false; };
   }, [startDate, endDate, filterRegion, filterStation]);
+
+  // 🟢 Dynamically Aggregates the Raw Payload into the Formatted Tables
+  const dataMapping = useMemo(() => {
+      if (!ledgerDataRaw) {
+          return {
+              crimeRegional: {}, crimeRegionalTotals: {}, crimeGeneral: {}, sortedCrimeRegions: [], grandCrimeCases: 0, grandCrimeSuspects: 0,
+              opsRegional: {}, opsGeneral: { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 }, sortedOpsRegions: [],
+              storyRegional: {}, sortedStoryRegions: [], grandStories: 0
+          };
+      }
+
+      // If backend was updated and returned pre-aggregated data, use it natively
+      if (ledgerDataRaw.data && ledgerDataRaw.data.crimeRegional) {
+          return ledgerDataRaw.data;
+      }
+
+      // OTHERWISE: Manually aggregate the raw arrays exactly as shown in the Network Tab
+      const regionOrder = ["KMP NORTH", "KMP EAST", "KMP SOUTH", "KMP HEADQUARTERS", "POLICE HEADQUARTERS"];
+      const crimeReg = {}; const crimeRegTotals = {}; const crimeGen = {};
+      let grandCrimeCases = 0; let grandCrimeSuspects = 0;
+      
+      const opsReg = {}; 
+      const opsGen = { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 };
+      
+      const storyReg = {}; let grandStories = 0;
+
+      // Initialize mapping structures
+      regionOrder.forEach(r => {
+          crimeReg[r] = {}; crimeRegTotals[r] = { cases: 0, suspects: 0 };
+          opsReg[r] = { ...opsGen }; storyReg[r] = 0;
+      });
+
+      const safeInt = (v) => { const n = parseInt(v); return isNaN(n) ? 0 : n; };
+
+      // 1. Process Crimes Array
+      (ledgerDataRaw.crimes || []).forEach(row => {
+          const stn = cleanStr(row.station);
+          const reg = getOfficialRegionForStation(stn, row.region);
+
+          const category = cleanStr(row.category) || 'GENERAL CRIMES';
+          const rawOff = cleanStr(row.offence) || 'UNSPECIFIED INCIDENT';
+          const off = category === 'AGRIC_CRIME' ? `AGRIC: ${rawOff}` : rawOff;
+          if (off.includes('LOCK-UP TOTAL')) return;
+
+          const suspects = safeInt(row.suspects);
+
+          if (!crimeReg[reg]) { crimeReg[reg] = {}; crimeRegTotals[reg] = {cases: 0, suspects: 0}; }
+          if (!crimeReg[reg][off]) crimeReg[reg][off] = { cases: 0, suspects: 0 };
+
+          crimeReg[reg][off].cases += 1;
+          crimeReg[reg][off].suspects += suspects;
+          crimeRegTotals[reg].cases += 1;
+          crimeRegTotals[reg].suspects += suspects;
+
+          if (!crimeGen[off]) crimeGen[off] = { cases: 0, suspects: 0 };
+          crimeGen[off].cases += 1;
+          crimeGen[off].suspects += suspects;
+
+          grandCrimeCases += 1;
+          grandCrimeSuspects += suspects;
+      });
+
+      // 2. Process Statistics Array
+      (ledgerDataRaw.statistics || ledgerDataRaw.operational_stats || []).forEach(row => {
+          const stn = cleanStr(row.station);
+          const reg = getOfficialRegionForStation(stn, row.region);
+
+          if (!opsReg[reg]) opsReg[reg] = { ...opsGen };
+          Object.keys(opsGen).forEach(k => {
+              const val = safeInt(row[k]);
+              opsReg[reg][k] += val;
+              opsGen[k] += val;
+          });
+      });
+
+      // 3. Process Stories Array
+      (ledgerDataRaw.stories || ledgerDataRaw.success_stories || []).forEach(row => {
+          const stn = cleanStr(row.station);
+          const reg = getOfficialRegionForStation(stn, row.region);
+          
+          if (storyReg[reg] === undefined) storyReg[reg] = 0;
+          storyReg[reg] += 1;
+          grandStories += 1;
+      });
+
+      return {
+          crimeRegional: crimeReg, crimeRegionalTotals: crimeRegTotals, crimeGeneral: crimeGen,
+          sortedCrimeRegions: regionOrder, grandCrimeCases, grandCrimeSuspects,
+          opsRegional: opsReg, opsGeneral: opsGen, sortedOpsRegions: regionOrder,
+          storyRegional: storyReg, sortedStoryRegions: regionOrder, grandStories
+      };
+  }, [ledgerDataRaw]);
 
   const handleExportLedger = async () => {
     try {
@@ -103,12 +217,6 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
   const formatDateLabel = (dateStr) => {
     if (!dateStr) return '';
     return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }).toUpperCase();
-  };
-
-  const dataMapping = ledgerData || {
-      crimeRegional: {}, crimeRegionalTotals: {}, crimeGeneral: {}, sortedCrimeRegions: [], grandCrimeCases: 0, grandCrimeSuspects: 0,
-      opsRegional: {}, opsGeneral: { arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0 }, sortedOpsRegions: [],
-      storyRegional: {}, sortedStoryRegions: [], grandStories: 0
   };
 
   return (

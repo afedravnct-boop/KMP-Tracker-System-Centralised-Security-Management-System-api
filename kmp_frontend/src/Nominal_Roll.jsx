@@ -310,13 +310,18 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 Handles Dossier's Edit Request
+  // 🟢 Handles Dossier's Edit Request Safely
   const handleEditFromDossier = (officer) => {
+    if (!canEditRecords) {
+        alert("Security Restriction: You do not have clearance to edit nominal roll records.");
+        return;
+    }
     setSelectedOfficer(null);
     setShowAnalyticsDossier(false);
     setAnalyticsSelectedOfficer(null);
     setOperation('update');
     populateUpdateForm(officer);
+    // Smooth scroll to the top where the form is located
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -1339,7 +1344,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                                 <th className="px-3 py-2.5 text-left font-bold text-indigo-800 dark:text-indigo-300 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Tribe</th>
                                 <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Acc No</th>
                                 <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Bank Branch</th>
+                                
                                 <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Station / Unit</th>
+                                
                                 <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">District</th>
                                 <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Region</th>
                                 <th className="px-3 py-2.5 text-left font-bold text-indigo-800 uppercase whitespace-nowrap bg-indigo-50 dark:bg-slate-950">Section</th>
@@ -1376,7 +1383,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                                     <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.acc_no || n.accno)}</td>
                                     <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.bank_branch || n.bankbranch)}</td>
                                     
-                                    <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700 dark:text-blue-400">{cleanStr(n.station)}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap font-bold text-blue-700 dark:text-blue-400">{normalizeStationName(n.station)}</td>
                                     
                                     <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.district)}</td>
                                     <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">{cleanStr(n.region)}</td>
@@ -1508,7 +1515,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{cleanStr(n.acc_no || n.accno)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{cleanStr(n.bank_branch || n.bankbranch)}</td>
                           
-                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700 dark:text-blue-400">{cleanStr(n.station)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-xs font-bold text-blue-700 dark:text-blue-400">{normalizeStationName(n.station)}</td>
                           
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{cleanStr(n.district)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-xs text-slate-700 dark:text-slate-300">{cleanStr(n.region)}</td>
