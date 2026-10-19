@@ -30,7 +30,14 @@ REGIONAL_HIERARCHY = {
 def strip_html_tags(text_str: str) -> str:
     if not text_str:
         return ""
-    return re.sub('<.*?>', '', str(text_str))
+    # Strip HTML tags and aggressively replace HTML entities (case-insensitive)
+    clean_text = re.sub(r'<.*?>', ' ', str(text_str))
+    clean_text = re.sub(r'(?i)&nbsp;', ' ', clean_text)
+    clean_text = re.sub(r'(?i)&amp;', '&', clean_text)
+    clean_text = re.sub(r'(?i)&quot;', '"', clean_text)
+    clean_text = re.sub(r'(?i)&#39;', "'", clean_text)
+    
+    return re.sub(r'\s+', ' ', clean_text).strip()
 
 # 🟢 ADVANCED SUCCESS STORY PARSER RELYING ON BOLD HEADLINES & NARRATIVE EXTRACTION
 def parse_success_story_backend(raw_narrative: str):

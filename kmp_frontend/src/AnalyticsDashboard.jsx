@@ -32,24 +32,48 @@ const normalizeOffenceCategory = (rawOffence) => {
   return words.join(' ') || clean;
 };
 
-// 🟢 INTELLIGENT NARRATIVE PARSER
+// 🟢 INTELLIGENT NARRATIVE PARSER RELYING ON BOLD HEADLINES & NARRATIVE EXTRACTION
 const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
   if (!rawHtmlNarrative) {
     return {
       suspects: 0,
-      recoveries: "None recorded",
+      recoveries: "NONE RECORDED",
       legalStatus: "UNDER INVESTIGATION",
       classification: "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION"
     };
   }
 
-  const headlineMatch = rawHtmlNarrative.match(/<strong>(.*?)<\/strong>/i);
-  let classification = headlineMatch ? stripHtmlTags(headlineMatch[1]).trim().toUpperCase() : "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION";
+  // 🟢 Robust cleaner to aggressively destroy ALL HTML tags and entities (case-insensitive)
+  const cleanHtmlAndEntities = (str) => {
+    if (!str) return '';
+    let cleaned = str.replace(/<[^>]*>?/gm, ' '); // Strip standard HTML tags
+    cleaned = cleaned.replace(/&nbsp;/gi, ' ');    // Destroy non-breaking spaces
+    cleaned = cleaned.replace(/&amp;/gi, '&');     // Fix ampersands
+    cleaned = cleaned.replace(/&quot;/gi, '"');    // Fix quotes
+    cleaned = cleaned.replace(/&#39;/g, "'");      // Fix apostrophes
+    return cleaned.replace(/\s+/g, ' ').trim();    // Collapse multiple spaces into one
+  };
 
-  // Clean the HTML heavily before searching
-  let plainText = rawHtmlNarrative.replace(/<[^>]*>?/gm, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+  const headlineMatch = rawHtmlNarrative.match(/<strong>(.*?)<\/strong>/i);
+  let classification = "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION";
+
+  if (headlineMatch && headlineMatch[1]) {
+     const cleanedHeadline = cleanHtmlAndEntities(headlineMatch[1]);
+     if (cleanedHeadline.length > 3) {
+         classification = cleanedHeadline.toUpperCase();
+     }
+  } else {
+     // Fallback if no bold tag: Take the first sensible chunk of the clean text
+     const fallbackText = cleanHtmlAndEntities(rawHtmlNarrative);
+     if (fallbackText) {
+         classification = fallbackText.split('.')[0].substring(0, 80).toUpperCase();
+     }
+  }
+
+  const plainText = cleanHtmlAndEntities(rawHtmlNarrative);
   const lowerText = plainText.toLowerCase();
   
+  // Parse Suspects Count intelligently
   let suspectsCount = 0;
   const suspectMatches = [
     lowerText.match(/(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)/i),
@@ -67,12 +91,14 @@ const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
     suspectsCount = 1; 
   }
 
+  // Parse Legal Status
   let legalStatus = 'UNDER INVESTIGATION';
   if (lowerText.includes('remand') || lowerText.includes('remanded')) legalStatus = 'REMANDED';
   else if (lowerText.includes('convict') || lowerText.includes('sentenced')) legalStatus = 'CONVICTED';
   else if (lowerText.includes('acquit')) legalStatus = 'ACQUITTED';
   else if (lowerText.includes('court') || lowerText.includes('trial') || lowerText.includes('magistrate') || lowerText.includes('arraign')) legalStatus = 'UNDERGOING COURT TRIAL';
 
+  // Parse Recovered Properties
   const recoveriesList = [];
   const recoveryRegex = /(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))/gi;
   let match;
