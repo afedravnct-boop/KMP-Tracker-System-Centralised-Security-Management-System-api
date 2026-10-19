@@ -1,6 +1,5 @@
 import json
 import re
-import csv
 import io
 import os
 import requests
@@ -10,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func, text
+from sqlalchemy import or_, and_, func, text
 
 from app import models
 from app.database import get_db, get_logs_db
@@ -28,18 +27,26 @@ REGIONAL_HIERARCHY = {
 }
 
 def strip_html_tags(text_str: str) -> str:
-    if not text_str:
-        return ""
+    if not text_str: return ""
     return re.sub('<.*?>', '', str(text_str))
 
 def get_officer_signature(user):
-    if not user:
-        return "UNKNOWN COMMANDER"
+    if not user: return "UNKNOWN COMMANDER"
     fnum = (user.fnum or "").strip()
     rank = (user.rank or "").strip()
     name = (user.name or "").strip()
     return f"{fnum} {rank} {name}".strip().upper()
 
+# 🟢 Aggressive Base Name Extractor (Shared logic with Nominal Roll)
+def get_base_station_name(stn: str) -> str:
+    if not stn: return "UNKNOWN"
+    val = str(stn).strip().upper()
+    if val in ["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION", "OLD KAMPALA"]:
+        return "OLD KAMPALA"
+    val = re.sub(r'\s+(P\.?S\.?|P/S|PS|P\s*STN|P/STN|POL\s*STN|POLICE\s*STATION|DIVISION|P\.?P\.?|P/P|P/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$', '', val)
+    return val.strip()
+
+# 🟢 Bulletproof OPSEC Scope
 def apply_opsec_scope(current_user, query, ModelClass):
     if not ModelClass or not current_user:
         return query.filter(text("1=0"))
@@ -63,22 +70,12 @@ def apply_opsec_scope(current_user, query, ModelClass):
         perms.get("global_observer") is True
     )
 
-    is_kmp_sys_mgr = (
-        user_role == "SYSTEM_MANAGER" and
-        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos
-    )
-
-    is_kmp_specialist = (
-        user_role == "ASSISTANT_SYSTEM_MANAGER" and
-        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos
-    )
-
+    is_kmp_sys_mgr = (user_role == "SYSTEM_MANAGER" and user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in user_pos)
+    is_kmp_specialist = (user_role == "ASSISTANT_SYSTEM_MANAGER" and user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in user_pos)
+    
     is_regional_command = (
         user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
-        not is_kmp_sys_mgr and
-        not is_kmp_specialist
+        not is_kmp_sys_mgr and not is_kmp_specialist
     )
 
     if is_absolute_global or is_kmp_sys_mgr:
@@ -99,33 +96,27 @@ def apply_opsec_scope(current_user, query, ModelClass):
                 expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
                 expanded_stns.add(s + ' HEADQUARTERS')
                 expanded_stns.add(s + ' HQ')
-            
             conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
             
-        if conds:
-            return query.filter(or_(*conds))
+        if conds: return query.filter(or_(*conds))
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
-        # 🟢 Station Users & Station Admins: strictly locked to their exact station and region (e.g. Old Kampala -> KMP North)
-        clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        # Station Admins see their primary station AND all associated posts
+        clean_user_stn = get_base_station_name(user_stn)
         return query.filter(
             and_(
                 func.upper(ModelClass.region) == user_reg,
                 or_(
                     func.upper(ModelClass.station) == user_stn,
-                    func.upper(ModelClass.station) == clean_user_stn,
-                    func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+                    func.upper(ModelClass.station).ilike(f"{clean_user_stn}%")
                 )
             )
         )
-    elif hasattr(ModelClass, 'station'):
-        return query.filter(func.upper(ModelClass.station) == user_stn)
-        
     return query.filter(text("1=0"))
 
 # ====================================================================
-# 1. RETRIEVE SUCCESS STORIES (WITH BACKEND CASE LINKING)
+# 1. RETRIEVE SUCCESS STORIES
 # ====================================================================
 @router.get("/stories")
 def get_stories(
@@ -141,104 +132,116 @@ def get_stories(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    query = db.query(models.Success_Stories)
-    query = apply_opsec_scope(current_user, query, models.Success_Stories)
-    
-    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
-        if hasattr(models.Success_Stories, 'region'):
-            query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
-            
-    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
-        if hasattr(models.Success_Stories, 'station'):
-            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
-            query = query.filter(
-                or_(
-                    func.upper(models.Success_Stories.station) == station.upper(),
-                    func.upper(models.Success_Stories.station) == clean_stn,
-                    func.upper(models.Success_Stories.station) == f"{clean_stn} HEADQUARTERS"
-                )
-            )
-
-    if category and category.upper() not in ["ALL CATEGORIES", "ALL", ""]:
-        if hasattr(models.Success_Stories, 'category'):
-            query = query.filter(func.upper(models.Success_Stories.category) == category.upper())
-
-    if agri_only and hasattr(models.Success_Stories, 'category'):
-        query = query.filter(func.upper(models.Success_Stories.category) == 'AGRIC_CRIME')
-
-    if start_date and hasattr(models.Success_Stories, 'date'):
-        query = query.filter(models.Success_Stories.date >= start_date)
-    
-    if end_date and hasattr(models.Success_Stories, 'date'):
-        query = query.filter(models.Success_Stories.date <= end_date)
-    
-    if search:
-        term = f"%{search.strip().upper()}%"
-        search_conds = []
-        if hasattr(models.Success_Stories, 'title'): search_conds.append(models.Success_Stories.title.ilike(term))
-        if hasattr(models.Success_Stories, 'narrative'): search_conds.append(models.Success_Stories.narrative.ilike(term))
-        if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
-        if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
-        if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
-        if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
-        if search_conds:
-            query = query.filter(or_(*search_conds))
-
-    records = query.order_by(models.Success_Stories.sn.desc()).limit(limit).all()
-
-    CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
-    serialized_records = []
-    
-    for r in records:
-        r_dict = r.__dict__.copy()
-        r_dict.pop('_sa_instance_state', None)
+    try:
+        query = db.query(models.Success_Stories)
+        query = apply_opsec_scope(current_user, query, models.Success_Stories)
         
-        narrative_str = r_dict.get('narrative', '')
-        linked_case = None
-
-        if CrimeModel and narrative_str:
-            ref_regex = re.compile(r'(sd\s*ref|crb|def|gef|tar|cid)\s*:?\s*([A-Z0-9/\-]+)', re.IGNORECASE)
-            matches = ref_regex.findall(narrative_str)
-            
-            for prefix, ref_num in matches:
-                search_num = ref_num.strip().upper()
-                db_case = db.query(CrimeModel).filter(
-                    or_(
-                        func.upper(CrimeModel.sd_ref).like(f"%{search_num}%"),
-                        func.upper(CrimeModel.sdRef).like(f"%{search_num}%") if hasattr(CrimeModel, 'sdRef') else text("1=0")
-                    )
-                ).first()
+        if region and region.upper() not in ["ALL REGIONS", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'region'):
+                query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
                 
-                if db_case:
-                    linked_case = {
-                        "sdRef": getattr(db_case, 'sd_ref', getattr(db_case, 'sdRef', '')),
-                        "offence": getattr(db_case, 'offence', 'Unknown Offence'),
-                        "date_reported": getattr(db_case, 'date_reported', getattr(db_case, 'date', '')),
-                        "status": getattr(db_case, 'status', 'OPEN')
-                    }
-                    break
+        if station and station.upper() not in ["ALL STATIONS", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'station'):
+                clean_stn = get_base_station_name(station.upper())
+                query = query.filter(
+                    or_(
+                        func.upper(models.Success_Stories.station) == station.upper(),
+                        func.upper(models.Success_Stories.station).ilike(f"{clean_stn}%")
+                    )
+                )
 
-        r_dict['linked_case'] = linked_case
-        serialized_records.append(r_dict)
+        if category and category.upper() not in ["ALL CATEGORIES", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'category'):
+                query = query.filter(func.upper(models.Success_Stories.category) == category.upper())
+
+        if agri_only and hasattr(models.Success_Stories, 'category'):
+            query = query.filter(func.upper(models.Success_Stories.category) == 'AGRIC_CRIME')
+
+        # 🟢 CRITICAL FIX: Safe Date Parsing
+        invalid_date_strings = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
+        if start_date and start_date.upper() not in invalid_date_strings and hasattr(models.Success_Stories, 'date'):
+            query = query.filter(models.Success_Stories.date >= start_date)
         
-    if search:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched success stories ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
-    else:
-        summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Success Stories ledger (Fetched {len(serialized_records)} records)."
+        if end_date and end_date.upper() not in invalid_date_strings and hasattr(models.Success_Stories, 'date'):
+            query = query.filter(models.Success_Stories.date <= end_date)
+        
+        if search and search.upper() not in ["UNDEFINED", "NULL", ""]:
+            term = f"%{search.strip().upper()}%"
+            search_conds = []
+            if hasattr(models.Success_Stories, 'title'): search_conds.append(models.Success_Stories.title.ilike(term))
+            if hasattr(models.Success_Stories, 'narrative'): search_conds.append(models.Success_Stories.narrative.ilike(term))
+            if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
+            if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
+            if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
+            if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
+            if search_conds:
+                query = query.filter(or_(*search_conds))
 
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="VIEW",
-        module="SUCCESS_STORIES",
-        target_id=search if search else "ALL_STORIES",
-        changes_summary=summary_text
-    )
+        records = query.order_by(models.Success_Stories.sn.desc()).limit(limit).all()
 
-    return serialized_records
+        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
+        serialized_records = []
+        
+        for r in records:
+            r_dict = r.__dict__.copy()
+            r_dict.pop('_sa_instance_state', None)
+            
+            narrative_str = r_dict.get('narrative', '')
+            linked_case = None
+
+            if CrimeModel and narrative_str:
+                try:
+                    ref_regex = re.compile(r'(sd\s*ref|crb|def|gef|tar|cid)\s*:?\s*([A-Z0-9/\-]+)', re.IGNORECASE)
+                    matches = ref_regex.findall(narrative_str)
+                    
+                    has_sd_ref = hasattr(CrimeModel, 'sd_ref')
+                    has_sdRef = hasattr(CrimeModel, 'sdRef')
+
+                    for prefix, ref_num in matches:
+                        search_num = ref_num.strip().upper()
+                        
+                        or_conditions = []
+                        if has_sd_ref: or_conditions.append(func.upper(CrimeModel.sd_ref).like(f"%{search_num}%"))
+                        if has_sdRef: or_conditions.append(func.upper(CrimeModel.sdRef).like(f"%{search_num}%"))
+                        
+                        if or_conditions:
+                            db_case = db.query(CrimeModel).filter(or_(*or_conditions)).first()
+                            if db_case:
+                                linked_case = {
+                                    "sdRef": getattr(db_case, 'sd_ref', getattr(db_case, 'sdRef', '')),
+                                    "offence": getattr(db_case, 'offence', 'Unknown Offence'),
+                                    "date_reported": getattr(db_case, 'date_reported', getattr(db_case, 'date', '')),
+                                    "status": getattr(db_case, 'status', 'OPEN')
+                                }
+                                break
+                except Exception:
+                    pass # Fail silently on case linkage rather than dropping the whole record
+
+            r_dict['linked_case'] = linked_case
+            serialized_records.append(r_dict)
+            
+        if search:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched success stories ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
+        else:
+            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Success Stories ledger (Fetched {len(serialized_records)} records)."
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="SUCCESS_STORIES",
+            target_id=search if search else "ALL_STORIES",
+            changes_summary=summary_text
+        )
+
+        return serialized_records
+    
+    except Exception as e:
+        print(f"🔥 FATAL ERROR FETCHING STORIES: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database Query Failed: {str(e)}")
 
 # ====================================================================
-# 1B. GET UNIQUE STORY CATEGORIES (LIGHTWEIGHT)
+# 1B. GET UNIQUE STORY CATEGORIES
 # ====================================================================
 @router.get("/stories/categories")
 def get_unique_categories(
@@ -247,29 +250,32 @@ def get_unique_categories(
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    if not hasattr(models.Success_Stories, 'category'):
-        return []
+    try:
+        if not hasattr(models.Success_Stories, 'category'):
+            return []
 
-    query = db.query(models.Success_Stories.category).distinct()
-    query = apply_opsec_scope(current_user, query, models.Success_Stories)
+        query = db.query(models.Success_Stories.category).distinct()
+        query = apply_opsec_scope(current_user, query, models.Success_Stories)
 
-    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
-        if hasattr(models.Success_Stories, 'region'):
-            query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
-            
-    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
-        if hasattr(models.Success_Stories, 'station'):
-            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
-            query = query.filter(
-                or_(
-                    func.upper(models.Success_Stories.station) == station.upper(),
-                    func.upper(models.Success_Stories.station) == clean_stn,
-                    func.upper(models.Success_Stories.station) == f"{clean_stn} HEADQUARTERS"
+        if region and region.upper() not in ["ALL REGIONS", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'region'):
+                query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
+                
+        if station and station.upper() not in ["ALL STATIONS", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'station'):
+                clean_stn = get_base_station_name(station.upper())
+                query = query.filter(
+                    or_(
+                        func.upper(models.Success_Stories.station) == station.upper(),
+                        func.upper(models.Success_Stories.station).ilike(f"{clean_stn}%")
+                    )
                 )
-            )
 
-    categories = [row[0].strip().upper() for row in query.all() if row[0]]
-    return sorted(list(set(categories)))
+        categories = [row[0].strip().upper() for row in query.all() if row[0]]
+        return sorted(list(set(categories)))
+    except Exception as e:
+        print(f"🔥 FATAL ERROR FETCHING CATEGORIES: {str(e)}")
+        return []
 
 # ====================================================================
 # 1C. SECURE AES-256 ZIP EXPORT (PHYSICAL PHOTOS, EXHIBITS & EXCEL DATA)
@@ -287,138 +293,143 @@ def export_stories_archive(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    query = db.query(models.Success_Stories)
-    query = apply_opsec_scope(current_user, query, models.Success_Stories)
+    try:
+        query = db.query(models.Success_Stories)
+        query = apply_opsec_scope(current_user, query, models.Success_Stories)
 
-    if region and region.upper() not in ["ALL REGIONS", "ALL"]:
-        if hasattr(models.Success_Stories, 'region'):
-            query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
-            
-    if station and station.upper() not in ["ALL STATIONS", "ALL"]:
-        if hasattr(models.Success_Stories, 'station'):
-            clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
-            query = query.filter(
-                or_(
-                    func.upper(models.Success_Stories.station) == station.upper(),
-                    func.upper(models.Success_Stories.station) == clean_stn,
-                    func.upper(models.Success_Stories.station) == f"{clean_stn} HEADQUARTERS"
+        if region and region.upper() not in ["ALL REGIONS", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'region'):
+                query = query.filter(func.upper(models.Success_Stories.region) == region.upper())
+                
+        if station and station.upper() not in ["ALL STATIONS", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'station'):
+                clean_stn = get_base_station_name(station.upper())
+                query = query.filter(
+                    or_(
+                        func.upper(models.Success_Stories.station) == station.upper(),
+                        func.upper(models.Success_Stories.station).ilike(f"{clean_stn}%")
+                    )
                 )
-            )
 
-    if category and category.upper() not in ["ALL CATEGORIES", "ALL", ""]:
-        if hasattr(models.Success_Stories, 'category'):
-            query = query.filter(func.upper(models.Success_Stories.category) == category.upper())
+        if category and category.upper() not in ["ALL CATEGORIES", "ALL", "UNDEFINED", "NULL", ""]:
+            if hasattr(models.Success_Stories, 'category'):
+                query = query.filter(func.upper(models.Success_Stories.category) == category.upper())
 
-    if agri_only and hasattr(models.Success_Stories, 'category'):
-        query = query.filter(func.upper(models.Success_Stories.category) == 'AGRIC_CRIME')
+        if agri_only and hasattr(models.Success_Stories, 'category'):
+            query = query.filter(func.upper(models.Success_Stories.category) == 'AGRIC_CRIME')
 
-    if start_date and hasattr(models.Success_Stories, 'date'):
-        query = query.filter(models.Success_Stories.date >= start_date)
-    
-    if end_date and hasattr(models.Success_Stories, 'date'):
-        query = query.filter(models.Success_Stories.date <= end_date)
+        invalid_date_strings = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
+        if start_date and start_date.upper() not in invalid_date_strings and hasattr(models.Success_Stories, 'date'):
+            query = query.filter(models.Success_Stories.date >= start_date)
+        
+        if end_date and end_date.upper() not in invalid_date_strings and hasattr(models.Success_Stories, 'date'):
+            query = query.filter(models.Success_Stories.date <= end_date)
 
-    if search:
-        term = f"%{search.strip().upper()}%"
-        search_conds = []
-        if hasattr(models.Success_Stories, 'title'): search_conds.append(models.Success_Stories.title.ilike(term))
-        if hasattr(models.Success_Stories, 'narrative'): search_conds.append(models.Success_Stories.narrative.ilike(term))
-        if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
-        if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
-        if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
-        if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
-        if search_conds:
-            query = query.filter(or_(*search_conds))
+        if search and search.upper() not in ["UNDEFINED", "NULL", ""]:
+            term = f"%{search.strip().upper()}%"
+            search_conds = []
+            if hasattr(models.Success_Stories, 'title'): search_conds.append(models.Success_Stories.title.ilike(term))
+            if hasattr(models.Success_Stories, 'narrative'): search_conds.append(models.Success_Stories.narrative.ilike(term))
+            if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
+            if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
+            if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
+            if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
+            if search_conds:
+                query = query.filter(or_(*search_conds))
 
-    records = query.order_by(models.Success_Stories.sn.desc()).all()
+        records = query.order_by(models.Success_Stories.sn.desc()).all()
 
-    # 1. Generate Excel Document Data
-    data_rows = []
-    for r in records:
-        data_rows.append({
-            "SN": getattr(r, 'sn', getattr(r, 'id', '')),
-            "Date": getattr(r, 'date', ''),
-            "Category": getattr(r, 'category', ''),
-            "Title": getattr(r, 'title', ''),
-            "Region": getattr(r, 'region', ''),
-            "Station": getattr(r, 'station', ''),
-            "Narrative": strip_html_tags(getattr(r, 'narrative', '')),
-            "Photo/Exhibit Links": getattr(r, 'photo_url', ''),
-            "Last Updated By": getattr(r, 'last_updated_by', '')
-        })
-
-    df = pd.DataFrame(data_rows) if data_rows else pd.DataFrame(columns=["SN", "Date", "Category", "Title", "Region", "Station", "Narrative", "Photo/Exhibit Links", "Last Updated By"])
-
-    excel_buffer = io.BytesIO()
-    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name="Success Stories", index=False)
-        workbook = writer.book
-        workbook.properties.creator = get_officer_signature(current_user)
-        workbook.properties.title = "KMP Secure Success Stories Export"
-        workbook.properties.subject = "Restricted Law Enforcement Extract"
-
-    excel_buffer.seek(0)
-
-    # 2. Create Secure ZIP Archive
-    zip_stream = io.BytesIO()
-    zip_password = str(current_user.fnum).strip().encode('utf-8')
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    zip_filename = f"SECURE_SUCCESS_STORIES_ARCHIVE_{timestamp}.zip"
-
-    with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-        zf.setpassword(zip_password)
-
-        # Write the Excel summary document to the root of the ZIP
-        zf.writestr(f"Success_Stories_Report_{timestamp}.xlsx", excel_buffer.getvalue())
-
-        # Write the physical photo exhibits into the ZIP
+        # 1. Generate Excel Document Data
+        data_rows = []
         for r in records:
-            sn = getattr(r, 'sn', getattr(r, 'id', 'UNKNOWN'))
-            station_name = strip_html_tags(getattr(r, 'station', 'STATION')).replace('/', '_').replace(' ', '_')
-            photo_urls = getattr(r, 'photo_url', '')
+            data_rows.append({
+                "SN": getattr(r, 'sn', getattr(r, 'id', '')),
+                "Date": getattr(r, 'date', ''),
+                "Category": getattr(r, 'category', ''),
+                "Title": getattr(r, 'title', ''),
+                "Region": getattr(r, 'region', ''),
+                "Station": getattr(r, 'station', ''),
+                "Narrative": strip_html_tags(getattr(r, 'narrative', '')),
+                "Photo/Exhibit Links": getattr(r, 'photo_url', ''),
+                "Last Updated By": getattr(r, 'last_updated_by', '')
+            })
 
-            if not photo_urls:
-                continue
+        import pandas as pd
+        df = pd.DataFrame(data_rows) if data_rows else pd.DataFrame(columns=["SN", "Date", "Category", "Title", "Region", "Station", "Narrative", "Photo/Exhibit Links", "Last Updated By"])
 
-            urls = [u.strip() for u in photo_urls.split(',') if u.strip()]
-            for idx, url in enumerate(urls):
-                try:
-                    if url.startswith('http://') or url.startswith('https://'):
-                        img_response = requests.get(url, timeout=10)
-                        if img_response.status_code == 200:
-                            file_ext = url.split('.')[-1].split('?')[0].lower()
-                            if file_ext not in ['jpg', 'jpeg', 'png', 'webp', 'pdf']:
-                                file_ext = 'jpg'
-                            
-                            filename = f"Exhibits/SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
-                            zf.writestr(filename, img_response.content)
-                    elif os.path.exists(url):
-                        with open(url, 'rb') as f:
-                            file_ext = url.split('.')[-1].lower()
-                            filename = f"Exhibits/SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
-                            zf.writestr(filename, f.read())
-                except Exception as ex:
-                    print(f"Failed to bundle exhibit for SN {sn}: {str(ex)}")
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name="Success Stories", index=False)
+            workbook = writer.book
+            workbook.properties.creator = get_officer_signature(current_user)
+            workbook.properties.title = "KMP Secure Success Stories Export"
+            workbook.properties.subject = "Restricted Law Enforcement Extract"
 
-    zip_stream.seek(0)
+        excel_buffer.seek(0)
 
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="EXPORT",
-        module="SUCCESS_STORIES",
-        target_id="SECURE_FULL_ARCHIVE_EXPORT",
-        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely exported combined Excel report and physical photo exhibits archive for Success Stories ({len(records)} records processed)."
-    )
+        # 2. Create Secure ZIP Archive
+        zip_stream = io.BytesIO()
+        zip_password = str(current_user.fnum).strip().encode('utf-8')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"SECURE_SUCCESS_STORIES_ARCHIVE_{timestamp}.zip"
 
-    return StreamingResponse(
-        zip_stream,
-        media_type="application/zip",
-        headers={
-            'Content-Disposition': f'attachment; filename="{zip_filename}"',
-            'Access-Control-Expose-Headers': 'Content-Disposition'
-        }
-    )
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(zip_password)
+
+            # Write the Excel summary document to the root of the ZIP
+            zf.writestr(f"Success_Stories_Report_{timestamp}.xlsx", excel_buffer.getvalue())
+
+            # Write the physical photo exhibits into the ZIP
+            for r in records:
+                sn = getattr(r, 'sn', getattr(r, 'id', 'UNKNOWN'))
+                station_name = strip_html_tags(getattr(r, 'station', 'STATION')).replace('/', '_').replace(' ', '_')
+                photo_urls = getattr(r, 'photo_url', '')
+
+                if not photo_urls:
+                    continue
+
+                urls = [u.strip() for u in photo_urls.split(',') if u.strip()]
+                for idx, url in enumerate(urls):
+                    try:
+                        if url.startswith('http://') or url.startswith('https://'):
+                            img_response = requests.get(url, timeout=10)
+                            if img_response.status_code == 200:
+                                file_ext = url.split('.')[-1].split('?')[0].lower()
+                                if file_ext not in ['jpg', 'jpeg', 'png', 'webp', 'pdf']:
+                                    file_ext = 'jpg'
+                                
+                                filename = f"Exhibits/SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
+                                zf.writestr(filename, img_response.content)
+                        elif os.path.exists(url):
+                            with open(url, 'rb') as f:
+                                file_ext = url.split('.')[-1].lower()
+                                filename = f"Exhibits/SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
+                                zf.writestr(filename, f.read())
+                    except Exception as ex:
+                        print(f"Failed to bundle exhibit for SN {sn}: {str(ex)}")
+
+        zip_stream.seek(0)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="EXPORT",
+            module="SUCCESS_STORIES",
+            target_id="SECURE_FULL_ARCHIVE_EXPORT",
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely exported combined Excel report and physical photo exhibits archive for Success Stories ({len(records)} records processed)."
+        )
+
+        return StreamingResponse(
+            zip_stream,
+            media_type="application/zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
+        )
+    except Exception as e:
+        print(f"🔥 FATAL ERROR EXPORTING STORIES: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Export Failed: {str(e)}")
 
 # ====================================================================
 # 2. CREATE SUCCESS STORY
