@@ -33,8 +33,9 @@ def safe_int(val) -> int:
     digits = re.sub(r'[^0-9]', '', s)
     return int(digits) if digits else 0
 
-# 🟢 ROBUST DATE PARSER (Fallback for Python-level evaluation)
+# 🟢 ROBUST DATE PARSER
 def parse_safe_date(val) -> Optional[date]:
+    """Safely converts any weird date string, timestamp, or excel float into a pure Date object."""
     if pd.isna(val) or val is None: return None
     if isinstance(val, date) and not isinstance(val, datetime):
         return val if 1900 <= val.year <= 2100 else None
@@ -45,7 +46,7 @@ def parse_safe_date(val) -> Optional[date]:
         except Exception: return None
     
     val_str = str(val).strip()
-    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined']: return None
+    if val_str.lower() in ['nan', 'nat', 'none', 'null', '', '-', 'n/a', 'nil', '0', 'undefined', 'all time', 'all']: return None
     if ' ' in val_str: val_str = val_str.split(' ')[0]
     if 'T' in val_str: val_str = val_str.split('T')[0]
     val_str = val_str.strip()
@@ -99,27 +100,6 @@ def parse_safe_date(val) -> Optional[date]:
     except Exception: pass
     return None
 
-# 🟢 EXPLICIT STRING-BASED DATE RANGE GENERATOR
-def generate_date_string_range(start_dt: date, end_dt: date) -> list:
-    """Explicitly maps every single date between start and end into a list of strings."""
-    if not start_dt or not end_dt: return []
-    try:
-        if start_dt > end_dt:
-            start_dt, end_dt = end_dt, start_dt
-
-        date_list = []
-        current_dt = start_dt
-        while current_dt <= end_dt:
-            date_list.append(current_dt.strftime("%Y-%m-%d"))
-            date_list.append(current_dt.strftime("%d/%m/%Y")) # Capture alternative DB formats
-            date_list.append(current_dt.strftime("%d-%m-%Y"))
-            current_dt += timedelta(days=1)
-            
-        return date_list
-    except Exception as e:
-        print(f"Date generation error: {str(e)}")
-        return []
-
 def normalize_region_name(region_str) -> str:
     if pd.isna(region_str) or not region_str: return "KMP HEADQUARTERS"
     r = clean_str(region_str)
@@ -138,7 +118,7 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
-# 🟢 ADVANCED REGEX STRIPPER: Perfectly normalizes Police Posts and Stations
+# 🟢 ADVANCED STRIPPER: Perfectly normalizes Police Posts and Stations
 def get_base_station_name(stn: str) -> str:
     if pd.isna(stn) or not stn: return "UNKNOWN"
     val = clean_str(stn)
@@ -146,7 +126,6 @@ def get_base_station_name(stn: str) -> str:
         return "OLD KAMPALA"
     if val in ["CPS KLA", "CPS KAMPALA"]:
         return "CPS KAMPALA"
-    # Strip every possible suffix to find the true root name
     val = re.sub(r'\s+(P\.?S\.?|P/S|PS|P\s*STN|P/STN|POL\s*STN|POLICE\s*STATION|DIVISION|P\.?P\.?|P/P|P/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$', '', val)
     return val.strip()
 
@@ -264,10 +243,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # Generate exact explicit SQL strings for the database to match safely
-    explicit_dates = generate_date_string_range(start_dt, end_dt) if start_dt and end_dt else []
-
-    # 🟢 1. CRIME REPORTS (Safe String Mapping)
+    # 🟢 1. CRIME REPORTS
     try:
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
         if CrimeModel:
@@ -276,15 +252,15 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
                 CrimeModel.offence, CrimeModel.suspects, CrimeModel.date
             )
             query = apply_opsec_scope(current_user, query, CrimeModel)
-
-            # Apply Explicit String Date List
-            if explicit_dates and hasattr(CrimeModel, 'date'):
-                date_filters = [CrimeModel.date.ilike(f"{d}%") for d in explicit_dates]
-                query = query.filter(or_(*date_filters))
-
             crimes = query.all()
 
             for row in crimes:
+                # EXPLICIT DATE FILTERING (No SQL Casts, 100% crash proof)
+                if start_dt and end_dt:
+                    row_date = parse_safe_date(row.date)
+                    if not row_date or row_date < start_dt or row_date > end_dt:
+                        continue
+
                 stn = clean_str(row.station)
                 reg = fast_get_region(stn, row.region)
 
@@ -327,16 +303,16 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
                 OpsModel.released, OpsModel.remanded, OpsModel.convicted, OpsModel.date
             )
             query = apply_opsec_scope(current_user, query, OpsModel)
-
-            # Apply Explicit String Date List
-            if explicit_dates and hasattr(OpsModel, 'date'):
-                date_filters = [OpsModel.date.ilike(f"{d}%") for d in explicit_dates]
-                query = query.filter(or_(*date_filters))
-
             stats = query.all()
+            
             ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
             
             for row in stats:
+                if start_dt and end_dt:
+                    row_date = parse_safe_date(row.date)
+                    if not row_date or row_date < start_dt or row_date > end_dt:
+                        continue
+
                 stn = clean_str(row.station)
                 reg = fast_get_region(stn, row.region)
 
@@ -358,15 +334,14 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
         if StoryModel:
             query = db.query(StoryModel.region, StoryModel.station, StoryModel.date)
             query = apply_opsec_scope(current_user, query, StoryModel)
-
-            # Apply Explicit String Date List
-            if explicit_dates and hasattr(StoryModel, 'date'):
-                date_filters = [StoryModel.date.ilike(f"{d}%") for d in explicit_dates]
-                query = query.filter(or_(*date_filters))
-
             stories = query.all()
 
             for row in stories:
+                if start_dt and end_dt:
+                    row_date = parse_safe_date(row.date)
+                    if not row_date or row_date < start_dt or row_date > end_dt:
+                        continue
+
                 stn = clean_str(row.station)
                 reg = fast_get_region(stn, row.region)
 
@@ -411,23 +386,16 @@ def get_consolidated_ledger(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        invalid_dates = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
-        is_all_time = not start_date or str(start_date).upper() in invalid_dates
-
-        if is_all_time:
-            start_dt = None
-            end_dt = None
-        else:
-            try:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
-            except ValueError:
-                start_dt = None
-                end_dt = None
+        # 🟢 Parses dates robustly using parse_safe_date (handles YYYY-MM-DD or DD/MM/YYYY)
+        start_dt = parse_safe_date(start_date)
+        end_dt = parse_safe_date(end_date)
+        
+        # If dates couldn't be parsed, it falls back to 'ALL TIME' logic by passing None
+        is_all_time = not start_dt or not end_dt
 
         data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station, current_user)
 
-        time_range = "ALL TIME" if is_all_time else f"{start_dt} to {end_dt}"
+        time_range = "ALL TIME" if is_all_time else f"{start_dt.strftime('%d %b %Y')} to {end_dt.strftime('%d %b %Y')}"
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
@@ -452,19 +420,9 @@ def export_consolidated_ledger(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        invalid_dates = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
-        is_all_time = not start_date or str(start_date).upper() in invalid_dates
-
-        if is_all_time:
-            start_dt = None
-            end_dt = None
-        else:
-            try:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else date.today()
-            except ValueError:
-                start_dt = None
-                end_dt = None
+        start_dt = parse_safe_date(start_date)
+        end_dt = parse_safe_date(end_date)
+        is_all_time = not start_dt or not end_dt
 
         data = get_ledger_aggregated_data(db, start_dt, end_dt, region, station, current_user)
 
@@ -475,7 +433,7 @@ def export_consolidated_ledger(
 
         wb.properties.creator = f"{current_user.rank} {current_user.name} (FNUM: {current_user.fnum})"
         wb.properties.title = "KMP Consolidated Master Ledger"
-        time_range = "ALL TIME" if is_all_time else f"{start_dt} to {end_dt}"
+        time_range = "ALL TIME" if is_all_time else f"{start_dt.strftime('%d %b %Y')} to {end_dt.strftime('%d %b %Y')}"
         wb.properties.subject = f"Jurisdiction: {region} / {station} ({time_range})"
         wb.properties.company = "Uganda Police Force - Kampala Metropolitan Police"
 
@@ -716,10 +674,7 @@ def export_consolidated_ledger(
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
-            headers={
-                "Content-Disposition": f"attachment; filename=KMP_Consolidated_Ledger_{filename_time}.zip",
-                "Access-Control-Expose-Headers": "Content-Disposition"
-            }
+            headers={"Content-Disposition": f"attachment; filename=KMP_Consolidated_Ledger_{filename_time}.zip"}
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated Ledger Export Failed: {str(e)}")
