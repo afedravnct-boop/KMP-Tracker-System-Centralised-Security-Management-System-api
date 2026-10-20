@@ -45,7 +45,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const [activeTab, setActiveTab] = useState('LOG_FORM'); 
   const [notification, setNotification] = useState(null);
   
-  // Matrix Ledger States
   const [lockupFilter, setLockupFilter] = useState('WEEK');
   const [searchQuery, setSearchQuery] = useState('');
   const [ledgerViewType, setLedgerViewType] = useState('STATIONS');
@@ -55,7 +54,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const userStnClean = stripHtmlTags(currentUser?.station || '').toUpperCase();
 
-  // Commander KMP Office / Super Admin Strict Checking
   const validMasterPositions = ['KMP COMMANDER', 'KMP COMD', 'KMP COMDR', 'COMMANDER KMP', 'COMD KMP', 'COMDR KMP', 'DEPUTY KMP COMMANDER', 'DEPUTY KMP COMD', 'DEPUTY KMP COMDR', 'DEPUTY COMMANDER KMP', 'DEPUTY COMD KMP', 'DEPUTY COMDR KMP', 'KMP ADMIN OFFICER', 'KMP ADMIN', 'ADMIN. KMP', 'ADMIN'];
   
   const canManageMasterLockup = (['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'ADMIN'].includes(userRole) || validMasterPositions.some(p => userPos.includes(p) || userRole === p)) && !(userRegClean === 'POLICE HEADQUARTERS' && !['SUPER_ADMIN', 'ADMIN'].includes(userRole));
@@ -81,7 +79,15 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const [registerFilterRegion, setRegisterFilterRegion] = useState(initialRegion);
   const [registerFilterStation, setRegisterFilterStation] = useState(initialStation);
 
-  const [stationSummary, setStationSummary] = useState({ todaysTotal: null, lastLoggedDate: 'Never', lastLoggedTime: 'N/A', lastLoggedSuspects: 0 });
+  const [stationSummary, setStationSummary] = useState({ 
+      todaysTotal: null, 
+      lastLoggedDate: 'Never', 
+      lastLoggedTime: 'N/A', 
+      lastLoggedSuspects: 0,
+      computedSum: 0,
+      masterTotal: null
+  });
+  
   const [masterLockupHistory, setMasterLockupHistory] = useState([]);
 
   const [matrixOperation, setMatrixOperation] = useState('new');
@@ -127,7 +133,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
             todaysTotal: data.todays_total,
             lastLoggedDate: data.last_logged_date,
             lastLoggedTime: data.last_logged_time,
-            lastLoggedSuspects: data.last_logged_suspects
+            lastLoggedSuspects: data.last_logged_suspects,
+            computedSum: data.computed_sum_today,
+            masterTotal: data.master_total_today
           });
         }
       } catch (err) {
@@ -157,7 +165,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
   const fetchSuspectRegister = async () => {
     try {
-      const params = newSearchParams();
+      const params = new URLSearchParams();
       if (!isAbsoluteGlobal && registerFilterRegion !== 'ALL REGIONS') params.append('region', registerFilterRegion);
       if (registerFilterStation !== 'ALL STATIONS') params.append('station', registerFilterStation);
       if (suspectSearchQuery) params.append('search', suspectSearchQuery);
@@ -201,8 +209,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
         }
     }
 
-    // 🟢 MATH BYPASS: Master clearance overrides math check for KMP Master logs
-    const isMasterHQ = submissionStation.includes('HEADQUARTERS GENERAL TOTAL') || (canManageMasterLockup && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(submissionRegion));
+    // 🟢 STRICT MATH BYPASS: Only applies directly to "HEADQUARTERS GENERAL TOTAL" target, never to actual stations.
+    const isMasterHQ = submissionStation.includes('HEADQUARTERS GENERAL TOTAL');
 
     if (!isMasterHQ) {
         const demographicSum = mAd + mJuv + fAd + fJuv;
@@ -498,25 +506,56 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-2 sm:p-4 animate-in fade-in zoom-in-95 duration-200">
       <div className="bg-white dark:bg-slate-900 shadow-2xl max-w-[95vw] w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-slate-100">
         
+        {/* DYNAMIC HEADER - DECOUPLED MASTER & PROBE BADGE */}
         <div className={`${headerBgClass} px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center shrink-0 shadow-md z-10 gap-3 transition-colors duration-300`}>
           <div>
-            <h3 className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase flex items-center">
+            <h3 className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase flex items-center mb-1.5">
               <Shield className="w-4 h-4 mr-2" />
               {activeTab === 'LOG_FORM' ? 'Daily Cell Census Entry' : activeTab === 'LEDGER' ? 'Suspect Lock-Up Matrix Ledger' : 'Detailed Suspect Register'}
             </h3>
-            <div className="flex flex-wrap gap-3 mt-1">
-              <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
-                Today's Log: <span className={stationSummary.todaysTotal !== null ? "text-green-300" : "text-red-300"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'MISSING'}</span>
+            
+            <div className="flex flex-wrap gap-2 items-center">
+              {/* Station Specific Stats */}
+              <span className="text-[10px] text-white/90 font-bold bg-black/20 px-2 py-1 rounded border border-white/10 flex items-center">
+                <span className="opacity-70 mr-1.5">{ledgerFilterStation === 'ALL STATIONS' ? 'Selected Station:' : `${ledgerFilterStation}:`}</span>
+                <span className={stationSummary.todaysTotal !== null ? "text-emerald-400 font-black" : "text-red-400 font-black"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'NOT LOGGED'}</span>
               </span>
-              <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
-                Last Logged: <span className="text-amber-300">{stationSummary.lastLoggedDate} @ {stationSummary.lastLoggedTime}</span>
+              
+              <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-1 rounded border border-white/10 hidden md:flex items-center">
+                 Last Entry: <span className="text-amber-300 ml-1.5">{stationSummary.lastLoggedDate} @ {stationSummary.lastLoggedTime}</span>
               </span>
-              <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-0.5 rounded">
-                Number Last Logged: <span className="text-emerald-300">{stationSummary.lastLoggedSuspects} Suspects</span>
-              </span>
+
+              {/* KMP Master vs Computed Probe Panel (Command Tier Only) */}
+              {(isAbsoluteGlobal || isRegionalCommandTier) && (
+                <div className="flex items-center ml-1 shadow-sm">
+                    <span className="text-[10px] text-white/90 font-bold bg-slate-800/80 px-2 py-1 rounded-l border-y border-l border-slate-600 flex items-center">
+                        <span className="opacity-70 mr-1">Master Lockup:</span> 
+                        {stationSummary.masterTotal !== null ? <span className="text-blue-300 font-black">{stationSummary.masterTotal}</span> : <span className="text-slate-400 font-black">NIL</span>}
+                    </span>
+                    <span className="text-[10px] text-white/90 font-bold bg-slate-800/80 px-2 py-1 border-y border-r border-slate-600 flex items-center">
+                        <span className="opacity-70 mr-1">Computed Sum:</span> 
+                        <span className="text-purple-300 font-black">{stationSummary.computedSum}</span>
+                    </span>
+                    
+                    {/* Variance / Probe Alert */}
+                    {stationSummary.masterTotal !== null && stationSummary.masterTotal !== stationSummary.computedSum && (
+                        <span className="text-[9px] text-white font-black bg-red-600 px-2 py-1 rounded-r border-y border-r border-red-800 animate-pulse flex items-center shadow-[0_0_10px_rgba(220,38,38,0.5)]">
+                            <AlertTriangle className="w-3 h-3 mr-1" />
+                            PROBE IMBALANCE: {Math.abs(stationSummary.masterTotal - stationSummary.computedSum)}
+                        </span>
+                    )}
+                    {stationSummary.masterTotal !== null && stationSummary.masterTotal === stationSummary.computedSum && (
+                        <span className="text-[9px] text-white font-black bg-emerald-600 px-2 py-1 rounded-r border-y border-r border-emerald-800 flex items-center">
+                            <CheckCircle2 className="w-3 h-3 mr-1" />
+                            BALANCED
+                        </span>
+                    )}
+                </div>
+              )}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          
+          <div className="flex flex-wrap items-center gap-2 mt-2 sm:mt-0">
             <div className={`flex ${innerNavBg} rounded-lg p-0.5 border shadow-inner`}>
               <button onClick={() => setActiveTab('LOG_FORM')} className={getBtnClass('LOG_FORM', 'emerald')}>
                 <PlusCircle className="w-3 h-3 mr-1" /> Log Census

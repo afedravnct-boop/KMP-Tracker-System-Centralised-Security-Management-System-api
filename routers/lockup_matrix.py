@@ -345,8 +345,13 @@ def get_station_lockup_summary(
 ):
     target_station = (station or current_user.station or "").strip().upper()
     clean_stn = target_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
+    today_str = date.today().isoformat()
 
-    query = db.query(models.LockupMatrix).filter(
+    # 1. Fetch Target Station Data
+    query = db.query(models.LockupMatrix)
+    query = apply_opsec_scope(current_user, query, models.LockupMatrix)
+    
+    target_query = query.filter(
         or_(
             func.upper(models.LockupMatrix.station) == target_station,
             func.upper(models.LockupMatrix.station) == clean_stn,
@@ -354,29 +359,35 @@ def get_station_lockup_summary(
         )
     )
 
-    query = apply_opsec_scope(current_user, query, models.LockupMatrix)
-    latest_log = query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).first()
-    
-    today_str = date.today().isoformat()
-    todays_log = query.filter(func.date(models.LockupMatrix.date) == today_str).first()
-    
+    latest_log = target_query.order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).first()
+    todays_log = target_query.filter(func.date(models.LockupMatrix.date) == today_str).first()
     todays_total = todays_log.suspects if todays_log else None
 
-    if target_station == "HEADQUARTERS GENERAL TOTAL" and todays_total is None:
-        auto_sum = db.query(func.sum(models.LockupMatrix.suspects)).filter(
-            func.date(models.LockupMatrix.date) == today_str,
-            func.upper(models.LockupMatrix.station) != "HEADQUARTERS GENERAL TOTAL"
-        ).scalar()
-        
-        if auto_sum is not None and auto_sum > 0:
-            todays_total = int(auto_sum)
+    # 2. 🟢 Decoupled Computed Sum Engine
+    # Only sums actual stations in the user's jurisdiction (OPSEC enforced)
+    sum_query = db.query(func.sum(models.LockupMatrix.suspects)).filter(
+        func.date(models.LockupMatrix.date) == today_str,
+        func.upper(models.LockupMatrix.station) != "HEADQUARTERS GENERAL TOTAL"
+    )
+    sum_query = apply_opsec_scope(current_user, sum_query, models.LockupMatrix)
+    computed_sum = sum_query.scalar() or 0
+
+    # 3. 🟢 Decoupled Master Total Engine
+    # Looks directly at the physical SITREP logged by command
+    master_log = db.query(models.LockupMatrix.suspects).filter(
+        func.date(models.LockupMatrix.date) == today_str,
+        func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
+    ).first()
+    master_total = master_log[0] if master_log else None
 
     return {
         "station": target_station,
         "todays_total": todays_total,
         "last_logged_date": latest_log.date if latest_log else "Never",
         "last_logged_time": latest_log.time if latest_log else "N/A",
-        "last_logged_suspects": latest_log.suspects if latest_log else 0
+        "last_logged_suspects": latest_log.suspects if latest_log else 0,
+        "computed_sum_today": int(computed_sum),
+        "master_total_today": int(master_total) if master_total is not None else None
     }
 
 @router.get("/lockup-matrix")
@@ -690,7 +701,7 @@ def export_suspect_register_secure(
 ):
     SuspectRegModel = get_model_safe('Daily_Suspect_Register', 'DailySuspectRegister', 'suspect_register')
     if not SuspectRegModel:
-        raise HTTPException(status_code=500, detail="Model not found")
+        raise HTTPException(status_code=500, detail="Model found")
 
     query = db.query(SuspectRegModel)
     query = apply_opsec_scope(current_user, query, SuspectRegModel)
