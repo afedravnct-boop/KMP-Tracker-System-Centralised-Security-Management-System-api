@@ -108,6 +108,11 @@ export const checkClearance = (currentUser, permissionKey, defaultRoleAccess = t
 
 export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, filterStation) => {
   const scopedSubmissions = (Array.isArray(allSubmissions) ? allSubmissions : []).filter(entry => {
+    // 🟢 1. UNIVERSAL OVERRIDE: Always let the Master Lockup metric pass through the filter
+    if (entry.is_hq_grand_total || isStationEquivalent(entry.station, 'HEADQUARTERS GENERAL TOTAL')) {
+      return true;
+    }
+
     // 🟢 Strict RPC Region Filter
     if (filterRegion && filterRegion !== 'ALL REGIONS' && entry.region !== filterRegion) return false;
     
@@ -119,6 +124,8 @@ export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, 
   });
 
   const calculatedStationSum = scopedSubmissions.reduce((sum, entry) => {
+    // Prevent the master row from being accidentally added into the local sum
+    if (entry.is_hq_grand_total || isStationEquivalent(entry.station, 'HEADQUARTERS GENERAL TOTAL')) return sum;
     return sum + (Number(entry.total_value || entry.count || entry.amount || entry.daily_lock_up) || 0);
   }, 0);
 
@@ -127,7 +134,8 @@ export const calculateGrandTotals = (allSubmissions, currentUser, filterRegion, 
   const hqEnteredTotal = hqEntry ? (Number(hqEntry.total_value || hqEntry.count || hqEntry.amount || hqEntry.daily_lock_up) || 0) : null;
 
   return {
-    displayTotal: hqEnteredTotal !== null && currentUser?.role !== 'STATION_ADMIN' ? hqEnteredTotal : calculatedStationSum,
+    // 🟢 Removed the 'STATION_ADMIN' restriction so everyone sees the Master Total
+    displayTotal: hqEnteredTotal !== null ? hqEnteredTotal : calculatedStationSum,
     stationSum: calculatedStationSum,
     hqTotal: hqEnteredTotal,
     isReconciled: hqEnteredTotal === null || hqEnteredTotal === calculatedStationSum

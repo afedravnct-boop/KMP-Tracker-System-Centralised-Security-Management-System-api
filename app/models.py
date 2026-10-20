@@ -29,7 +29,7 @@ class Crime_Reports(Base):
     date = Column(String)
     time = Column(String)
     offence = Column(String)
-    category = Column(String, default="GENERAL CRIMES", index=True, nullable=True) # 🟢 Added category column
+    category = Column(String, default="GENERAL CRIMES", index=True, nullable=True)
     narrative = Column(Text)
     status = Column(String, default="ACTIVE INVESTIGATION")
     suspects = Column(Integer, default=0)
@@ -49,7 +49,7 @@ class Suspect_Lockup(Base):
     
     name = Column(String, nullable=False)
     sex = Column(String, default="MALE")
-    age = Column(Integer, nullable=True)  # 🟢 Changed from String to Integer
+    age = Column(Integer, nullable=True)
     tribe = Column(String, nullable=True)
     nationality = Column(String, nullable=True)
     residence = Column(String, nullable=True)
@@ -117,7 +117,7 @@ class Success_Stories(Base):
     time = Column(String)
     region = Column(String)
     station = Column(String)
-    category = Column(String, default="GENERAL CRIMES", index=True, nullable=True) # 🟢 Added category column
+    category = Column(String, default="GENERAL CRIMES", index=True, nullable=True)
     narrative = Column(Text, nullable=False)
     status = Column(String, default="COMPLETED / SUCCESS")
     photo_url = Column(String, nullable=True)
@@ -404,20 +404,20 @@ class LockupMatrix(Base):
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sd_ref = Column(String, unique=True, index=True, nullable=False) 
     date = Column(String, index=True, nullable=False)                
-    time = Column(String, nullable=True)                            
-    region = Column(String, index=True, nullable=False)             
-    station = Column(String, index=True, nullable=False)            
+    time = Column(String, nullable=True)                             
+    region = Column(String, index=True, nullable=False)              
+    station = Column(String, index=True, nullable=False)             
     suspects = Column(Integer, default=0, nullable=False)            
     
-    male_count = Column(Integer, default=0, nullable=False)         
+    male_count = Column(Integer, default=0, nullable=False)          
     male_juvenile_count = Column(Integer, default=0, nullable=False)
     female_count = Column(Integer, default=0, nullable=False)         
     female_juvenile_count = Column(Integer, default=0, nullable=False)
-    detention_1day = Column(Integer, default=0, nullable=False)     
+    detention_1day = Column(Integer, default=0, nullable=False)      
     detention_2days = Column(Integer, default=0, nullable=False)    
     detention_3days_over = Column(Integer, default=0, nullable=False)
 
-    last_updated_by = Column(String, nullable=True)                 
+    last_updated_by = Column(String, nullable=True)                  
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class GeneralDocuments(Base):
@@ -467,8 +467,26 @@ class AI_Command_Logs(Base):
     target_station = Column(String, default="ALL STATIONS")
     created_at = Column(DateTime, default=get_eat_time)
 
+# ==========================================
+# 12. COMMAND COMPLIANCE & DEFAULTERS LEDGER
+# ==========================================
+class Daily_Compliance_Tracker(Base):
+    __tablename__ = "daily_compliance_tracker"
+    __table_args__ = (
+        UniqueConstraint('date', 'station', name='uix_date_station_compliance'),
+        {'extend_existing': True}
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(String, index=True, nullable=False)
+    region = Column(String, index=True, nullable=False)
+    station = Column(String, index=True, nullable=False)
+    status = Column(String, default="DEFAULTED", nullable=False) 
+    timestamp = Column(DateTime, default=get_eat_time)
+    resolved_by = Column(String, nullable=True) 
+
 # =====================================================================
-# 12. CROSS-ROUTER COMPATIBILITY ALIASES
+# CROSS-ROUTER COMPATIBILITY ALIASES
 # =====================================================================
 CrimeReports = Crime_Reports
 OperationalStatistics = Operational_Statistics
@@ -480,6 +498,7 @@ PasswordResetRequests = Password_Reset_Requests
 CommunicationReads = Communication_Reads
 AdminCommunication = Admin_Communication
 AICommandLogs = AI_Command_Logs 
+DailyComplianceTracker = Daily_Compliance_Tracker
 
 # ==========================================
 # AGRICULTURAL CRIME SUMMARY LEDGER
@@ -496,7 +515,7 @@ class Agricultural_Crime_Summary(Base):
     
     agric_crime_report = Column(String, nullable=False) 
     number_count = Column(Integer, default=0)            
-    recoveries = Column(Integer, default=0)               
+    recoveries = Column(Integer, default=0)                
     status = Column(String, default="UNDER INVESTIGATION") 
     
     last_updated_by = Column(String)
