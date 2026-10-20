@@ -207,6 +207,16 @@ def create_lockup_entry(
             if not has_master_clearance:
                 raise HTTPException(status_code=403, detail="Clearance Denied: Only the Office of the Commander KMP can log the Master Lockup.")
 
+        # 🟢 REGIONAL LOGGING GATE (Backend 1100Hrs Check)
+        is_regional_command = (
+            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
+            user_role not in ["SUPER_ADMIN", "ADMIN"]
+        )
+        
+        if is_regional_command and station_val != str(current_user.station).strip().upper() and req_region != "KMP HEADQUARTERS":
+            if datetime.now().hour < 11:
+                raise HTTPException(status_code=403, detail="Clearance Denied: Regional Commanders can only log on behalf of defaulting stations after the 1100Hrs compliance deadline.")
+
         existing = db.query(models.LockupMatrix).filter(
             func.upper(models.LockupMatrix.station) == station_val,
             func.date(models.LockupMatrix.date) == date_val
@@ -352,8 +362,6 @@ def get_station_lockup_summary(
     
     todays_total = todays_log.suspects if todays_log else None
 
-    # 🟢 TWO-WAY LOGIC: Auto-Summation Engine for KMP Master
-    # If the manual master hasn't been posted yet, dynamically sum all individual stations for today.
     if target_station == "HEADQUARTERS GENERAL TOTAL" and todays_total is None:
         auto_sum = db.query(func.sum(models.LockupMatrix.suspects)).filter(
             func.date(models.LockupMatrix.date) == today_str,
@@ -395,7 +403,6 @@ def get_lockup_entries(
     if not is_absolute_global and not is_regional_command:
         user_stn = str(current_user.station or "").strip().upper()
         clean_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
-        # 🟢 Fallback to ensure users see Master Total
         query = query.filter(
             or_(
                 func.upper(models.LockupMatrix.station) == user_stn,
@@ -456,7 +463,6 @@ def update_lockup_entry(
     user_reg = str(current_user.region or "").strip().upper()
     perms = current_user.permissions or {}
 
-    # 🟢 Master Clearance evaluation
     valid_master_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]
     valid_master_positions = [
         "KMP COMMANDER", "KMP COMD", "KMP COMDR", "COMMANDER KMP", "COMD KMP", "COMDR KMP", 
@@ -465,7 +471,6 @@ def update_lockup_entry(
     ]
     has_master_clearance = user_role in valid_master_roles or any(p in user_pos for p in valid_master_positions) or user_role in valid_master_positions
 
-    # 🟢 Time Limitation Rule (Bypassed for Master clearance)
     entry_date = existing_entry.date
     if isinstance(entry_date, str):
         try:
@@ -475,8 +480,8 @@ def update_lockup_entry(
             
     if entry_date:
         days_difference = (date.today() - entry_date).days
-        if days_difference > 1 and not has_master_clearance:
-            raise HTTPException(status_code=403, detail="Clearance Denied: Cannot modify lockup records older than 24 hours without Command Level authorization.")
+        if days_difference >= 1 and not has_master_clearance:
+            raise HTTPException(status_code=403, detail="Clearance Denied: Cannot modify lockup records of the previous day without Command Level authorization.")
             
     entry_station = (data.get('station') or existing_entry.station or "").strip().upper()
 
@@ -500,7 +505,6 @@ def update_lockup_entry(
 
     try:
         data.pop('sn', None)
-        # Handle zero-anomaly appended signature if provided from frontend
         updated_by = data.pop('last_updated_by', f"{get_officer_signature(current_user)} [EDITED]")
         
         for key, value in data.items():
@@ -733,13 +737,11 @@ def export_suspect_register_secure(
 
     df = pd.DataFrame(data_rows) if data_rows else pd.DataFrame(columns=["ID", "Name", "Sex", "Age", "Tribe", "Nationality", "Residence", "Contact", "Next of Kin", "Reason for Detention", "Reference", "Date In", "Date Out", "Status", "Station", "Region", "Entered By"])
 
-    # Create Excel workbook with Dual-Sheet Architecture & Officer Metadata Properties
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name="Print Copy", index=False)
         df.to_excel(writer, sheet_name="Full NeonDB Copy", index=False)
         
-        # 🟢 Embed downloading officer's metadata directly into workbook document properties
         workbook = writer.book
         workbook.properties.creator = f"{current_user.fnum} - {current_user.rank} {current_user.name}".strip()
         workbook.properties.lastModifiedBy = f"KMP-CSDMS Audit Engine (F/No: {current_user.fnum})"
@@ -748,7 +750,6 @@ def export_suspect_register_secure(
         workbook.properties.category = "RESTRICTED / LAW ENFORCEMENT"
         workbook.properties.description = f"Generated via KMP-CSDMS Centralised Security System. Cryptographic Trace ID: {current_user.fnum}"
 
-        # 🟢 Auto-adjust columns to prevent blank layout rendering
         for sheet in workbook.worksheets:
             for col in sheet.columns:
                 max_length = 0
@@ -764,7 +765,6 @@ def export_suspect_register_secure(
 
     excel_buffer.seek(0)
 
-    # 🟢 Package into strictly secure AES-256 ZIP archive keyed to Officer's Force Number
     officer_fnum = str(current_user.fnum).strip()
     fnum_clean = officer_fnum.replace('/', '_').upper()
     zip_password = officer_fnum.encode('utf-8')
