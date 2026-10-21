@@ -1,3 +1,4 @@
+# api_backend.py
 import io
 import os
 import gc
@@ -42,6 +43,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import Column, Integer
 from docx.shared import Pt, RGBColor
 import openpyxl
@@ -332,7 +334,6 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# 🟢 3. MOUNT THE TRANSPARENT SYSTEM WATCHDOG MIDDLEWARE GLOBALLY
 app.add_middleware(SystemActivityMiddleware)
 
 # ==========================================
@@ -1808,24 +1809,25 @@ def trigger_briefs_manually(
     return {"status": "success", "message": "Weekly tactical briefings are dispatching in the background."}
 
 eat_tz = pytz.timezone('Africa/Nairobi')
-scheduler = BackgroundScheduler()
+scheduler = BackgroundScheduler(timezone=eat_tz)
 scheduler.add_job(
     lambda: run_weekly_tactical_briefing_job(conf), 
-    'cron', 
-    day_of_week='mon', 
-    hour=6, 
-    minute=0, 
-    timezone=eat_tz
+    CronTrigger(day_of_week='mon', hour=6, minute=0, timezone=eat_tz),
+    id='monday_tactical_briefing',
+    replace_existing=True,
+    misfire_grace_time=3600
 )
 
 @app.on_event("startup")
 def start_scheduler():
     if not scheduler.running:
         scheduler.start()
+        print("✅ BackgroundScheduler started successfully in EAT timezone.")
 
 @app.on_event("shutdown")
 def shutdown_scheduler():
-    scheduler.shutdown()
+    if scheduler.running:
+        scheduler.shutdown()
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)

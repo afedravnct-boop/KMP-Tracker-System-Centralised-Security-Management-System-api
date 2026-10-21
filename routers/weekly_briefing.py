@@ -1,6 +1,7 @@
 # routers/weekly_briefing.py
 import os
 import asyncio
+import re
 from datetime import datetime, timedelta
 import pytz
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
@@ -15,6 +16,16 @@ def get_model_safe(*names):
         if hasattr(models, name):
             return getattr(models, name)
     return None
+
+def strip_html_tags(text_str: str) -> str:
+    if not text_str:
+        return ""
+    clean_text = re.sub(r'<.*?>', ' ', str(text_str))
+    clean_text = re.sub(r'(?i)&nbsp;', ' ', clean_text)
+    clean_text = re.sub(r'(?i)&amp;', '&', clean_text)
+    clean_text = re.sub(r'(?i)&quot;', '"', clean_text)
+    clean_text = re.sub(r'(?i)&#39;', "'", clean_text)
+    return re.sub(r'\s+', ' ', clean_text).strip()
 
 def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: dict = None, brief_type: str = "ALL"):
     eat_tz = pytz.timezone('Africa/Nairobi')
@@ -38,7 +49,8 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
         AgricSummaryModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary')
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories')
         StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics')
-        NomModel = get_model_safe('Nominal_Roll', 'NominalRoll')
+        LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix')
+        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
 
         for user in active_users:
             station = str(user.station or "").strip().upper()
@@ -50,8 +62,23 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
             total_success_stories = 0
             agric_success_stories = 0
             total_arrests = 0
+            
+            # Fire Incident Metrics
+            fire_incidents_count = 0
+            fire_casualties = 0
 
-            # 🟢 Filter Logic Based on requested brief_type
+            # Detention & Human Rights Metrics
+            overstayed_detainees = 0
+            female_custody_total = 0
+            juveniles_custody_total = 0
+            overstayed_details_list = []
+
+            # Traffic Accidents Metrics
+            total_crashes = 0
+            fatal_crashes = 0
+            accident_victims = 0
+
+            # Filter Logic Based on requested brief_type
             if CrimeModel:
                 cq = db.query(CrimeModel).filter(CrimeModel.date >= one_week_ago_str)
                 if not is_global:
@@ -65,9 +92,22 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
                     cq = cq.filter(or_(CrimeModel.offence.ilike('%DEATH%'), CrimeModel.offence.ilike('%HOMICIDE%'), CrimeModel.offence.ilike('%MURDER%')))
                 
                 if brief_type != "ARRESTS":
-                    total_criminal_cases = cq.count()
+                    crime_list = cq.all()
+                    total_criminal_cases = len(crime_list)
+                    
+                    # Intelligent Fire Incident Parser
+                    fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
+                    for cr in crime_list:
+                        narrative = str(getattr(cr, 'narrative', '') or "").lower()
+                        offence = str(getattr(cr, 'offence', '') or "").lower()
+                        if any(kw in narrative or kw in offence for kw in fire_keywords):
+                            fire_incidents_count += 1
+                            cas_match = re.search(r'(\d+)\s*(?:casualties|casualty|dead|deaths|injured|injury|burnt|victims)', narrative)
+                            if cas_match:
+                                fire_casualties += int(cas_match.group(1))
+
                     if hasattr(CrimeModel, 'category') and brief_type in ["ALL", "AGRIC_CRIMES"]:
-                        total_agric_cases += cq.filter(func.upper(CrimeModel.category) == 'AGRIC_CRIME').count()
+                        total_agric_cases += sum(1 for cr in crime_list if str(getattr(cr, 'category', '')).upper() == 'AGRIC_CRIME')
 
             if AgricSummaryModel and brief_type in ["ALL", "AGRIC_CRIMES"]:
                 aq = db.query(AgricSummaryModel).filter(AgricSummaryModel.date >= one_week_ago_str)
@@ -79,9 +119,10 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
                 sq = db.query(StoryModel).filter(StoryModel.date >= one_week_ago_str)
                 if not is_global:
                     sq = sq.filter(func.upper(StoryModel.station) == station)
-                total_success_stories = sq.count()
+                story_list = sq.all()
+                total_success_stories = len(story_list)
                 if hasattr(StoryModel, 'category'):
-                    agric_success_stories = sq.filter(func.upper(StoryModel.category) == 'AGRIC_CRIME').count()
+                    agric_success_stories = sum(1 for st in story_list if str(getattr(st, 'category', '')).upper() == 'AGRIC_CRIME')
 
             combined_agric_total = total_agric_cases + agric_success_stories
 
@@ -91,13 +132,41 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
                     stat_q = stat_q.filter(func.upper(StatsModel.station) == station)
                 total_arrests = stat_q.scalar() or 0
 
-            # Dynamic Email Titles and Audit Footer
+            # Lockup & Detention Audit Integration with Precise Location Pinpointing
+            if LockupModel:
+                lq = db.query(LockupModel).filter(LockupModel.date >= one_week_ago_str)
+                if not is_global:
+                    lq = lq.filter(func.upper(LockupModel.station) == station)
+                lockup_list = lq.all()
+                for lck in lockup_list:
+                    d3Plus = Number(getattr(lck, 'detention_3days_over', 0) or 0)
+                    if d3Plus > 0:
+                        overstayed_detainees += d3Plus
+                        stn_name = getattr(lck, 'station', 'UNKNOWN STATION')
+                        overstayed_details_list.append(f"• {stn_name}: {d3Plus} overstayed suspect(s)")
+
+                    female_custody_total += Number(getattr(lck, 'female_count', 0) or 0) + Number(getattr(lck, 'female_juvenile_count', 0) or 0)
+                    juveniles_custody_total += Number(getattr(lck, 'female_juvenile_count', 0) or 0) + Number(getattr(lck, 'male_juvenile_count', 0) or 0)
+
+            overstayed_location_breakdown = "<br/>".join(overstayed_details_list) if overstayed_details_list else "None recorded across stations."
+
+            # Traffic Accidents Statistics Integration
+            if AccidentsModel:
+                acc_q = db.query(AccidentsModel).filter(AccidentsModel.date >= one_week_ago_str)
+                if not is_global:
+                    acc_q = acc_q.filter(func.upper(AccidentsModel.station) == station)
+                acc_list = acc_q.all()
+                total_crashes = len(acc_list)
+                for acc in acc_list:
+                    fatal_crashes += Number(getattr(acc, 'fatal', 0) or 0)
+                    accident_victims += Number(getattr(acc, 'victims', 0) or 0)
+
             dispatch_type_label = "AUTOMATED MONDAY DISPATCH"
             email_subject = f"Weekly Command Briefing & Situation Report: {station}"
             
             if manual_dispatcher:
                 dispatch_type_label = f"MANUALLY DISPATCHED BY COMMANDER: {manual_dispatcher.get('rank', '')} {manual_dispatcher.get('name', '')} ({manual_dispatcher.get('fnum', '')})"
-                
+            
             if brief_type == "ROBBERIES":
                 email_subject = f"TACTICAL ALERT: Robberies & Aggravated Offences Report - {station}"
             elif brief_type == "AGRIC_CRIMES":
@@ -126,7 +195,15 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
                 <ul style='margin-top: 0; padding-left: 20px;'>
                     {'<li><strong>Filtered Incidents Logged:</strong> ' + str(total_criminal_cases) + '</li>' if brief_type not in ["ARRESTS", "AGRIC_CRIMES"] else ''}
                     {'<li><strong>Agricultural Crimes & Security Cases:</strong> ' + str(combined_agric_total) + '</li>' if brief_type in ["ALL", "AGRIC_CRIMES"] else ''}
+                    <li><strong>Fire Outbreaks / Arson Incidents:</strong> {fire_incidents_count} (Casualties: {fire_casualties})</li>
+                    <li><strong>Traffic Accidents Recorded:</strong> {total_crashes} (Fatal: {fatal_crashes} | Victims: {accident_victims})</li>
                     <li><strong>Total Suspects Arrested (Ops Stats):</strong> {int(total_arrests):,}</li>
+                    <li><strong>Constitutional Overstays (3+ Days in Cells):</strong> {overstayed_detainees}</li>
+                    <div style='margin-left: 15px; font-size: 11px; color: #991B1B; margin-bottom: 5px;'>
+                        <strong>Specific Station Breakdown:</strong><br/>
+                        {overstayed_location_breakdown}
+                    </div>
+                    <li><strong>Vulnerable Custody Count:</strong> Women: {female_custody_total} | Juveniles/Minors: {juveniles_custody_total}</li>
                     {'<li><strong>Operational Breakthroughs (Success Stories):</strong> ' + str(total_success_stories) + '</li>' if brief_type != "ARRESTS" else ''}
                 </ul>
 
@@ -157,7 +234,6 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
     finally:
         db.close()
 
-    # ASYNC EMAIL DISPATCHER
     async def send_all_emails():
         fm = FastMail(conf)
         for payload in email_payloads:
@@ -178,3 +254,9 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
         asyncio.run_coroutine_threadsafe(send_all_emails(), loop)
     except RuntimeError:
         asyncio.run(send_all_emails())
+
+def Number(val):
+    try:
+        return int(val or 0)
+    except Exception:
+        return 0

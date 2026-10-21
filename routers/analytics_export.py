@@ -30,16 +30,13 @@ REGIONAL_HIERARCHY = {
 def strip_html_tags(text_str: str) -> str:
     if not text_str:
         return ""
-    # Strip HTML tags and aggressively replace HTML entities (case-insensitive)
     clean_text = re.sub(r'<.*?>', ' ', str(text_str))
     clean_text = re.sub(r'(?i)&nbsp;', ' ', clean_text)
     clean_text = re.sub(r'(?i)&amp;', '&', clean_text)
     clean_text = re.sub(r'(?i)&quot;', '"', clean_text)
     clean_text = re.sub(r'(?i)&#39;', "'", clean_text)
-    
     return re.sub(r'\s+', ' ', clean_text).strip()
 
-# 🟢 ADVANCED SUCCESS STORY PARSER RELYING ON BOLD HEADLINES & NARRATIVE EXTRACTION
 def parse_success_story_backend(raw_narrative: str):
     if not raw_narrative:
         return {
@@ -49,7 +46,6 @@ def parse_success_story_backend(raw_narrative: str):
             "classification": "Operational breakthrough & suspect apprehension"
         }
 
-    # 1. Extract bold title/headline if structured with <strong>...</strong>
     headline_match = re.search(r'<strong>(.*?)<\/strong>', raw_narrative, re.IGNORECASE)
     if headline_match:
         classification = strip_html_tags(headline_match.group(1)).strip().upper()
@@ -59,7 +55,6 @@ def parse_success_story_backend(raw_narrative: str):
     plain_text = strip_html_tags(raw_narrative)
     lower_text = plain_text.lower()
     
-    # 2. Parse Suspects Count
     suspects_count = 0
     suspect_patterns = [
         re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)', lower_text),
@@ -83,9 +78,8 @@ def parse_success_story_backend(raw_narrative: str):
             break
 
     if suspects_count == 0 and ('suspect' in lower_text or 'arrest' in lower_text or 'apprehend' in lower_text):
-        suspects_count = 1  # Default fallback if arrest happened without explicit numeric digits
+        suspects_count = 1 
 
-    # 3. Parse Legal Status
     legal_status = 'UNDER INVESTIGATION'
     if 'remand' in lower_text or 'remanded' in lower_text:
         legal_status = 'REMANDED'
@@ -96,12 +90,11 @@ def parse_success_story_backend(raw_narrative: str):
     elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text or 'arraign' in lower_text:
         legal_status = 'UNDERGOING COURT TRIAL'
 
-    # 4. Parse Recovered Properties & Quantities (Pipe-Separated Format e.g., 01 | suspect || 02 | phones)
     recoveries_list = []
     recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))', lower_text, re.IGNORECASE)
     
     for count_val, item_val in recovery_matches:
-        formatted_count = str(count_val).zfill(2) # Zero-pad format e.g. 01
+        formatted_count = str(count_val).zfill(2)
         recoveries_list.append(f"{formatted_count} | {item_val.strip()}")
 
     if not recoveries_list and ('recovery' in lower_text or 'recovered' in lower_text or 'recover' in lower_text or 'impound' in lower_text):
@@ -112,6 +105,75 @@ def parse_success_story_backend(raw_narrative: str):
         "recoveries": " || ".join(recoveries_list) if recoveries_list else "None recorded",
         "legalStatus": legal_status,
         "classification": classification
+    }
+
+# ==========================================
+# TIME-SERIES ANALYTICAL ROLL-UP ENGINES
+# ==========================================
+def calculate_timeseries_aggregates(records, date_field, value_fields):
+    """
+    Computes Weekly, Monthly, and Annual aggregates with comparative growth vectors.
+    """
+    weekly_map, monthly_map, annual_map = {}, {}, {}
+
+    for r in records:
+        d_str = getattr(r, date_field, None)
+        if not d_str:
+            continue
+        try:
+            if isinstance(d_str, str):
+                dt = datetime.strptime(d_str.split('T')[0], "%Y-%m-%d")
+            elif isinstance(dt, datetime):
+                dt = d_str
+            else:
+                continue
+        except Exception:
+            continue
+
+        week_key = f"{dt.year}-W{dt.strftime('%V')}"
+        month_key = dt.strftime("%Y-%m (%B)")
+        annual_key = str(dt.year)
+
+        def accumulate(target_dict, key):
+            if key not in target_dict:
+                target_dict[key] = {vf: 0 for vf in value_fields}
+                target_dict[key]["_count"] = 0
+            target_dict[key]["_count"] += 1
+            for vf in value_fields:
+                target_dict[key][vf] += int(getattr(r, vf, 0) or 0)
+
+        accumulate(weekly_map, week_key)
+        accumulate(monthly_map, month_key)
+        accumulate(annual_map, annual_key)
+
+    def format_with_growth(sorted_keys, data_map):
+        formatted_rows = []
+        prev_totals = {vf: None for vf in value_fields}
+
+        for k in sorted_keys:
+            metrics = data_map[k]
+            row = [k, metrics["_count"]]
+            for vf in value_fields:
+                curr_val = metrics[vf]
+                row.append(curr_val)
+                
+                prev_val = prev_totals[vf]
+                if prev_val is not None and prev_val > 0:
+                    pct_change = ((curr_val - prev_val) / prev_val) * 100
+                    trend_str = f"{pct_change:+.1f}%"
+                elif prev_val == 0 and curr_val > 0:
+                    trend_str = "+100.0% (New)"
+                else:
+                    trend_str = "0.0%"
+                row.append(trend_str)
+                prev_totals[vf] = curr_val
+            formatted_rows.append(row)
+        return formatted_rows
+
+    return {
+        "weekly": format_with_growth(sorted(weekly_map.keys()), weekly_map),
+        "monthly": format_with_growth(sorted(monthly_map.keys()), monthly_map),
+        "annual": format_with_growth(sorted(annual_map.keys()), annual_map)
     }
 
 @router.get("/export")
@@ -146,99 +208,41 @@ def export_analytics_report(
             "KMP" in user_pos
         )
 
-        is_kmp_specialist = (
-            user_role == "ASSISTANT_SYSTEM_MANAGER" and
-            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-            "KMP" in user_pos
-        )
-
         is_regional_command = (
             user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] or
             user_pos.find("RPC") != -1 or
             user_reg in REGIONAL_HIERARCHY
         )
         
-        CrimeModel = None
-        for name in ['Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports']:
-            if hasattr(models, name):
-                CrimeModel = getattr(models, name)
-                break
-
-        StatsModel = None
-        for name in ['Operational_Statistics', 'OperationalStatistics', 'Stats', 'operational_statistics']:
-            if hasattr(models, name):
-                StatsModel = getattr(models, name)
-                break
-
-        StoryModel = None
-        for name in ['Success_Stories', 'SuccessStories', 'Stories', 'success_stories']:
-            if hasattr(models, name):
-                StoryModel = getattr(models, name)
-                break
-
-        NomModel = None
-        for name in ['Nominal_Roll', 'NominalRoll', 'User', 'Users', 'nominal_roll']:
-            if hasattr(models, name):
-                NomModel = getattr(models, name)
-                break
-
-        AgricModel = None
-        for name in ['Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary']:
-            if hasattr(models, name):
-                AgricModel = getattr(models, name)
-                break
-
-        ExhibitModel = None
-        for name in ['Impounded_Exhibits', 'Exhibits', 'impounded_exhibits']:
-            if hasattr(models, name):
-                ExhibitModel = getattr(models, name)
-                break
+        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
+        StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'Stats', 'operational_statistics')
+        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
+        NomModel = get_model_safe('Nominal_Roll', 'NominalRoll', 'User', 'Users', 'nominal_roll')
+        AgricModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary')
+        ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
+        LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix')
+        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
 
         def get_scoped_records(ModelClass):
             if not ModelClass:
                 return []
             q = db.query(ModelClass)
-            
             if is_absolute_global or is_kmp_sys_mgr:
                 return q.all()
-                
-            elif is_kmp_specialist:
-                specs = []
-                if "CID" in user_pos: specs.append("CID")
-                if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
-                if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
-                
-                if specs:
-                    conds = []
-                    for spec in specs:
-                        if hasattr(ModelClass, 'section'): conds.append(func.upper(ModelClass.section).ilike(f"%{spec}%"))
-                        if hasattr(ModelClass, 'dir'): conds.append(func.upper(ModelClass.dir).ilike(f"%{spec}%"))
-                        if hasattr(ModelClass, 'position'): conds.append(func.upper(ModelClass.position).ilike(f"%{spec}%"))
-                    if conds: return q.filter(or_(*conds)).all()
-                return []
-                
             elif is_regional_command and user_reg in REGIONAL_HIERARCHY:
                 conds = []
                 if hasattr(ModelClass, 'region'):
                     conds.append(func.upper(ModelClass.region) == user_reg)
-                
                 if hasattr(ModelClass, 'station'):
                     expanded_stns = set(REGIONAL_HIERARCHY[user_reg])
                     for s in REGIONAL_HIERARCHY[user_reg]:
                         expanded_stns.add(s)
                         expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
-                        expanded_stns.add(s + ' HEADQUARTERS')
-                        expanded_stns.add(s + ' HQ')
-                    
                     conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
-                
-                if conds:
-                    return q.filter(or_(*conds)).all()
+                if conds: return q.filter(or_(*conds)).all()
                 return []
-                
             elif hasattr(ModelClass, 'station') and user_stn:
                 return q.filter(func.upper(ModelClass.station) == user_stn).all()
-                
             return q.all()
 
         cr_records = get_scoped_records(CrimeModel)
@@ -247,6 +251,45 @@ def export_analytics_report(
         nom_records = get_scoped_records(NomModel)
         agric_records = get_scoped_records(AgricModel)
         ex_records = get_scoped_records(ExhibitModel)
+        lockup_records = get_scoped_records(LockupModel)
+        accidents_records = get_scoped_records(AccidentsModel)
+
+        # 🟢 INTELLIGENT FIRE INCIDENT PARSER
+        fire_incidents_count = 0
+        fire_casualties = 0
+        fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
+        for cr in cr_records:
+            narrative = str(getattr(cr, 'narrative', '') or "").lower()
+            offence = str(getattr(cr, 'offence', '') or "").lower()
+            if any(kw in narrative or kw in offence for kw in fire_keywords):
+                fire_incidents_count += 1
+                cas_match = re.search(r'(\d+)\s*(?:casualties|casualty|dead|deaths|injured|injury|burnt|victims)', narrative)
+                if cas_match:
+                    fire_casualties += int(cas_match.group(1))
+
+        # 🟢 LOCKUP AUDIT & PRECISE STATION OVERSTAY MAPPING
+        overstayed_details_map = {}
+        total_overstayed_suspects = 0
+        total_female_custody = 0
+        total_juveniles_custody = 0
+        for lck in lockup_records:
+            d3 = int(getattr(lck, 'detention_3days_over', 0) or 0)
+            if d3 > 0:
+                stn = str(getattr(lck, 'station', 'UNKNOWN')).upper()
+                overstayed_details_map[stn] = overstayed_details_map.get(stn, 0) + d3
+                total_overstayed_suspects += d3
+            total_female_custody += int(getattr(lck, 'female_count', 0) or 0) + int(getattr(lck, 'female_juvenile_count', 0) or 0)
+            total_juveniles_custody += int(getattr(lck, 'female_juvenile_count', 0) or 0) + int(getattr(lck, 'male_juvenile_count', 0) or 0)
+
+        # 🟢 GENERATE INTERNATIONAL STANDARD TIME-SERIES ANALYTICS
+        detention_timeseries = calculate_timeseries_aggregates(
+            lockup_records, date_field='date', 
+            value_fields=['suspects', 'male_count', 'female_count', 'detention_3days_over']
+        )
+        accidents_timeseries = calculate_timeseries_aggregates(
+            accidents_records, date_field='date', 
+            value_fields=['minor', 'serious', 'fatal', 'victims', 'total']
+        )
 
         agric_breakdown = {"ANIMALS": [0, 0], "PRODUCE": [0, 0], "EQUIPMENT": [0, 0]}
         for ag in agric_records:
@@ -380,12 +423,18 @@ def export_analytics_report(
             ["Total Recorded Incidents / Crime Reports", len(cr_records)],
             ["Total Disruptive Operations Logs", len(ops_records)],
             ["Total Impounded Exhibits Tracked", len(ex_records)],
+            ["Total Traffic Accidents Recorded", len(accidents_records)],
+            ["Total Fire Outbreaks & Arson Incidents", fire_incidents_count],
+            ["Total Fire Casualties Recorded", fire_casualties],
             ["Total Suspects Arrested Force-Wide", sum(getattr(s, 'arrested', 0) or 0 for s in ops_records)],
-            ["Total Convictions Obtained Force-Wide", sum(getattr(s, 'convicted', 0) or 0 for s in ops_records)]
+            ["Total Convictions Obtained Force-Wide", sum(getattr(s, 'convicted', 0) or 0 for s in ops_records)],
+            ["Total Constitutional Overstays (3+ Days in Cells)", total_overstayed_suspects],
+            ["Total Women in Custody (Adults & Juveniles)", total_female_custody],
+            ["Total Juveniles / Minors in Detention", total_juveniles_custody]
         ]
         
-        for r_name, totals in region_ops_totals.items():
-            summary_table_data.append([f"Disruptive Ops Total - Region: {r_name} (Arrested / Convicted)", f"Arrested: {totals['arrested']} | Convicted: {totals['convicted']}"])
+        for stn_name, count_val in overstayed_details_map.items():
+            summary_table_data.append([f"Overstay Audit - Station: {stn_name}", f"{count_val} suspect(s) overstayed 3+ days"])
 
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
@@ -413,6 +462,15 @@ def export_analytics_report(
         add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
         add_individual_sheet("Exhibits Grouped", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
         add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        
+        add_individual_sheet("Detention Analysis (Weekly)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
+        add_individual_sheet("Detention Analysis (Monthly)", ["Time Period", "Entries Logged", "Total Suspects", "Monthly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["monthly"])
+        add_individual_sheet("Detention Analysis (Annual)", ["Time Period", "Entries Logged", "Total Suspects", "Annual Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["annual"])
+
+        add_individual_sheet("Accidents Analysis (Weekly)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
+        add_individual_sheet("Accidents Analysis (Monthly)", ["Time Period", "Entries Logged", "Minor Crashes", "Monthly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["monthly"])
+        add_individual_sheet("Accidents Analysis (Annual)", ["Time Period", "Entries Logged", "Minor Crashes", "Annual Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["annual"])
+
         add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
         add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
 
@@ -443,8 +501,10 @@ def export_analytics_report(
         append_stacked_section("3. Success Stories Breakdown", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
         append_stacked_section("4. Exhibits Grouped Summary", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
         append_stacked_section("5. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
-        append_stacked_section("6. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)
-        append_stacked_section("7. Master Summary Table (General & Regional Totals)", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
+        append_stacked_section("6. Cell Detentions Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
+        append_stacked_section("7. Traffic Accidents Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
+        append_stacked_section("8. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)
+        append_stacked_section("9. Master Summary Table (General & Regional Totals)", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
 
         for col in ws_gen.columns:
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
@@ -470,7 +530,7 @@ def export_analytics_report(
             action_type="UPDATE",
             module="ANALYTICS_EXPORT",
             target_id="MASTER_ANALYTICS_REPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded password-encrypted Master Analytics & Operations Report."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Fire, Accident, and Station Overstay audits."
         )
 
         return StreamingResponse(
