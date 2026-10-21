@@ -54,7 +54,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
   const userStnClean = stripHtmlTags(currentUser?.station || '').toUpperCase();
 
-  const validMasterPositions = ['KMP COMMANDER', 'KMP COMD', 'KMP COMDR', 'COMMANDER KMP', 'COMD KMP', 'COMDR KMP', 'DEPUTY KMP COMMANDER', 'DEPUTY KMP COMD', 'DEPUTY KMP COMDR', 'DEPUTY COMMANDER KMP', 'DEPUTY COMD KMP', 'DEPUTY COMDR KMP', 'KMP ADMIN OFFICER', 'KMP ADMIN', 'ADMIN. KMP', 'ADMIN'];
+  const validMasterPositions = ['KMP COMMANDER', 'KMP COMD', 'KMP COMDR', 'COMMANDER KMP', 'COMD KMP', 'COMDR KMP', 'DEPUTY KMP COMMANDER', 'DEPUTY KMP COMD', 'DEPUTY KMP COMDR', 'DEPUTY COMMANDER KMP', 'DEPUTY COMD KMP', 'DEPUTY COMDR KMP', 'KMP ADMIN OFFICER', 'KMP ADMIN', 'ADMIN. KMP', 'ADMIN', 'KMP CID COMMANDER', 'KMP CID COMD'];
   
   const canManageMasterLockup = (['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'ADMIN'].includes(userRole) || validMasterPositions.some(p => userPos.includes(p) || userRole === p)) && !(userRegClean === 'POLICE HEADQUARTERS' && !['SUPER_ADMIN', 'ADMIN'].includes(userRole));
 
@@ -177,13 +177,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }
   };
 
-  // 🟢 FORM LOCK EVALUATOR
   const existingLogForSelected = useMemo(() => {
     if (!Array.isArray(lockupEntries)) return null;
     return lockupEntries.find(r => 
         r.date === formInput.date && 
         stripHtmlTags(r.station || '').toUpperCase() === formInput.station.toUpperCase() &&
-        !formInput.station.includes('HEADQUARTERS GENERAL TOTAL')
+        !formInput.station.includes('HEADQUARTERS GENERAL TOTAL') &&
+        !formInput.station.includes('KMP HEADQUARTERS')
     );
   }, [lockupEntries, formInput.date, formInput.station]);
 
@@ -201,7 +201,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     const submissionStation = (canLogGlobally || isRegionalCommandTier) ? formInput.station : userStnClean;
     const submissionRegion = canLogGlobally ? formInput.region : userRegClean;
 
-    // 🟢 REGIONAL LOGGING GATE (1100Hrs Check)
+    // REGIONAL LOGGING GATE (1100Hrs Check)
     if (isRegionalCommandTier && !canLogGlobally && submissionStation !== userStnClean) {
         const currentHour = new Date().getHours();
         if (currentHour < 11) {
@@ -209,16 +209,16 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
         }
     }
 
-    // 🟢 STRICT MATH BYPASS: Only applies directly to "HEADQUARTERS GENERAL TOTAL" target, never to actual stations.
-    const isMasterHQ = submissionStation.includes('HEADQUARTERS GENERAL TOTAL');
+    // 🟢 MASTER MATH BYPASS: Bypasses Math & Zero-Anomaly for high command logging Master Totals
+    const isMasterHQTarget = submissionStation === 'HEADQUARTERS GENERAL TOTAL' || submissionStation === 'KMP HEADQUARTERS';
+    const bypassMath = canManageMasterLockup && isMasterHQTarget;
 
-    if (!isMasterHQ) {
+    if (!bypassMath) {
         const demographicSum = mAd + mJuv + fAd + fJuv;
         if (totalVal !== demographicSum) {
             return setNotification({ type: 'error', text: `❌ Math Error: Demographic counts (${demographicSum}) do not equal Total Suspects (${totalVal}).` });
         }
         
-        // ZERO-ANOMALY RULE
         if (totalVal === 0 && !formInput.zero_anomaly_reason.trim()) {
             return setNotification({ type: 'error', text: `❌ Zero-Anomaly Rule: You must provide an operational reason for empty cells.` });
         }
@@ -230,7 +230,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     const popRef = `POP-${cleanStationSub}-${Date.now().toString().slice(-6)}`;
 
     let updatedSignature = getOfficerSignature(currentUser);
-    if (totalVal === 0 && formInput.zero_anomaly_reason.trim()) {
+    if (!bypassMath && totalVal === 0 && formInput.zero_anomaly_reason.trim()) {
         updatedSignature = `${updatedSignature} [ZERO-ANOMALY: ${stripHtmlTags(formInput.zero_anomaly_reason).toUpperCase()}]`;
     }
 
@@ -391,7 +391,12 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     if (ledgerViewType === 'MASTER') return []; 
 
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
-    filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() !== 'HEADQUARTERS GENERAL TOTAL');
+    
+    // Exclude Master records from standard ledger view
+    filtered = filtered.filter(row => {
+        const st = stripHtmlTags(row.station || '').trim().toUpperCase();
+        return st !== 'HEADQUARTERS GENERAL TOTAL' && st !== 'KMP HEADQUARTERS';
+    });
     
     filtered = filtered.filter(row => {
       const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
@@ -462,9 +467,11 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const complianceData = useMemo(() => {
     if (ledgerViewType !== 'COMPLIANCE') return { logged: [], defaulted: [] };
     const todayStr = getTodayString();
+    
+    // Ignore master logs when calculating compliance
     const loggedStations = new Set(
         lockupEntries
-            .filter(r => r.date === todayStr && !stripHtmlTags(r.station || '').includes('HEADQUARTERS GENERAL TOTAL'))
+            .filter(r => r.date === todayStr && !stripHtmlTags(r.station || '').includes('HEADQUARTERS GENERAL TOTAL') && !stripHtmlTags(r.station || '').includes('KMP HEADQUARTERS'))
             .map(r => getOfficialRegionForStation(r.station, r.region) + "|" + stripHtmlTags(r.station || '').toUpperCase())
     );
 
@@ -515,7 +522,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
             </h3>
             
             <div className="flex flex-wrap gap-2 items-center">
-              {/* Station Specific Stats */}
               <span className="text-[10px] text-white/90 font-bold bg-black/20 px-2 py-1 rounded border border-white/10 flex items-center">
                 <span className="opacity-70 mr-1.5">{ledgerFilterStation === 'ALL STATIONS' ? 'Selected Station:' : `${ledgerFilterStation}:`}</span>
                 <span className={stationSummary.todaysTotal !== null ? "text-emerald-400 font-black" : "text-red-400 font-black"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'NOT LOGGED'}</span>
@@ -525,14 +531,14 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                  Last Entry: <span className="text-amber-300 ml-1.5">{stationSummary.lastLoggedDate} @ {stationSummary.lastLoggedTime}</span>
               </span>
 
-              {/* KMP Master vs Computed Probe Panel (Command Tier Only) */}
+              {/* KMP Master vs Computed Probe Panel */}
               {(isAbsoluteGlobal || isRegionalCommandTier) && (
                 <div className="flex items-center ml-1 shadow-sm">
-                    <span className="text-[10px] text-white/90 font-bold bg-slate-800/80 px-2 py-1 rounded-l border-y border-l border-slate-600 flex items-center">
+                    <span className="text-[10px] text-white/90 font-bold bg-slate-800/80 px-2 py-1 rounded-l border-y border-l border-slate-600 flex items-center" title="Manually logged SITREP via KMP HQ">
                         <span className="opacity-70 mr-1">Master Lockup:</span> 
                         {stationSummary.masterTotal !== null ? <span className="text-blue-300 font-black">{stationSummary.masterTotal}</span> : <span className="text-slate-400 font-black">NIL</span>}
                     </span>
-                    <span className="text-[10px] text-white/90 font-bold bg-slate-800/80 px-2 py-1 border-y border-r border-slate-600 flex items-center">
+                    <span className="text-[10px] text-white/90 font-bold bg-slate-800/80 px-2 py-1 border-y border-r border-slate-600 flex items-center" title="Dynamic sum of all individual station logs today">
                         <span className="opacity-70 mr-1">Computed Sum:</span> 
                         <span className="text-purple-300 font-black">{stationSummary.computedSum}</span>
                     </span>
@@ -647,7 +653,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                         <div><label className="block font-bold text-purple-800 dark:text-purple-300 mb-1">Female Juvs</label><input type="number" min="0" value={formInput.female_juvenile_count} onChange={e => setFormInput({...formInput, female_juvenile_count: e.target.value})} className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 dark:text-white rounded outline-none" /></div>
                       </div>
 
-                      {Number(formInput.suspects) === 0 && !formInput.station.includes('HEADQUARTERS GENERAL TOTAL') && (
+                      {/* 🟢 ZERO ANOMALY REASON FIELD */}
+                      {Number(formInput.suspects) === 0 && !formInput.station.includes('HEADQUARTERS GENERAL TOTAL') && !formInput.station.includes('KMP HEADQUARTERS') && (
                         <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 rounded-lg animate-in fade-in slide-in-from-top-2">
                             <label className="block font-bold text-red-700 dark:text-red-400 mb-1 flex items-center">
                                 <AlertTriangle size={14} className="mr-1.5"/> Zero Anomaly Detected: Reason for Empty Cells Required *

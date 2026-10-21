@@ -122,7 +122,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(
             or_(
                 func.upper(ModelClass.region) == user_reg,
-                func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL"
+                func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
             )
         )
         
@@ -146,13 +146,13 @@ def apply_opsec_scope(current_user, query, ModelClass):
             
         if conds:
             return query.filter(or_(*conds))
-        return query.filter(func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL")
+        return query.filter(func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]))
         
     elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
         clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
             or_(
-                func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL",
+                func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]),
                 and_(
                     func.upper(ModelClass.region) == user_reg,
                     or_(
@@ -167,7 +167,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(
             or_(
                 func.upper(ModelClass.station) == user_stn,
-                func.upper(ModelClass.station) == "HEADQUARTERS GENERAL TOTAL"
+                func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
             )
         )
         
@@ -195,12 +195,12 @@ def create_lockup_entry(
             if req_region == "KMP HEADQUARTERS" or station_val in REGIONAL_HIERARCHY.get("KMP HEADQUARTERS", []) + ["KMP HEADQUARTERS", "HEADQUARTERS GENERAL TOTAL"]:
                 raise HTTPException(status_code=403, detail="Clearance Denied: Police Headquarters personnel cannot log records on behalf of KMP Headquarters.")
 
-        if station_val == "HEADQUARTERS GENERAL TOTAL":
+        if station_val in ["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]:
             valid_master_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]
             valid_master_positions = [
                 "KMP COMMANDER", "KMP COMD", "KMP COMDR", "COMMANDER KMP", "COMD KMP", "COMDR KMP", 
                 "DEPUTY KMP COMMANDER", "DEPUTY KMP COMD", "DEPUTY KMP COMDR", "DEPUTY COMMANDER KMP", 
-                "DEPUTY COMD KMP", "DEPUTY COMDR KMP", "KMP ADMIN OFFICER", "KMP ADMIN", "ADMIN. KMP", "ADMIN"
+                "DEPUTY COMD KMP", "DEPUTY COMDR KMP", "KMP ADMIN OFFICER", "KMP ADMIN", "ADMIN. KMP", "ADMIN", "KMP CID COMMANDER", "KMP CID COMD"
             ]
             has_master_clearance = user_role in valid_master_roles or any(p in user_pos for p in valid_master_positions) or user_role in valid_master_positions
             
@@ -288,7 +288,7 @@ def get_master_lockup_history(
     
     if period == "ALL":
         earliest_record = db.query(func.min(models.LockupMatrix.date)).filter(
-            func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
+            func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
         ).scalar()
         if earliest_record:
             try:
@@ -299,13 +299,18 @@ def get_master_lockup_history(
                 pass
 
     records = db.query(models.LockupMatrix).filter(
-        func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL",
+        func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]),
         func.date(models.LockupMatrix.date) >= start_date.isoformat(),
         func.date(models.LockupMatrix.date) <= today.isoformat()
-    ).all()
+    ).order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
     
-    entries_by_date = {r.date if isinstance(r.date, str) else r.date.isoformat(): r for r in records}
-    
+    # Take the latest submission for any given date if there are multiple master labels
+    entries_by_date = {}
+    for r in records:
+        d_str = r.date if isinstance(r.date, str) else r.date.isoformat()
+        if d_str not in entries_by_date:
+            entries_by_date[d_str] = r
+            
     results = []
     for i in range(days_to_generate):
         current_date = (today - timedelta(days=i)).isoformat()
@@ -364,20 +369,20 @@ def get_station_lockup_summary(
     todays_total = todays_log.suspects if todays_log else None
 
     # 2. 🟢 Decoupled Computed Sum Engine
-    # Only sums actual stations in the user's jurisdiction (OPSEC enforced)
+    # Only sums actual stations in the user's jurisdiction (Excludes BOTH master labels)
     sum_query = db.query(func.sum(models.LockupMatrix.suspects)).filter(
         func.date(models.LockupMatrix.date) == today_str,
-        func.upper(models.LockupMatrix.station) != "HEADQUARTERS GENERAL TOTAL"
+        ~func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
     )
     sum_query = apply_opsec_scope(current_user, sum_query, models.LockupMatrix)
     computed_sum = sum_query.scalar() or 0
 
     # 3. 🟢 Decoupled Master Total Engine
-    # Looks directly at the physical SITREP logged by command
+    # Looks directly at the physical SITREP logged by command via the specific master labels
     master_log = db.query(models.LockupMatrix.suspects).filter(
         func.date(models.LockupMatrix.date) == today_str,
-        func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
-    ).first()
+        func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
+    ).order_by(models.LockupMatrix.sn.desc()).first()
     master_total = master_log[0] if master_log else None
 
     return {
@@ -418,7 +423,7 @@ def get_lockup_entries(
             or_(
                 func.upper(models.LockupMatrix.station) == user_stn,
                 func.upper(models.LockupMatrix.station) == clean_stn,
-                func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
+                func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
             )
         )
     else:
@@ -426,7 +431,7 @@ def get_lockup_entries(
             query = query.filter(
                 or_(
                     func.upper(models.LockupMatrix.region) == region.upper(),
-                    func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
+                    func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
                 )
             )
         if station and station.upper() not in ["ALL STATIONS", "ALL"]:
@@ -435,7 +440,7 @@ def get_lockup_entries(
                 or_(
                     func.upper(models.LockupMatrix.station) == station.upper(),
                     func.upper(models.LockupMatrix.station) == clean_stn,
-                    func.upper(models.LockupMatrix.station) == "HEADQUARTERS GENERAL TOTAL"
+                    func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
                 )
             )
 
@@ -478,7 +483,7 @@ def update_lockup_entry(
     valid_master_positions = [
         "KMP COMMANDER", "KMP COMD", "KMP COMDR", "COMMANDER KMP", "COMD KMP", "COMDR KMP", 
         "DEPUTY KMP COMMANDER", "DEPUTY KMP COMD", "DEPUTY KMP COMDR", "DEPUTY COMMANDER KMP", 
-        "DEPUTY COMD KMP", "DEPUTY COMDR KMP", "KMP ADMIN OFFICER", "KMP ADMIN", "ADMIN. KMP", "ADMIN"
+        "DEPUTY COMD KMP", "DEPUTY COMDR KMP", "KMP ADMIN OFFICER", "KMP ADMIN", "ADMIN. KMP", "ADMIN", "KMP CID COMMANDER", "KMP CID COMD"
     ]
     has_master_clearance = user_role in valid_master_roles or any(p in user_pos for p in valid_master_positions) or user_role in valid_master_positions
 
@@ -500,7 +505,7 @@ def update_lockup_entry(
         if "KMP" in existing_entry.region.upper() or entry_station in REGIONAL_HIERARCHY.get("KMP HEADQUARTERS", []) + ["KMP HEADQUARTERS", "HEADQUARTERS GENERAL TOTAL"]:
             raise HTTPException(status_code=403, detail="Clearance Denied: Police Headquarters personnel are restricted from modifying KMP jurisdictional data.")
 
-    if entry_station == "HEADQUARTERS GENERAL TOTAL":
+    if entry_station in ["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]:
         if not has_master_clearance:
             raise HTTPException(status_code=403, detail="Clearance Denied: Only the Office of the Commander KMP can edit the Master Lockup.")
             
@@ -701,7 +706,7 @@ def export_suspect_register_secure(
 ):
     SuspectRegModel = get_model_safe('Daily_Suspect_Register', 'DailySuspectRegister', 'suspect_register')
     if not SuspectRegModel:
-        raise HTTPException(status_code=500, detail="Model found")
+        raise HTTPException(status_code=500, detail="Model not found")
 
     query = db.query(SuspectRegModel)
     query = apply_opsec_scope(current_user, query, SuspectRegModel)
