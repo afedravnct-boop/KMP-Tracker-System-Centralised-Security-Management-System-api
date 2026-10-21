@@ -173,6 +173,79 @@ def apply_opsec_scope(current_user, query, ModelClass):
         
     return query.filter(text("1=0"))
 
+@router.post("/compliance/trigger-1100hrs-sweep")
+def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Automated execution endpoint. 
+    Scans all expected stations, permanently logs defaulters, and dispatches UI alerts.
+    """
+    today_str = date.today().isoformat()
+    
+    # 1. Fetch all unique stations that HAVE submitted today
+    submitted_logs = db.query(models.LockupMatrix.station).filter(
+        func.date(models.LockupMatrix.date) == today_str
+    ).all()
+    
+    submitted_stations = {log[0].strip().upper() for log in submitted_logs}
+    defaulting_stations = []
+    
+    # 2. Isolate physical stations missing from the submitted list
+    for region, stations in REGIONAL_HIERARCHY.items():
+        if region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]:
+            continue # Master HQ tiers are exempt from bottom-up station compliance checks
+            
+        for stn in stations:
+            if stn.upper() not in submitted_stations:
+                defaulting_stations.append({"region": region, "station": stn})
+
+    if not defaulting_stations:
+        return {"status": "success", "message": "100% System Compliance. No alerts dispatched."}
+
+    # 3. Write permanent disciplinary evidence to Daily_Compliance_Tracker
+    for defaulter in defaulting_stations:
+        existing_flag = db.query(models.DailyComplianceTracker).filter(
+            models.DailyComplianceTracker.date == today_str,
+            func.upper(models.DailyComplianceTracker.station) == defaulter["station"]
+        ).first()
+        
+        # Only log if the cron hasn't already flagged them today
+        if not existing_flag:
+            new_default = models.DailyComplianceTracker(
+                date=today_str,
+                region=defaulter["region"],
+                station=defaulter["station"],
+                status="DEFAULTED"
+            )
+            db.add(new_default)
+            
+            # 4. Dispatch the persistent UI warning to the Station's Inbox via Admin_Communication
+            # Using JSON target_fnum to strictly route the message to users belonging to that station
+            alert = models.AdminCommunication(
+                msg_ref=f"WARN-{today_str.replace('-','')}-{defaulter['station'][:3]}",
+                sender_fnum="SYSTEM_AUTO",
+                sender_name="KMP COMPLIANCE ENGINE",
+                target_audience="STATION",
+                target_region=defaulter["region"],
+                target_fnum=json.dumps([f"STATION:{defaulter['station']}"]), 
+                message_type="COMPLIANCE_ALERT",
+                subject=f"🚨 URGENT: OVERDUE DAILY CENSUS SUBMISSION",
+                message=(
+                    f"<p><strong>COMMAND COMPLIANCE ALERT:</strong> Your station <strong>({defaulter['station']})</strong> "
+                    f"has failed to submit the Daily Suspect Lock-up Matrix by the 1100Hrs deadline for {today_str}. "
+                    f"You have been officially recorded in the Headquarters Defaulters Ledger.</p>"
+                    f"<p>Please submit your census immediately to clear the active violation.</p>"
+                ),
+                status="ACTIVE"
+            )
+            db.add(alert)
+
+    db.commit()
+
+    return {
+        "status": "success", 
+        "action": f"Compliance sweep completed. {len(defaulting_stations)} defaulting stations permanently logged and notified."
+    }
+
 # ====================================================================
 # 1. LOCKUP MATRIX ENDPOINTS
 # ====================================================================

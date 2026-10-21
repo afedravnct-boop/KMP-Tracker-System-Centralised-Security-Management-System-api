@@ -364,7 +364,7 @@ def get_agric_stats(
     return [clean_model_dict(r) for r in records]
 
 @router.get("/agric-stats/export")
-def export_agric_stats_csv(
+def export_agric_stats_secure_zip(
     region: Optional[str] = Query(default=None), station: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None), end_date: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None), db: Session = Depends(get_db),
@@ -378,31 +378,97 @@ def export_agric_stats_csv(
     query = build_filtered_query(query, AgricStatsModel, region, station, start_date, end_date, search)
     records = query.order_by(AgricStatsModel.id.desc()).all()
 
-    stream = io.StringIO()
-    writer = csv.writer(stream)
-    writer.writerow(["ID", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken to Court", "Released by Court", "Remanded", "Convicted"])
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Agricultural Crimes Stats"
+    ws.views.sheetView[0].showGridLines = True
 
+    eat_tz = pytz.timezone("Africa/Nairobi")
+    eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+    
+    officer_name = (current_user.name or "UNKNOWN").strip().upper()
+    officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+    officer_rank = (current_user.rank or "").strip().upper()
+    officer_station = (current_user.station or "HQ").strip().upper()
+    timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+
+    wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+    wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+    wb.properties.title = "Official Law Enforcement Restricted Agricultural Statistics Export"
+
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="047857", end_color="047857", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_font = Font(name="Calibri", size=10)
+    thin_border = Border(left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'), top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB'))
+
+    ws.merge_cells("A1:L1")
+    banner_cell = ws.cell(row=1, column=1)
+    banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+    banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+    banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    ws.cell(row=2, column=1, value="UGANDA POLICE FORCE - AGRICULTURAL CRIMES STATISTICS LEDGER").font = Font(bold=True, size=11)
+    ws.row_dimensions[2].height = 18
+
+    headers = ["ID", "Date", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Pending Court", "Taken to Court", "Released by Court", "Remanded", "Convicted"]
+    ws.row_dimensions[4].height = 26
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    current_row = 5
     for r in records:
-        writer.writerow([
+        row_data = [
             getattr(r, 'id', ''), getattr(r, 'date', ''), getattr(r, 'region', ''), getattr(r, 'station', ''),
             getattr(r, 'arrested', 0), getattr(r, 'given_bond', 0), getattr(r, 'cautioned', 0),
             getattr(r, 'pending_court', 0), getattr(r, 'taken_to_court', 0), getattr(r, 'released', 0),
             getattr(r, 'remanded', 0), getattr(r, 'convicted', 0)
-        ])
+        ]
+        ws.append(row_data)
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.font = cell_font
+            cell.border = thin_border
+            if col_idx in [1, 2, 5, 6, 7, 8, 9, 10, 11, 12]:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+        current_row += 1
+
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+
+    excel_stream = io.BytesIO()
+    wb.save(excel_stream)
+    excel_stream.seek(0)
+
+    zip_stream = io.BytesIO()
+    zip_password = str(current_user.fnum).strip().encode('utf-8')
+    fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+    excel_filename = f"{fnum_clean}_Agric_Stats_{eat_time.strftime('%Y%m%d')}.xlsx"
+    zip_filename = f"SECURE_AGRIC_STATS_{eat_time.strftime('%Y%m%d')}.zip"
+
+    with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(zip_password)
+        zf.writestr(excel_filename, excel_stream.getvalue())
+    zip_stream.seek(0)
 
     record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="EXPORT",
-        module="AGRIC_STATS",
-        target_id="CSV_EXPORT",
-        changes_summary=f"{current_user.fnum} exported Agricultural Statistics CSV report."
+        logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="AGRIC_STATS", target_id="SECURE_ZIP_EXPORT",
+        changes_summary=f"{current_user.fnum} securely exported AES-256 encrypted Agricultural Statistics archive."
     )
 
-    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-    timestamp = datetime.now().strftime("%Y-%m-%d")
-    response.headers["Content-Disposition"] = f"attachment; filename=KMP_AGRIC_STATS_{timestamp}.csv"
-    return response
+    return StreamingResponse(
+        zip_stream, media_type="application/zip",
+        headers={'Content-Disposition': f'attachment; filename="{zip_filename}"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
+    )
 
 @router.post("/agric-stats")
 def create_agric_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
@@ -453,6 +519,7 @@ def update_agric_stat(record_id: int, data: dict, db: Session = Depends(get_db),
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
 
+
 # ==========================================
 # 3. AGRICULTURAL SUMMARY LEDGER ENDPOINTS
 # ==========================================
@@ -470,46 +537,6 @@ def get_agric_summary(
     query = build_filtered_query(query, SummaryModel, region, station, start_date, end_date, search)
     records = query.order_by(SummaryModel.id.desc()).limit(limit).all()
     return [clean_model_dict(r) for r in records]
-
-@router.get("/agric-summary/export")
-def export_agric_summary_csv(
-    region: Optional[str] = Query(default=None), station: Optional[str] = Query(default=None),
-    start_date: Optional[str] = Query(default=None), end_date: Optional[str] = Query(default=None),
-    search: Optional[str] = Query(default=None), db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
-):
-    SummaryModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary')
-    if not SummaryModel: raise HTTPException(status_code=500, detail="Model not found")
-
-    query = db.query(SummaryModel)
-    query = apply_opsec_scope(current_user, query, SummaryModel)
-    query = build_filtered_query(query, SummaryModel, region, station, start_date, end_date, search)
-    records = query.order_by(SummaryModel.id.desc()).all()
-
-    stream = io.StringIO()
-    writer = csv.writer(stream)
-    writer.writerow(["ID", "Date", "Region", "Station", "Agricultural Crime Report", "Count / Numbers", "Recoveries", "Status", "Last Updated By"])
-
-    for r in records:
-        writer.writerow([
-            getattr(r, 'id', ''), getattr(r, 'date', ''), getattr(r, 'region', ''), getattr(r, 'station', ''),
-            getattr(r, 'agric_crime_report', ''), getattr(r, 'number_count', 0), getattr(r, 'recoveries', 0),
-            getattr(r, 'status', ''), getattr(r, 'last_updated_by', '')
-        ])
-
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="EXPORT",
-        module="AGRIC_SUMMARY",
-        target_id="CSV_EXPORT",
-        changes_summary=f"{current_user.fnum} exported Agricultural Crime Summary CSV report."
-    )
-
-    response = StreamingResponse(iter([stream.getvalue()]), media_type="text/csv")
-    timestamp = datetime.now().strftime("%Y-%m-%d")
-    response.headers["Content-Disposition"] = f"attachment; filename=KMP_AGRIC_CRIME_SUMMARY_{timestamp}.csv"
-    return response
 
 @router.post("/agric-summary")
 def create_agric_summary(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
@@ -534,3 +561,202 @@ def create_agric_summary(data: dict, db: Session = Depends(get_db), logs_db: Ses
         return clean_model_dict(new_record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
+
+# ==========================================
+# 4. TRAFFIC & ACCIDENTS STATISTICS ENDPOINTS
+# ==========================================
+@router.get("/accidents")
+def get_accidents_stats(
+    region: Optional[str] = Query(default=None), station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None), end_date: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None), limit: int = Query(default=300),
+    db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
+):
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    if not AccidentsModel: return []
+    
+    query = db.query(AccidentsModel)
+    query = apply_opsec_scope(current_user, query, AccidentsModel)
+    query = build_filtered_query(query, AccidentsModel, region, station, start_date, end_date, search)
+    
+    records = query.order_by(AccidentsModel.id.desc()).limit(limit).all()
+    
+    results = []
+    for r in records:
+        clean = clean_model_dict(r)
+        if r.created_at:
+            clean['created_at'] = r.created_at.isoformat() if hasattr(r.created_at, 'isoformat') else str(r.created_at)
+        results.append(clean)
+        
+    return results
+
+@router.post("/accidents")
+def create_accidents_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    if not AccidentsModel: raise HTTPException(status_code=500, detail="Accidents model not configured in database.")
+    try:
+        data.pop('sn', None); data.pop('id', None)
+        valid_cols = [c.key for c in AccidentsModel.__table__.columns]
+        safe_data = {k: v for k, v in data.items() if k in valid_cols}
+        
+        # Ensure total matches the severity breakdown
+        safe_data['total'] = int(safe_data.get('minor', 0)) + int(safe_data.get('serious', 0)) + int(safe_data.get('fatal', 0))
+        
+        new_record = AccidentsModel(**safe_data)
+        db.add(new_record); db.commit(); db.refresh(new_record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="ACCIDENTS_STATS",
+            target_id=str(new_record.id),
+            changes_summary=f"{current_user.fnum} recorded Traffic Accident stats for {new_record.station}."
+        )
+
+        clean = clean_model_dict(new_record)
+        if new_record.created_at:
+            clean['created_at'] = new_record.created_at.isoformat() if hasattr(new_record.created_at, 'isoformat') else str(new_record.created_at)
+        return clean
+    except Exception as e:
+        db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/accidents/{record_id}")
+def update_accidents_stat(record_id: int, data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    if not AccidentsModel: raise HTTPException(status_code=500, detail="Accidents model not configured.")
+    try:
+        record = db.query(AccidentsModel).filter(AccidentsModel.id == record_id).first()
+        if not record: raise HTTPException(status_code=404, detail="Accident record not found.")
+        
+        data.pop('id', None); data.pop('sn', None)
+        for key, value in data.items():
+            if hasattr(record, key): setattr(record, key, value)
+            
+        record.total = int(record.minor or 0) + int(record.serious or 0) + int(record.fatal or 0)
+            
+        db.commit(); db.refresh(record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="ACCIDENTS_STATS",
+            target_id=str(record_id),
+            changes_summary=f"{current_user.fnum} updated Traffic Accident stats ID {record_id}."
+        )
+
+        clean = clean_model_dict(record)
+        if record.created_at:
+            clean['created_at'] = record.created_at.isoformat() if hasattr(record.created_at, 'isoformat') else str(record.created_at)
+        return clean
+    except Exception as e:
+        db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/accidents/export")
+def export_accidents_stats_secure_zip(
+    region: Optional[str] = Query(default=None), station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None), end_date: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None), db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
+):
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    if not AccidentsModel: raise HTTPException(status_code=500, detail="Model not found")
+
+    query = db.query(AccidentsModel)
+    query = apply_opsec_scope(current_user, query, AccidentsModel)
+    query = build_filtered_query(query, AccidentsModel, region, station, start_date, end_date, search)
+    records = query.order_by(AccidentsModel.id.desc()).all()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Traffic & Accidents Stats"
+    ws.views.sheetView[0].showGridLines = True
+
+    eat_tz = pytz.timezone("Africa/Nairobi")
+    eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+    
+    officer_name = (current_user.name or "UNKNOWN").strip().upper()
+    officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+    officer_rank = (current_user.rank or "").strip().upper()
+    officer_station = (current_user.station or "HQ").strip().upper()
+    timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+
+    wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+    wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+    wb.properties.title = "Official Law Enforcement Restricted Traffic & Accidents Export"
+
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="991B1B", end_color="991B1B", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_font = Font(name="Calibri", size=10)
+    thin_border = Border(left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'), top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB'))
+
+    ws.merge_cells("A1:H1")
+    banner_cell = ws.cell(row=1, column=1)
+    banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+    banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+    banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    ws.cell(row=2, column=1, value="UGANDA POLICE FORCE - TRAFFIC & ACCIDENTS STATISTICS LEDGER").font = Font(bold=True, size=11)
+    ws.row_dimensions[2].height = 18
+
+    # Table Headers representing Hand-Drawn Request
+    headers = ["ID", "Date", "Division/Station", "Nature of Accident", "Minor", "Serious", "Fatal", "Total", "Created By", "Date Created"]
+    ws.row_dimensions[4].height = 26
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    current_row = 5
+    for r in records:
+        created_str = r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else ''
+        row_data = [
+            getattr(r, 'id', ''), getattr(r, 'date', ''), getattr(r, 'station', ''), getattr(r, 'nature_of_accident', ''),
+            getattr(r, 'minor', 0), getattr(r, 'serious', 0), getattr(r, 'fatal', 0), getattr(r, 'total', 0),
+            getattr(r, 'entered_by', getattr(r, 'last_updated_by', '')), created_str
+        ]
+        ws.append(row_data)
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.font = cell_font
+            cell.border = thin_border
+            if col_idx in [1, 2, 5, 6, 7, 8]:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+        current_row += 1
+
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+
+    excel_stream = io.BytesIO()
+    wb.save(excel_stream)
+    excel_stream.seek(0)
+
+    zip_stream = io.BytesIO()
+    zip_password = str(current_user.fnum).strip().encode('utf-8')
+    fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+    excel_filename = f"{fnum_clean}_Accidents_Stats_{eat_time.strftime('%Y%m%d')}.xlsx"
+    zip_filename = f"SECURE_ACCIDENTS_STATS_{eat_time.strftime('%Y%m%d')}.zip"
+
+    with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(zip_password)
+        zf.writestr(excel_filename, excel_stream.getvalue())
+    zip_stream.seek(0)
+
+    record_neon_activity(
+        logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="ACCIDENTS_STATS", target_id="SECURE_ZIP_EXPORT",
+        changes_summary=f"{current_user.fnum} securely exported AES-256 encrypted Accidents Statistics archive."
+    )
+
+    return StreamingResponse(
+        zip_stream, media_type="application/zip",
+        headers={'Content-Disposition': f'attachment; filename="{zip_filename}"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
+    )

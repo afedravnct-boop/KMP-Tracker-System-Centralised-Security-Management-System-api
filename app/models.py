@@ -485,6 +485,30 @@ class Daily_Compliance_Tracker(Base):
     timestamp = Column(DateTime, default=get_eat_time)
     resolved_by = Column(String, nullable=True) 
 
+# ==========================================
+# 13. TRAFFIC & ACCIDENTS STATISTICS
+# ==========================================
+class Accidents_Statistics(Base):
+    __tablename__ = "accidents_statistics"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, index=True, autoincrement=True)
+    date = Column(String, nullable=False)
+    region = Column(String, index=True, nullable=False)
+    station = Column(String, index=True, nullable=False)
+    
+    nature_of_accident = Column(String, nullable=False)
+    
+    minor = Column(Integer, default=0)
+    serious = Column(Integer, default=0)
+    fatal = Column(Integer, default=0)
+    total = Column(Integer, default=0)
+    
+    entered_by = Column(String, nullable=True)
+    last_updated_by = Column(String, nullable=True)
+    created_at = Column(DateTime, default=get_eat_time)
+
 # =====================================================================
 # CROSS-ROUTER COMPATIBILITY ALIASES
 # =====================================================================
@@ -499,6 +523,7 @@ CommunicationReads = Communication_Reads
 AdminCommunication = Admin_Communication
 AICommandLogs = AI_Command_Logs 
 DailyComplianceTracker = Daily_Compliance_Tracker
+AccidentsStatistics = Accidents_Statistics
 
 # ==========================================
 # AGRICULTURAL CRIME SUMMARY LEDGER

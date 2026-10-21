@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Calendar, Search, Filter, PlusCircle, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Minus, Shield, Users, Save, HardDrive, Edit, X, FileText, CheckCircle2, Lock } from 'lucide-react';
+import { ChevronDown, ChevronUp, Calendar, Search, Filter, PlusCircle, AlertTriangle, CheckCircle, TrendingUp, TrendingDown, Minus, Shield, Users, Save, HardDrive, Edit, X, FileText, CheckCircle2, Lock, Maximize2, Minimize2 } from 'lucide-react';
 import { authFetch } from './api';
 import { stripHtmlTags } from './App';
 
@@ -42,6 +42,7 @@ const getYesterdayString = () => {
 };
 
 const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, selectedRegion, selectedStation, currentUser, onRefreshData }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('LOG_FORM'); 
   const [notification, setNotification] = useState(null);
   
@@ -112,14 +113,9 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     region: stripHtmlTags(currentUser?.region || '')
   });
 
+  // 🟢 Exclusively map Master to KMP HEADQUARTERS
   const getDropdownStations = (region) => {
-    const base = REGIONAL_HIERARCHY[region] || [];
-    if (region === 'KMP HEADQUARTERS' && canManageMasterLockup) {
-      if (!base.includes('HEADQUARTERS GENERAL TOTAL')) {
-        return ['HEADQUARTERS GENERAL TOTAL', ...base];
-      }
-    }
-    return base;
+    return REGIONAL_HIERARCHY[region] || [];
   };
 
   useEffect(() => {
@@ -182,8 +178,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     return lockupEntries.find(r => 
         r.date === formInput.date && 
         stripHtmlTags(r.station || '').toUpperCase() === formInput.station.toUpperCase() &&
-        !formInput.station.includes('HEADQUARTERS GENERAL TOTAL') &&
-        !formInput.station.includes('KMP HEADQUARTERS')
+        formInput.station.toUpperCase() !== 'KMP HEADQUARTERS' // Allow updates to master
     );
   }, [lockupEntries, formInput.date, formInput.station]);
 
@@ -201,7 +196,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     const submissionStation = (canLogGlobally || isRegionalCommandTier) ? formInput.station : userStnClean;
     const submissionRegion = canLogGlobally ? formInput.region : userRegClean;
 
-    // REGIONAL LOGGING GATE (1100Hrs Check)
     if (isRegionalCommandTier && !canLogGlobally && submissionStation !== userStnClean) {
         const currentHour = new Date().getHours();
         if (currentHour < 11) {
@@ -209,8 +203,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
         }
     }
 
-    // 🟢 MASTER MATH BYPASS: Bypasses Math & Zero-Anomaly for high command logging Master Totals
-    const isMasterHQTarget = submissionStation === 'HEADQUARTERS GENERAL TOTAL' || submissionStation === 'KMP HEADQUARTERS';
+    // 🟢 STRICT MATH BYPASS: Only applies directly to "KMP HEADQUARTERS" Master Target
+    const isMasterHQTarget = submissionStation === 'KMP HEADQUARTERS';
     const bypassMath = canManageMasterLockup && isMasterHQTarget;
 
     if (!bypassMath) {
@@ -392,11 +386,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
     
-    // Exclude Master records from standard ledger view
-    filtered = filtered.filter(row => {
-        const st = stripHtmlTags(row.station || '').trim().toUpperCase();
-        return st !== 'HEADQUARTERS GENERAL TOTAL' && st !== 'KMP HEADQUARTERS';
-    });
+    // 🟢 Exclude KMP HEADQUARTERS Master logs from standard computations
+    filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() !== 'KMP HEADQUARTERS');
     
     filtered = filtered.filter(row => {
       const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
@@ -464,36 +455,50 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }, { suspects: 0, male: 0, male_juvenile: 0, female: 0, female_juvenile: 0, d1: 0, d2: 0, d3: 0 });
   }, [filteredLockupEntries, ledgerViewType]);
 
+  const [expandedDefaulter, setExpandedDefaulter] = useState(null);
+
+  // 🟢 Enhanced Compliance Engine (Calculates Last 7 Days History)
   const complianceData = useMemo(() => {
     if (ledgerViewType !== 'COMPLIANCE') return { logged: [], defaulted: [] };
     const todayStr = getTodayString();
     
-    // Ignore master logs when calculating compliance
-    const loggedStations = new Set(
-        lockupEntries
-            .filter(r => r.date === todayStr && !stripHtmlTags(r.station || '').includes('HEADQUARTERS GENERAL TOTAL') && !stripHtmlTags(r.station || '').includes('KMP HEADQUARTERS'))
-            .map(r => getOfficialRegionForStation(r.station, r.region) + "|" + stripHtmlTags(r.station || '').toUpperCase())
+    // Generate dates for the last 7 days
+    const last7Days = Array.from({length: 7}, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        return d.toISOString().split('T')[0];
+    });
+    
+    // Map existing records to a Set for O(1) lookups
+    const loggedStationsSet = new Set(
+        lockupEntries.map(r => r.date + "|" + getOfficialRegionForStation(r.station, r.region) + "|" + stripHtmlTags(r.station || '').toUpperCase())
     );
 
-    const logged = [];
-    const defaulted = [];
+    const loggedToday = [];
+    const defaultedToday = [];
     const activeReg = ledgerFilterRegion === 'ALL REGIONS' ? Object.keys(REGIONAL_HIERARCHY) : [ledgerFilterRegion];
 
     activeReg.forEach(reg => {
         const stations = REGIONAL_HIERARCHY[reg] || [];
         stations.forEach(stn => {
-            const key = reg + "|" + stn;
-            if (loggedStations.has(key)) {
-                logged.push({ region: reg, station: stn });
+            const keyToday = todayStr + "|" + reg + "|" + stn;
+            
+            // Calculate how many times they failed to log in the last 7 days
+            const missingDates = last7Days.filter(date => {
+                return !loggedStationsSet.has(date + "|" + reg + "|" + stn);
+            });
+
+            if (loggedStationsSet.has(keyToday)) {
+                loggedToday.push({ region: reg, station: stn, missingDates: missingDates.filter(d => d !== todayStr) });
             } else {
-                defaulted.push({ region: reg, station: stn });
+                defaultedToday.push({ region: reg, station: stn, missingDates });
             }
         });
     });
 
     return { 
-        logged: logged.sort((a,b) => a.region.localeCompare(b.region)), 
-        defaulted: defaulted.sort((a,b) => a.region.localeCompare(b.region)) 
+        logged: loggedToday.sort((a,b) => a.region.localeCompare(b.region)), 
+        defaulted: defaultedToday.sort((a,b) => a.region.localeCompare(b.region)) 
     };
   }, [lockupEntries, ledgerViewType, ledgerFilterRegion]);
 
@@ -510,10 +515,10 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
   const yesterdayStr = getYesterdayString();
 
   return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-2 sm:p-4 animate-in fade-in zoom-in-95 duration-200">
-      <div className="bg-white dark:bg-slate-900 shadow-2xl max-w-[95vw] w-full flex flex-col max-h-[95vh] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-slate-100">
+    <div className={`fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[99999] flex items-center justify-center animate-in fade-in zoom-in-95 duration-200 ${isExpanded ? 'p-0' : 'p-2 sm:p-4'}`}>
+      <div className={`bg-white dark:bg-slate-900 w-full flex flex-col overflow-hidden text-slate-900 dark:text-slate-100 transition-all ${isExpanded ? 'h-full rounded-none' : 'shadow-2xl max-w-[95vw] max-h-[95vh] rounded-xl border border-slate-300 dark:border-slate-800'}`}>
         
-        {/* DYNAMIC HEADER - DECOUPLED MASTER & PROBE BADGE */}
+        {/* DYNAMIC HEADER */}
         <div className={`${headerBgClass} px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center shrink-0 shadow-md z-10 gap-3 transition-colors duration-300`}>
           <div>
             <h3 className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase flex items-center mb-1.5">
@@ -543,7 +548,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                         <span className="text-purple-300 font-black">{stationSummary.computedSum}</span>
                     </span>
                     
-                    {/* Variance / Probe Alert */}
                     {stationSummary.masterTotal !== null && stationSummary.masterTotal !== stationSummary.computedSum && (
                         <span className="text-[9px] text-white font-black bg-red-600 px-2 py-1 rounded-r border-y border-r border-red-800 animate-pulse flex items-center shadow-[0_0_10px_rgba(220,38,38,0.5)]">
                             <AlertTriangle className="w-3 h-3 mr-1" />
@@ -573,6 +577,12 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                 <Users className="w-3 h-3 mr-1" /> Suspect Register
               </button>
             </div>
+            
+            {/* 🟢 EXPAND / COLLAPSE BUTTON */}
+            <button onClick={() => setIsExpanded(!isExpanded)} className="text-white/80 hover:text-white p-1.5 rounded transition-colors cursor-pointer bg-black/20 hover:bg-black/40 ml-1" title={isExpanded ? "Collapse view" : "Expand to full screen"}>
+              {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+            </button>
+            
             <button onClick={onClose} className="text-white/80 hover:text-white p-1.5 rounded transition-colors cursor-pointer bg-black/20 hover:bg-black/40">
               <X size={18} />
             </button>
@@ -653,8 +663,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                         <div><label className="block font-bold text-purple-800 dark:text-purple-300 mb-1">Female Juvs</label><input type="number" min="0" value={formInput.female_juvenile_count} onChange={e => setFormInput({...formInput, female_juvenile_count: e.target.value})} className="w-full p-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 dark:text-white rounded outline-none" /></div>
                       </div>
 
-                      {/* 🟢 ZERO ANOMALY REASON FIELD */}
-                      {Number(formInput.suspects) === 0 && !formInput.station.includes('HEADQUARTERS GENERAL TOTAL') && !formInput.station.includes('KMP HEADQUARTERS') && (
+                      {/* ZERO ANOMALY REASON FIELD */}
+                      {Number(formInput.suspects) === 0 && !formInput.station.includes('KMP HEADQUARTERS') && (
                         <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 p-3 rounded-lg animate-in fade-in slide-in-from-top-2">
                             <label className="block font-bold text-red-700 dark:text-red-400 mb-1 flex items-center">
                                 <AlertTriangle size={14} className="mr-1.5"/> Zero Anomaly Detected: Reason for Empty Cells Required *
@@ -816,14 +826,34 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                           <h4 className="font-extrabold text-xs uppercase tracking-wider flex items-center"><AlertTriangle className="mr-2 w-4 h-4" /> Defaulting Stations</h4>
                           <span className="bg-red-800 px-2 py-0.5 rounded text-[10px] font-black">{complianceData.defaulted.length}</span>
                       </div>
-                      <div className="divide-y divide-slate-100 dark:divide-slate-800 p-2">
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
                           {complianceData.defaulted.length > 0 ? complianceData.defaulted.map((stn, idx) => (
-                              <div key={idx} className="p-2.5 flex justify-between items-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors rounded">
-                                  <div>
-                                      <div className="font-bold text-xs text-slate-800 dark:text-slate-200">{stn.station}</div>
-                                      <div className="text-[9px] text-slate-500 font-semibold">{stn.region}</div>
+                              <div key={idx} className="flex flex-col border-b last:border-0 border-slate-100 dark:border-slate-800">
+                                  <div 
+                                      className="p-2.5 flex justify-between items-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer"
+                                      onClick={() => setExpandedDefaulter(expandedDefaulter === stn.station ? null : stn.station)}
+                                  >
+                                      <div>
+                                          <div className="font-bold text-xs text-slate-800 dark:text-slate-200">{stn.station}</div>
+                                          <div className="text-[9px] text-slate-500 font-semibold">{stn.region}</div>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                          <span className="text-[9px] font-bold text-red-600 bg-red-100 dark:bg-red-950 px-2 py-0.5 rounded shadow-inner">{stn.missingDates.length} {stn.missingDates.length === 1 ? 'Day' : 'Days'} Def</span>
+                                          <AlertTriangle size={14} className="text-red-500" />
+                                      </div>
                                   </div>
-                                  <AlertTriangle size={14} className="text-red-500" />
+                                  
+                                  {/* 🟢 EXPANDABLE DEFAULTER DATES */}
+                                  {expandedDefaulter === stn.station && stn.missingDates.length > 0 && (
+                                      <div className="p-3 bg-red-50/50 dark:bg-red-950/20 text-[10px] text-red-800 dark:text-red-300 font-medium border-t border-red-100 dark:border-red-900/50 animate-in fade-in slide-in-from-top-2">
+                                          <strong className="block mb-1.5 uppercase tracking-wider text-red-900 dark:text-red-400 font-black">Dates Defaulted (Last 7 Days):</strong>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {stn.missingDates.map(d => (
+                                              <span key={d} className="bg-white dark:bg-red-900/40 px-2 py-0.5 rounded border border-red-200 dark:border-red-800 shadow-sm font-bold">{d}</span>
+                                            ))}
+                                          </div>
+                                      </div>
+                                  )}
                               </div>
                           )) : <div className="p-6 text-center text-xs text-slate-500 font-medium">Excellent. All stations in this jurisdiction have submitted their census.</div>}
                       </div>

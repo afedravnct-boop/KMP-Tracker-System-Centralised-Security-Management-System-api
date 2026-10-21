@@ -101,7 +101,6 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-// 🟢 Hoisted function declaration + dual export prevents Temporal Dead Zone (TDZ) ReferenceErrors in Vite/Rollup
 export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) {
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
@@ -368,60 +367,42 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     });
   }, [finalFilteredReports, updateSearch, canViewGlobalActive, userRegClean]);
 
+  // 🟢 EXACT ISOLATION LOGIC REPLACEMENT HERE
   const metrics = useMemo(() => {
-    const stationCellPop = {};
     const todayStr = getTodayString(); 
-      
-    let hqGrandTotalToday = 0; 
-    let hasLockupUpdateToday = false;
+    const todaysLockupEntries = lockupData.filter(l => l.date === todayStr);
 
-    lockupData.forEach(l => {
-      const lStation = stripHtmlTags(l.station || '').trim().toUpperCase();
-        
-      // 🟢 STRICT IDENTIFICATION: Prevent local KMP HQ stations (like CID) from impersonating the Master Total
-      const isHQTotal = lStation === 'HEADQUARTERS GENERAL TOTAL' || 
-                        lStation.includes('GENERAL TOTAL') || 
-                        l.is_hq_grand_total === true;
+    // 1. ISOLATED MASTER TOTAL (Top-Down Manual Entry)
+    const masterLog = todaysLockupEntries.find(row => {
+        const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
+        return stn === 'HEADQUARTERS GENERAL TOTAL' || stn === 'KMP HEADQUARTERS';
+    });
+    const kmpGeneralTotal = masterLog ? Number(masterLog.suspects || 0) : 'Pending';
 
-      if (l.date === todayStr) {
-        if (isHQTotal) {
-          hqGrandTotalToday = Number(l.suspects) || 0;
-        } else {
-          stationCellPop[lStation] = Number(l.suspects) || 0;
-          if (isStationEquivalent(lStation, filterStation)) {
-            hasLockupUpdateToday = true;
-          }
-        }
-      }
+    // 2. ISOLATED COMPUTED SUM (Bottom-Up Tally)
+    let localJurisdictionTotal = 0;
+    const computedEntries = todaysLockupEntries.filter(row => {
+        const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
+        return stn !== 'HEADQUARTERS GENERAL TOTAL' && stn !== 'KMP HEADQUARTERS';
     });
 
-    const calculatedGlobalSum = Object.values(stationCellPop).reduce((sum, pop) => sum + pop, 0);
-
-    // 🟢 THE FIX: Prevent local station sums from masquerading as the KMP Master Total for standard users.
-    // If the Master hasn't been logged, it will rightfully display "Pending" unless you are a Global Commander.
-    let kmpGeneralTotal = "Pending";
-    if (hqGrandTotalToday > 0) {
-      kmpGeneralTotal = hqGrandTotalToday;
-    } else if (canViewGlobalActive && filterRegion === 'ALL REGIONS' && calculatedGlobalSum > 0) {
-      kmpGeneralTotal = calculatedGlobalSum;
-    }
-
-    let localJurisdictionTotal = 0;
     if (filterStation && filterStation !== 'ALL STATIONS') {
-      localJurisdictionTotal = Object.keys(stationCellPop)
-        .filter(stn => isStationEquivalent(stn, filterStation))
-        .reduce((sum, stn) => sum + stationCellPop[stn], 0);
+      localJurisdictionTotal = computedEntries
+        .filter(stn => isStationEquivalent(stn.station, filterStation))
+        .reduce((sum, stn) => sum + Number(stn.suspects || 0), 0);
     } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
       const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
-      localJurisdictionTotal = regionStations.reduce((sum, stat) => sum + (stationCellPop[stat] || 0), 0);
+      localJurisdictionTotal = computedEntries
+        .filter(stn => regionStations.some(rs => isStationEquivalent(stn.station, rs)))
+        .reduce((sum, stat) => sum + Number(stat.suspects || 0), 0);
     } else {
-      localJurisdictionTotal = calculatedGlobalSum;
+      localJurisdictionTotal = computedEntries.reduce((sum, pop) => sum + Number(pop.suspects || 0), 0);
     }
 
     const totalCaseSuspects = finalFilteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
 
     return {
-      localLockup: (hasLockupUpdateToday || localJurisdictionTotal > 0) ? localJurisdictionTotal : "Pending",
+      localLockup: localJurisdictionTotal > 0 ? localJurisdictionTotal : "0",
       kmpGeneralLockup: kmpGeneralTotal,
       newCases: finalFilteredReports.length,
       active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
@@ -430,7 +411,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       adr: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ADR').length,
       totalSuspects: totalCaseSuspects
     };
-  }, [finalFilteredReports, lockupData, filterRegion, filterStation, canViewGlobalActive]);
+  }, [finalFilteredReports, lockupData, filterRegion, filterStation]);
 
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
