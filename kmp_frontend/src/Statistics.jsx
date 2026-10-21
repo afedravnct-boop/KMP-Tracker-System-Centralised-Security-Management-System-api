@@ -11,6 +11,24 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
+const COMMON_ACCIDENTS = [
+  "HEAD-ON COLLISION",
+  "REAR-END COLLISION",
+  "SIDE-IMPACT (T-BONE) COLLISION",
+  "HIT AND RUN",
+  "MOTORCYCLE (BODA BODA) CRASH",
+  "PEDESTRIAN KNOCKED",
+  "OVERTURNING / ROLLOVER",
+  "MULTIPLE VEHICLE PILE-UP",
+  "LOSS OF CONTROL / SKIDDING",
+  "BICYCLE COLLISION",
+  "VEHICLE FIRE",
+  "BOAT CRASH",
+  "BOAT CAPSIZING",
+  "TRAIN DERAILMENT / LEVEL CROSSING",
+  "AIRCRAFT / AVIATION INCIDENT"
+];
+
 const cleanStr = (str) => {
   if (!str) return '';
   return String(str).replace(/\s+/g, ' ').trim().toUpperCase();
@@ -91,9 +109,8 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
 
-  const [statsDomain, setStatsDomain] = useState('DISRUPTIVE'); // 'DISRUPTIVE', 'AGRICULTURAL', 'ACCIDENTS'
+  const [statsDomain, setStatsDomain] = useState('DISRUPTIVE');
   
-  // 🟢 STRICTLY DECOUPLED STATE ARRAYS
   const [disruptiveStats, setDisruptiveStats] = useState([]);
   const [agricStats, setAgricStats] = useState([]);
   const [accidentStats, setAccidentStats] = useState([]);
@@ -170,7 +187,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     }
   }, [canViewGlobalLevel, isRegionalCommand, userRegClean, currentUser?.station]);
 
-  // 🟢 DECOUPLED FETCHING LOGIC
   const fetchDomainStats = useCallback(async () => {
     if (!hasValidSession()) return;
     try {
@@ -222,7 +238,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     fetchAgricSummaries();
   }, [fetchDomainStats, fetchAgricSummaries]);
 
-  // Derive Current Domain Array dynamically based on toggle
   const currentDomainStats = useMemo(() => {
       if (statsDomain === 'DISRUPTIVE') return disruptiveStats;
       if (statsDomain === 'AGRICULTURAL') return agricStats;
@@ -367,12 +382,11 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     }
   };
   
-  // Decoupled Form State based on active Domain
   const getInitialFormData = () => {
       if (statsDomain === 'ACCIDENTS') {
           return {
               sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-              date: getTodayString(), nature_of_accident: 'TRAFFIC ACCIDENT', minor: 0, serious: 0, fatal: 0
+              date: getTodayString(), nature_of_accident: '', custom_nature_of_accident: '', minor: 0, serious: 0, fatal: 0, victims: 0
           };
       }
       return {
@@ -383,7 +397,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const [formData, setFormData] = useState(getInitialFormData());
 
-  // Reset form when switching tabs
   useEffect(() => {
       setFormData(getInitialFormData());
       setOperation('new');
@@ -450,9 +463,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
             acc.minor += (parseInt(curr.minor) || 0);
             acc.serious += (parseInt(curr.serious) || 0);
             acc.fatal += (parseInt(curr.fatal) || 0);
+            acc.victims += (parseInt(curr.victims) || 0);
             acc.total += (parseInt(curr.total) || 0);
             return acc;
-        }, { minor: 0, serious: 0, fatal: 0, total: 0 });
+        }, { minor: 0, serious: 0, fatal: 0, victims: 0, total: 0 });
     }
     return currentDomainStats.reduce((acc, curr) => {
       acc.arrested += (parseInt(curr.arrested) || 0); acc.given_bond += (parseInt(curr.given_bond) || 0);
@@ -479,7 +493,15 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const populateUpdateForm = (statData) => {
     const recordIdentifier = statData.id !== undefined && statData.id !== null ? statData.id : statData.sn;
-    setFormData({ ...statData, sn: recordIdentifier, id: recordIdentifier });
+    
+    let updatedState = { ...statData, sn: recordIdentifier, id: recordIdentifier };
+    if (statsDomain === 'ACCIDENTS') {
+        if (!COMMON_ACCIDENTS.includes(statData.nature_of_accident)) {
+            updatedState.nature_of_accident = 'OTHER';
+            updatedState.custom_nature_of_accident = statData.nature_of_accident;
+        }
+    }
+    setFormData(updatedState);
   };
 
   const handleFormSubmit = async (e) => {  
@@ -494,7 +516,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     const activeStation = (canViewGlobalLevel && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
 
     if (operation === 'new') {
-      // For general stats, avoid duplicate date/station. For Accidents, allow multiple if natures differ.
       let isDuplicate = false;
       if (statsDomain !== 'ACCIDENTS') {
           isDuplicate = currentDomainStats.some(s =>  
@@ -520,6 +541,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
       if (statsDomain === 'ACCIDENTS') {
           newStat.total = (parseInt(formData.minor) || 0) + (parseInt(formData.serious) || 0) + (parseInt(formData.fatal) || 0);
+          if (newStat.nature_of_accident === 'OTHER') {
+              newStat.nature_of_accident = formData.custom_nature_of_accident;
+          }
       }
       
       try {
@@ -565,6 +589,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
       if (statsDomain === 'ACCIDENTS') {
           updatedRecord.total = (parseInt(formData.minor) || 0) + (parseInt(formData.serious) || 0) + (parseInt(formData.fatal) || 0);
+          if (updatedRecord.nature_of_accident === 'OTHER') {
+              updatedRecord.nature_of_accident = formData.custom_nature_of_accident;
+          }
       }
 
       try {
@@ -700,14 +727,44 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                   {statsDomain === 'ACCIDENTS' ? (
                       <div className="bg-red-50 dark:bg-slate-800 p-4 rounded-lg border border-red-200 dark:border-slate-700">
                         <h4 className="text-sm font-bold text-red-900 dark:text-red-300 border-b border-red-200 dark:border-slate-700 pb-2 mb-4 flex items-center">📊 Traffic & Accidents Aggregates</h4>
+                        
                         <div className="mb-4">
                             <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Accident *</label>
-                            <input type="text" name="nature_of_accident" value={formData.nature_of_accident} onChange={handleInputChange} required placeholder="e.g. TRAFFIC ACCIDENT" className="w-full text-sm border border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-2 uppercase" />
+                            <select 
+                              name="nature_of_accident" 
+                              value={formData.nature_of_accident} 
+                              onChange={handleInputChange} 
+                              required 
+                              className="w-full text-sm border border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-2 uppercase cursor-pointer"
+                            >
+                              <option value="" disabled>-- Select Nature of Accident --</option>
+                              {COMMON_ACCIDENTS.map(acc => (
+                                  <option key={acc} value={acc}>{acc}</option>
+                              ))}
+                              {formData.nature_of_accident && formData.nature_of_accident !== 'OTHER' && !COMMON_ACCIDENTS.includes(formData.nature_of_accident) && (
+                                  <option value={formData.nature_of_accident}>{formData.nature_of_accident}</option>
+                              )}
+                              <option value="OTHER">OTHER (SPECIFY BELOW)</option>
+                            </select>
+                            
+                            {formData.nature_of_accident === 'OTHER' && (
+                                <input 
+                                  type="text" 
+                                  name="custom_nature_of_accident" 
+                                  value={formData.custom_nature_of_accident || ''} 
+                                  onChange={handleInputChange} 
+                                  required 
+                                  placeholder="Type specific nature of accident..." 
+                                  className="mt-2 w-full text-sm border border-red-300 dark:border-red-800 rounded-md shadow-sm bg-red-50 dark:bg-slate-900 dark:text-slate-100 p-2 uppercase focus:border-red-500 outline-none" 
+                                />
+                            )}
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
+
+                        <div className="grid grid-cols-4 gap-3">
                           <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Minor</label><input type="number" name="minor" min="0" value={formData.minor} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
                           <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Serious</label><input type="number" name="serious" min="0" value={formData.serious} onChange={handleInputChange} className="w-full text-lg font-bold text-orange-600 dark:text-orange-400 border-b-2 border-transparent focus:border-orange-500 outline-none p-1 bg-transparent" /></div>
                           <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Fatal</label><input type="number" name="fatal" min="0" value={formData.fatal} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 dark:text-red-400 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-purple-500/20"><label className="block text-[10px] font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1">Victims (Count)</label><input type="number" name="victims" min="0" value={formData.victims} onChange={handleInputChange} className="w-full text-lg font-black text-purple-600 dark:text-purple-400 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
                         </div>
                       </div>
                   ) : (
@@ -765,10 +822,11 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
               <h4 className="text-sm font-bold text-slate-400 dark:text-slate-400 mb-3 uppercase tracking-wider">📋 Area Metrics ({filterRegion} - {dateFilter})</h4>
               
               {statsDomain === 'ACCIDENTS' ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
                     <MetricCard title="Minor Accidents" value={totals.minor} colorClass="text-blue-600 dark:text-blue-400" />
                     <MetricCard title="Serious Accidents" value={totals.serious} colorClass="text-orange-600 dark:text-orange-400" />
                     <MetricCard title="Fatal Accidents" value={totals.fatal} colorClass="text-red-600 dark:text-red-400" />
+                    <MetricCard title="Victims (Count)" value={totals.victims} colorClass="text-purple-600 dark:text-purple-400" />
                     <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
                   </div>
               ) : (
@@ -816,14 +874,16 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
               <div className="overflow-x-auto w-full dark:bg-slate-900">
                 
                 {statsDomain === 'ACCIDENTS' ? (
-                  // 🟢 EXACT REPLICA OF HAND-DRAWN ACCIDENTS TABLE
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800">
                     <thead className="bg-red-50 dark:bg-slate-950 sticky top-0">
                       <tr>
                         <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-red-900 dark:text-red-300 uppercase tracking-wider border-b border-red-200 dark:border-slate-700 align-middle">S/N</th>
                         <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-red-900 dark:text-red-300 uppercase tracking-wider border-b border-red-200 dark:border-slate-700 align-middle">Date</th>
                         <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-red-900 dark:text-red-300 uppercase tracking-wider border-b border-red-200 dark:border-slate-700 align-middle">Division/Station</th>
-                        <th colSpan="3" className="px-3 py-2 text-center text-xs font-black text-white bg-red-800 dark:bg-red-900 uppercase tracking-wider border-b border-red-200 dark:border-slate-700">Nature of Accident</th>
+                        
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-red-900 dark:text-red-300 uppercase tracking-wider border-b border-red-200 dark:border-slate-700 align-middle">Accident Type</th>
+                        
+                        <th colSpan="4" className="px-3 py-2 text-center text-xs font-black text-white bg-red-800 dark:bg-red-900 uppercase tracking-wider border-b border-red-200 dark:border-slate-700">Severity Breakdown & Casualties</th>
                         <th rowSpan="2" className="px-3 py-3 text-center text-xs font-black text-red-900 dark:text-red-300 uppercase tracking-wider border-b border-red-200 dark:border-slate-700 align-middle">TOTAL</th>
                         <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-red-900 dark:text-red-300 uppercase tracking-wider border-b border-red-200 dark:border-slate-700 align-middle">Created By</th>
                         <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-red-900 dark:text-red-300 uppercase tracking-wider border-b border-red-200 dark:border-slate-700 align-middle">Date Created</th>
@@ -832,6 +892,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <th className="px-2 py-2 text-center text-[10px] font-extrabold text-blue-800 dark:text-blue-300 bg-red-100 dark:bg-slate-900 border-b border-red-200 dark:border-slate-700 uppercase">Minor</th>
                         <th className="px-2 py-2 text-center text-[10px] font-extrabold text-orange-800 dark:text-orange-300 bg-red-100 dark:bg-slate-900 border-b border-red-200 dark:border-slate-700 uppercase">Serious</th>
                         <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-800 dark:text-red-400 bg-red-100 dark:bg-slate-900 border-b border-red-200 dark:border-slate-700 uppercase">Fatal</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-black text-purple-800 dark:text-purple-400 bg-purple-50 dark:bg-slate-900 border-b border-purple-200 dark:border-slate-700 uppercase">Victims</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
@@ -841,9 +902,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">{stat.date}</td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-red-800 dark:text-red-400 border-r border-slate-100 dark:border-slate-800">{stat.station}</td>
                           
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800">{stat.nature_of_accident}</td>
+                          
                           <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-blue-600 dark:text-blue-400 border-r border-slate-100 dark:border-slate-800">{stat.minor}</td>
                           <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-orange-600 dark:text-orange-400 border-r border-slate-100 dark:border-slate-800">{stat.serious}</td>
                           <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-black text-red-600 dark:text-red-500 border-r border-slate-100 dark:border-slate-800">{stat.fatal}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-black text-purple-600 dark:text-purple-400 border-r border-slate-100 dark:border-slate-800">{stat.victims}</td>
                           
                           <td className="px-3 py-3 whitespace-nowrap text-sm text-center font-black text-slate-800 dark:text-slate-100 border-r border-slate-100 dark:border-slate-800">{stat.total}</td>
                           <td className="px-3 py-3 whitespace-nowrap text-[10px] font-semibold text-gray-500 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">{stat.entered_by || stat.last_updated_by}</td>
@@ -852,15 +916,16 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                       ))}
                       {currentDomainStats.length > 0 && (
                         <tr className="bg-red-900 text-white font-black">
-                          <td colSpan="3" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total Aggregates</td>
+                          <td colSpan="4" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total Aggregates</td>
                           <td className="px-2 py-3 text-center text-xs">{totals.minor}</td>
                           <td className="px-2 py-3 text-center text-xs">{totals.serious}</td>
                           <td className="px-2 py-3 text-center text-xs">{totals.fatal}</td>
+                          <td className="px-2 py-3 text-center text-xs text-purple-200">{totals.victims}</td>
                           <td className="px-3 py-3 text-center text-sm bg-black">{totals.total}</td>
                           <td colSpan="2" className="px-3 py-3"></td>
                         </tr>
                       )}
-                      {currentDomainStats.length === 0 && <tr><td colSpan="9" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No accident statistics logged for this jurisdiction.</td></tr>}
+                      {currentDomainStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No accident statistics logged for this jurisdiction.</td></tr>}
                     </tbody>
                   </table>
                 ) : (

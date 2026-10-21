@@ -137,6 +137,7 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
         if hasattr(ModelClass, 'id'): search_conds.append(func.cast(ModelClass.id, text).ilike(term))
         if hasattr(ModelClass, 'sn'): search_conds.append(func.cast(ModelClass.sn, text).ilike(term))
         if hasattr(ModelClass, 'agric_crime_report'): search_conds.append(ModelClass.agric_crime_report.ilike(term))
+        if hasattr(ModelClass, 'nature_of_accident'): search_conds.append(ModelClass.nature_of_accident.ilike(term))
         if search_conds:
             query = query.filter(or_(*search_conds))
             
@@ -204,17 +205,12 @@ def export_stats_secure_zip(
     wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
     wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
     wb.properties.title = "Official Law Enforcement Restricted Disruptive OPS Statistics Export"
-    wb.properties.subject = f"Operational Statistics Extract — Downloaded by {officer_fnum} at {timestamp_str}"
-    wb.properties.description = f"SECURE OPSEC RECORD. Cryptographically keyed and audited to Force Number: {officer_fnum}."
 
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
     header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
     cell_font = Font(name="Calibri", size=10)
-    thin_border = Border(
-        left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'),
-        top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB')
-    )
+    thin_border = Border(left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'), top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB'))
 
     ws.merge_cells("A1:L1")
     banner_cell = ws.cell(row=1, column=1)
@@ -277,22 +273,11 @@ def export_stats_secure_zip(
 
     zip_stream.seek(0)
 
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="EXPORT",
-        module="DISRUPTIVE_OPS_STATS",
-        target_id="SECURE_ZIP_EXPORT",
-        changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely generated AES-256 encrypted archive for Disruptive OPS Statistics."
-    )
+    record_neon_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="DISRUPTIVE_OPS_STATS", target_id="SECURE_ZIP_EXPORT", changes_summary=f"{current_user.fnum} exported Disruptive Ops Stats.")
 
     return StreamingResponse(
-        zip_stream,
-        media_type="application/zip",
-        headers={
-            'Content-Disposition': f'attachment; filename="{zip_filename}"',
-            'Access-Control-Expose-Headers': 'Content-Disposition'
-        }
+        zip_stream, media_type="application/zip",
+        headers={'Content-Disposition': f'attachment; filename="{zip_filename}"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
     )
 
 @router.post("/stats")
@@ -306,15 +291,7 @@ def create_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = De
         new_record = StatsModel(**safe_data)
         db.add(new_record); db.commit(); db.refresh(new_record)
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="CREATE",
-            module="DISRUPTIVE_OPS_STATS",
-            target_id=str(new_record.id),
-            changes_summary=f"{current_user.fnum} created Disruptive Ops Statistics record ID {new_record.id}."
-        )
-
+        record_neon_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="CREATE", module="DISRUPTIVE_OPS_STATS", target_id=str(new_record.id), changes_summary=f"{current_user.fnum} created Disruptive Ops Stats ID {new_record.id}.")
         return clean_model_dict(new_record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -331,15 +308,7 @@ def update_stat(record_id: int, data: dict, db: Session = Depends(get_db), logs_
             if hasattr(record, key): setattr(record, key, value)
         db.commit(); db.refresh(record)
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="UPDATE",
-            module="DISRUPTIVE_OPS_STATS",
-            target_id=str(record_id),
-            changes_summary=f"{current_user.fnum} updated Disruptive Ops Statistics record ID {record_id}."
-        )
-
+        record_neon_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="DISRUPTIVE_OPS_STATS", target_id=str(record_id), changes_summary=f"{current_user.fnum} updated Disruptive Ops Stats ID {record_id}.")
         return clean_model_dict(record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -481,15 +450,7 @@ def create_agric_stat(data: dict, db: Session = Depends(get_db), logs_db: Sessio
         new_record = AgricStatsModel(**safe_data)
         db.add(new_record); db.commit(); db.refresh(new_record)
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="CREATE",
-            module="AGRIC_STATS",
-            target_id=str(new_record.id),
-            changes_summary=f"{current_user.fnum} created Agricultural Statistics record ID {new_record.id}."
-        )
-
+        record_neon_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="CREATE", module="AGRIC_STATS", target_id=str(new_record.id), changes_summary=f"{current_user.fnum} created Agricultural Statistics ID {new_record.id}.")
         return clean_model_dict(new_record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -506,15 +467,7 @@ def update_agric_stat(record_id: int, data: dict, db: Session = Depends(get_db),
             if hasattr(record, key): setattr(record, key, value)
         db.commit(); db.refresh(record)
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="UPDATE",
-            module="AGRIC_STATS",
-            target_id=str(record_id),
-            changes_summary=f"{current_user.fnum} updated Agricultural Statistics record ID {record_id}."
-        )
-
+        record_neon_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="AGRIC_STATS", target_id=str(record_id), changes_summary=f"{current_user.fnum} updated Agricultural Statistics ID {record_id}.")
         return clean_model_dict(record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -549,15 +502,7 @@ def create_agric_summary(data: dict, db: Session = Depends(get_db), logs_db: Ses
         new_record = SummaryModel(**safe_data)
         db.add(new_record); db.commit(); db.refresh(new_record)
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="CREATE",
-            module="AGRIC_SUMMARY",
-            target_id=str(new_record.id),
-            changes_summary=f"{current_user.fnum} created Agricultural Crime Summary record ID {new_record.id}."
-        )
-
+        record_neon_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="CREATE", module="AGRIC_SUMMARY", target_id=str(new_record.id), changes_summary=f"{current_user.fnum} created Agric Summary ID {new_record.id}.")
         return clean_model_dict(new_record)
     except Exception as e:
         db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
@@ -601,6 +546,7 @@ def create_accidents_stat(data: dict, db: Session = Depends(get_db), logs_db: Se
         
         # Ensure total matches the severity breakdown
         safe_data['total'] = int(safe_data.get('minor', 0)) + int(safe_data.get('serious', 0)) + int(safe_data.get('fatal', 0))
+        safe_data['entered_by'] = get_officer_signature(current_user)
         
         new_record = AccidentsModel(**safe_data)
         db.add(new_record); db.commit(); db.refresh(new_record)
@@ -634,6 +580,7 @@ def update_accidents_stat(record_id: int, data: dict, db: Session = Depends(get_
             if hasattr(record, key): setattr(record, key, value)
             
         record.total = int(record.minor or 0) + int(record.serious or 0) + int(record.fatal or 0)
+        record.last_updated_by = get_officer_signature(current_user)
             
         db.commit(); db.refresh(record)
 
@@ -692,7 +639,7 @@ def export_accidents_stats_secure_zip(
     cell_font = Font(name="Calibri", size=10)
     thin_border = Border(left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'), top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB'))
 
-    ws.merge_cells("A1:H1")
+    ws.merge_cells("A1:K1")
     banner_cell = ws.cell(row=1, column=1)
     banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
     banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
@@ -702,8 +649,7 @@ def export_accidents_stats_secure_zip(
     ws.cell(row=2, column=1, value="UGANDA POLICE FORCE - TRAFFIC & ACCIDENTS STATISTICS LEDGER").font = Font(bold=True, size=11)
     ws.row_dimensions[2].height = 18
 
-    # Table Headers representing Hand-Drawn Request
-    headers = ["ID", "Date", "Division/Station", "Nature of Accident", "Minor", "Serious", "Fatal", "Total", "Created By", "Date Created"]
+    headers = ["ID", "Date", "Division/Station", "Nature of Accident", "Minor", "Serious", "Fatal", "Victims", "Total", "Created By", "Date Created"]
     ws.row_dimensions[4].height = 26
     for col_idx, h in enumerate(headers, 1):
         cell = ws.cell(row=4, column=col_idx, value=h)
@@ -717,7 +663,7 @@ def export_accidents_stats_secure_zip(
         created_str = r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else ''
         row_data = [
             getattr(r, 'id', ''), getattr(r, 'date', ''), getattr(r, 'station', ''), getattr(r, 'nature_of_accident', ''),
-            getattr(r, 'minor', 0), getattr(r, 'serious', 0), getattr(r, 'fatal', 0), getattr(r, 'total', 0),
+            getattr(r, 'minor', 0), getattr(r, 'serious', 0), getattr(r, 'fatal', 0), getattr(r, 'victims', 0), getattr(r, 'total', 0),
             getattr(r, 'entered_by', getattr(r, 'last_updated_by', '')), created_str
         ]
         ws.append(row_data)
@@ -725,7 +671,7 @@ def export_accidents_stats_secure_zip(
             cell = ws.cell(row=current_row, column=col_idx)
             cell.font = cell_font
             cell.border = thin_border
-            if col_idx in [1, 2, 5, 6, 7, 8]:
+            if col_idx in [1, 2, 5, 6, 7, 8, 9]:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="center")

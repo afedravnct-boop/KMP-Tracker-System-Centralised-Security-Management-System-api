@@ -503,6 +503,7 @@ class Accidents_Statistics(Base):
     minor = Column(Integer, default=0)
     serious = Column(Integer, default=0)
     fatal = Column(Integer, default=0)
+    victims = Column(Integer, default=0) # 🟢 NEW: Added Victims count column
     total = Column(Integer, default=0)
     
     entered_by = Column(String, nullable=True)
