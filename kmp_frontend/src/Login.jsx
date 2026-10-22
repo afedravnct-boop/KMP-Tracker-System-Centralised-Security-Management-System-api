@@ -1,16 +1,25 @@
+// src/Login.jsx
 import React, { useState } from 'react';
-import { User, Lock, ShieldAlert, X } from 'lucide-react';
-import { API_BASE_URL, setAuthSession } from './api';
+import { User, Lock, ShieldAlert, X, HelpCircle, Wrench, Send, AlertTriangle } from 'lucide-react';
+import { API_BASE_URL, setAuthSession, authFetch } from './api';
 
 export default function Login({ onLoginSuccess, setIsSignUp }) {
   const [fileOrForceNumber, setFileOrForceNumber] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isWakingUp, setIsWakingUp] = useState(false);
 
   // Policy modal and agreement states
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+
+  // 🟢 Help & Glitch Report Modal States
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [helpCategory, setHelpCategory] = useState('LOGIN_AUTH_FAILURE');
+  const [helpDescription, setHelpDescription] = useState('');
+  const [isSubmittingHelp, setIsSubmittingHelp] = useState(false);
+  const [helpSuccess, setHelpSuccess] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -22,6 +31,12 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
 
     setIsLoading(true);
     setError('');
+    setIsWakingUp(false);
+
+    // Render wake-up timer: If server takes more than 3 seconds, inform the user Render might be sleeping
+    const wakeUpTimer = setTimeout(() => {
+      setIsWakingUp(true);
+    }, 3500);
 
     const cleanFnum = fileOrForceNumber.trim().toUpperCase();
 
@@ -39,6 +54,9 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
         },
         body: formData
       });
+
+      clearTimeout(wakeUpTimer);
+      setIsWakingUp(false);
 
       const data = await response.json();
 
@@ -74,13 +92,77 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
           window.location.reload();
         }
       } else {
+        // Instant feedback mapping specific backend rejections
         setError(data.detail || "Authorization failed. Check your Force Number and Security Key.");
       }
     } catch (err) {
+      clearTimeout(wakeUpTimer);
+      setIsWakingUp(false);
       console.error("Login fetch error:", err);
-      setError("Could not connect to the command server. Check network connectivity.");
+      setError("Could not connect to the command server. The server instance may be waking up from sleep mode. Please retry in a moment.");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // 🟢 Handler to dispatch login glitches/help tickets straight to Admin Communications
+  const handleSendHelpTicket = async (e) => {
+    e.preventDefault();
+    if (!helpDescription.trim()) return;
+
+    setIsSubmittingHelp(true);
+    setHelpSuccess('');
+
+    try {
+      const payload = {
+        glitch_category: helpCategory,
+        page_name: "Login / Authentication Portal",
+        element_point: "Sign-In Form / Access Barrier",
+        description: `[PUBLIC LOGIN SUPPORT TICKET] User ID/Force No: ${fileOrForceNumber || 'UNKNOWN'}. Details: ${helpDescription}`,
+        console_logs: [navigator.userAgent, `Timestamp: ${new Date().toISOString()}`],
+        network_errors: [error || 'Authentication Blocked']
+      };
+
+      const response = await authFetch('/api/v1/ai/report-crash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        setHelpSuccess("✅ Ticket successfully routed to High Command IT Support and Admin Communications inbox.");
+        setHelpDescription('');
+        setTimeout(() => {
+          setShowHelpModal(false);
+          setHelpSuccess('');
+        }, 3000);
+      } else {
+        throw new Error("Failed to dispatch ticket to server.");
+      }
+    } catch (err) {
+      // Fallback direct dispatch if unauthenticated endpoint route is required
+      try {
+        const baseUrl = API_BASE_URL || import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+        await fetch(`${baseUrl}/api/v1/ai/report-crash`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            glitch_category: helpCategory,
+            page_name: "Login / Authentication Portal",
+            element_point: "Sign-In Form / Unauthenticated",
+            description: `[PUBLIC LOGIN SUPPORT TICKET] Force No: ${fileOrForceNumber || 'UNKNOWN'}. Details: ${helpDescription}`,
+            console_logs: [navigator.userAgent],
+            network_errors: []
+          })
+        });
+        setHelpSuccess("✅ Support ticket dispatched successfully.");
+        setHelpDescription('');
+        setTimeout(() => setShowHelpModal(false), 2500);
+      } catch (fallbackErr) {
+        alert("Failed to transmit support ticket. Check your network connection.");
+      }
+    } finally {
+      setIsSubmittingHelp(false);
     }
   };
 
@@ -98,7 +180,18 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-800 relative z-10 animate-in fade-in zoom-in-95 duration-200">
         
         {/* Dark High-Command Header */}
-        <div className="bg-slate-900 px-6 py-5 text-center border-b border-slate-800">
+        <div className="bg-slate-900 px-6 py-5 text-center border-b border-slate-800 relative">
+          {/* Quick Help / Report Issue Button */}
+          <button 
+            type="button" 
+            onClick={() => setShowHelpModal(true)}
+            className="absolute right-3 top-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 transition cursor-pointer"
+            title="Report Sign-In Issue or Get Help"
+          >
+            <HelpCircle size={14} className="text-blue-400" />
+            <span className="hidden sm:inline">Help</span>
+          </button>
+
           <img 
             src="/upf_badge.png" 
             alt="UPF Emblem" 
@@ -123,6 +216,14 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2 text-red-700 animate-in fade-in">
               <ShieldAlert className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
               <p className="text-xs font-semibold leading-tight">{error}</p>
+            </div>
+          )}
+
+          {/* Render server waking up notification */}
+          {isWakingUp && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center space-x-2 text-amber-800 animate-pulse text-xs font-bold">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Server is waking up from sleep mode (Render instance). Please hold on...</span>
             </div>
           )}
 
@@ -185,7 +286,7 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
             }`}
           >
             {isLoading ? (
-              <span className="animate-pulse">Verifying Credentials...</span>
+              <span className="animate-pulse">{isWakingUp ? 'Waking Server & Verifying...' : 'Verifying Credentials...'}</span>
             ) : (
               <span>Authorize Access</span>
             )}
@@ -214,6 +315,77 @@ export default function Login({ onLoginSuccess, setIsSignUp }) {
       <p className="text-[10px] text-slate-500 font-bold mt-4 text-center tracking-widest uppercase relative z-10">
         🛡️ Protected by KMP Tracker System - KMPCSDMS160626
       </p>
+
+      {/* 🟢 Report Login Issue / Help Modal */}
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300 flex flex-col">
+            <div className="bg-slate-900 text-white px-5 py-3.5 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold uppercase text-xs tracking-wider flex items-center gap-1.5">
+                <Wrench size={15} className="text-amber-400" /> Sign-In Fault & Technical Support
+              </h3>
+              <button onClick={() => setShowHelpModal(false)} className="hover:bg-slate-800 p-1 rounded transition cursor-pointer text-slate-300 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSendHelpTicket} className="p-5 space-y-3.5 text-xs">
+              <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
+                Experiencing a white screen, login timeout, or unresponsive authentication? Submit your fault description directly to High Command IT Support.
+              </p>
+
+              {helpSuccess && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg font-bold text-[11px]">
+                  {helpSuccess}
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Issue Category</label>
+                <select 
+                  value={helpCategory} 
+                  onChange={(e) => setHelpCategory(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 outline-none focus:border-blue-600"
+                >
+                  <option value="LOGIN_AUTH_FAILURE">Login / Authentication Failure</option>
+                  <option value="RENDER_SERVER_SLEEP">Server Unresponsive / Cold Start Timeout</option>
+                  <option value="WHITE_SCREEN_ERROR">White Screen / Frontend Crash (WSOD)</option>
+                  <option value="ACCOUNT_UNAPPROVED">Account Pending Approval / Unrecognized</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 uppercase mb-1">Describe the Error / Symptoms *</label>
+                <textarea 
+                  rows={3}
+                  required
+                  value={helpDescription}
+                  onChange={(e) => setHelpDescription(e.target.value)}
+                  placeholder="e.g. Clicking Authorize Access results in infinite loading or 500 error..."
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+                <button 
+                  type="button" 
+                  onClick={() => setShowHelpModal(false)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl font-bold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmittingHelp}
+                  className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-extrabold flex items-center gap-1.5 transition cursor-pointer shadow disabled:opacity-50"
+                >
+                  {isSubmittingHelp ? 'Dispatches Ticket...' : <><Send size={13} /> Dispatch to Admin</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Policy & Terms Modal */}
       {showPolicyModal && (

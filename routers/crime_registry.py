@@ -385,6 +385,7 @@ def get_crime_analytics(
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     agri_only: bool = Query(default=False),
+    fire_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -420,6 +421,14 @@ def get_crime_analytics(
             or_(
                 func.upper(CrimeModel.category) == 'AGRIC_CRIME',
                 func.upper(CrimeModel.category) == 'AGRICULTURAL CRIMES'
+            )
+        )
+
+    if fire_only and hasattr(CrimeModel, 'category'):
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'FIRE_INCIDENT',
+                func.upper(CrimeModel.category) == 'FIRE INCIDENTS'
             )
         )
 

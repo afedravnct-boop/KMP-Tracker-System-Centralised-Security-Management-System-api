@@ -37,6 +37,40 @@ def strip_html_tags(text_str: str) -> str:
     clean_text = re.sub(r'(?i)&#39;', "'", clean_text)
     return re.sub(r'\s+', ' ', clean_text).strip()
 
+def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
+    text_blob = f"{offence_str or ''} {raw_narrative or ''}".lower()
+    
+    # Custom structure handling (accommodating custom text like furniture shop, commercial structures, etc.)
+    classification = "RESIDENTIAL HOUSE"
+    if any(k in text_blob for k in ["school", "college", "academy", "nursery", "student", "dormitory"]):
+        classification = "SCHOOL"
+    elif any(k in text_blob for k in ["church", "mosque", "chapel", "temple", "synagogue", "relig"]):
+        classification = "CHURCH / RELIGIOUS CENTRE"
+    elif any(k in text_blob for k in ["vehicle", "car", "taxi", "bus", "lorry", "truck", "boda", "motorcycle"]):
+        classification = "MOTOR VEHICLE"
+    elif any(k in text_blob for k in ["boat", "vessel", "ship", "canoe", "watercraft"]):
+        classification = "VESSEL"
+    elif any(k in text_blob for k in ["furniture", "shop", "market", "store", "warehouse", "commercial", "factory", "office", "hardware"]):
+        classification = "FURNITURE SHOP / COMMERCIAL PROPERTY"
+    
+    deaths = 0
+    injuries = 0
+    
+    death_match = re.search(r'(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)', text_blob)
+    if death_match:
+        deaths = int(death_match.group(1))
+        
+    injury_match = re.search(r'(\d+)\s*(?:injured|injury|injuries|hurt|burn wounds|hospitalized|admitted)', text_blob)
+    if injury_match:
+        injuries = int(injury_match.group(1))
+
+    return {
+        "classification": classification,
+        "deaths": deaths,
+        "injuries": injuries,
+        "totalCasualties": deaths + injuries
+    }
+
 def parse_success_story_backend(raw_narrative: str):
     if not raw_narrative:
         return {
@@ -111,9 +145,6 @@ def parse_success_story_backend(raw_narrative: str):
 # TIME-SERIES ANALYTICAL ROLL-UP ENGINES
 # ==========================================
 def calculate_timeseries_aggregates(records, date_field, value_fields):
-    """
-    Computes Weekly, Monthly, and Annual aggregates with comparative growth vectors.
-    """
     weekly_map, monthly_map, annual_map = {}, {}, {}
 
     for r in records:
@@ -254,18 +285,19 @@ def export_analytics_report(
         lockup_records = get_scoped_records(LockupModel)
         accidents_records = get_scoped_records(AccidentsModel)
 
-        # 🟢 INTELLIGENT FIRE INCIDENT PARSER
+        # 🟢 ADVANCED FIRE INCIDENT & CUSTOM STRUCTURE PARSER
         fire_incidents_count = 0
-        fire_casualties = 0
+        total_fire_deaths = 0
+        total_fire_injuries = 0
         fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
         for cr in cr_records:
-            narrative = str(getattr(cr, 'narrative', '') or "").lower()
-            offence = str(getattr(cr, 'offence', '') or "").lower()
-            if any(kw in narrative or kw in offence for kw in fire_keywords):
+            narrative = str(getattr(cr, 'narrative', '') or "")
+            offence = str(getattr(cr, 'offence', '') or "")
+            if any(kw in narrative.lower() or kw in offence.lower() for kw in fire_keywords):
                 fire_incidents_count += 1
-                cas_match = re.search(r'(\d+)\s*(?:casualties|casualty|dead|deaths|injured|injury|burnt|victims)', narrative)
-                if cas_match:
-                    fire_casualties += int(cas_match.group(1))
+                parsed_fire = parse_fire_incident_advanced(narrative, offence)
+                total_fire_deaths += parsed_fire["deaths"]
+                total_fire_injuries += parsed_fire["injuries"]
 
         # 🟢 LOCKUP AUDIT & PRECISE STATION OVERSTAY MAPPING
         overstayed_details_map = {}
@@ -425,7 +457,8 @@ def export_analytics_report(
             ["Total Impounded Exhibits Tracked", len(ex_records)],
             ["Total Traffic Accidents Recorded", len(accidents_records)],
             ["Total Fire Outbreaks & Arson Incidents", fire_incidents_count],
-            ["Total Fire Casualties Recorded", fire_casualties],
+            ["Total Fire Deaths Recorded", total_fire_deaths],
+            ["Total Fire Injuries Recorded", total_fire_injuries],
             ["Total Suspects Arrested Force-Wide", sum(getattr(s, 'arrested', 0) or 0 for s in ops_records)],
             ["Total Convictions Obtained Force-Wide", sum(getattr(s, 'convicted', 0) or 0 for s in ops_records)],
             ["Total Constitutional Overstays (3+ Days in Cells)", total_overstayed_suspects],
@@ -530,7 +563,7 @@ def export_analytics_report(
             action_type="UPDATE",
             module="ANALYTICS_EXPORT",
             target_id="MASTER_ANALYTICS_REPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Fire, Accident, and Station Overstay audits."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Advanced Fire Classifications and Daily Detentions Progression."
         )
 
         return StreamingResponse(

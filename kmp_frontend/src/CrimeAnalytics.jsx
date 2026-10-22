@@ -1,6 +1,6 @@
 // src/components/CrimeAnalytics.jsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Shield, Sprout, Loader2 } from 'lucide-react';
+import { Search, Shield, Sprout, Flame, Loader2 } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
 import { stripHtmlTags } from './App';
 
@@ -29,13 +29,14 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
   const [isFetching, setIsFetching] = useState(false);
   const [timeFilter, setTimeFilter] = useState("all"); 
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
+  const [showFireOnly, setShowFireOnly] = useState(false);
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
 
-  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
-    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) ||  
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||  
     currentUser?.permissions?.view_global_roster === true;
 
   const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
@@ -86,6 +87,7 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
       if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
       if (showAgriculturalOnly) params.append('agri_only', 'true');
+      if (showFireOnly) params.append('fire_only', 'true');
       
       const { start, end } = getDateRangeParams(timeFilter);
       if (start) params.append('start_date', start);
@@ -101,7 +103,7 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
     } finally {
       setIsFetching(false);
     }
-  }, [filterRegion, filterStation, timeFilter, showAgriculturalOnly, canViewGlobalLevel]);
+  }, [filterRegion, filterStation, timeFilter, showAgriculturalOnly, showFireOnly, canViewGlobalLevel]);
 
   useEffect(() => {
     fetchAnalytics();
@@ -115,18 +117,33 @@ export default function CrimeAnalytics({ currentUser, canViewGlobal = false }) {
         <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100 flex items-center">
           <Shield className="mr-2 text-blue-600 dark:text-blue-400" /> Standalone Crime Incident Summary
         </h2>
-        <button
-          type="button"
-          onClick={() => setShowAgriculturalOnly(prev => !prev)}
-          className={`px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
-            showAgriculturalOnly 
-              ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/20' 
-              : 'bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-slate-700'
-          }`}
-        >
-          <Sprout className="w-4 h-4 mr-1.5" />
-          {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
-        </button>
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+          <button
+            type="button"
+            onClick={() => { setShowAgriculturalOnly(prev => !prev); if (!showAgriculturalOnly) setShowFireOnly(false); }}
+            className={`px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+              showAgriculturalOnly 
+                ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/20' 
+                : 'bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Sprout className="w-4 h-4 mr-1.5" />
+            {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => { setShowFireOnly(prev => !prev); if (!showFireOnly) setShowAgriculturalOnly(false); }}
+            className={`px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+              showFireOnly 
+                ? 'bg-amber-700 text-white border-amber-800 ring-2 ring-amber-500/20' 
+                : 'bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Flame className="w-4 h-4 mr-1.5 text-amber-500" />
+            {showFireOnly ? 'Fire Incidents: ON' : 'Filter Fire Incidents'}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 mb-6">

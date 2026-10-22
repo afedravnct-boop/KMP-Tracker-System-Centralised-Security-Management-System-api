@@ -4,6 +4,7 @@ import io
 import re
 import traceback
 import asyncio
+import json
 import boto3
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ from sqlalchemy import func, or_, and_
 from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File, Request, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
+from pydantic import BaseModel
 
 from app.core import security
 from app import database, models, schemas
@@ -159,7 +161,6 @@ def get_current_user(
     clean_fnum = normalize_fnum(fnum)
     alt_fnum = clean_fnum.replace("/", "")
     
-    # 🟢 Fetch live user record from database to respect real-time clearance updates
     user = db.query(models.Users).filter(
         or_(
             func.trim(func.upper(models.Users.fnum)) == clean_fnum,
@@ -760,3 +761,73 @@ def permanent_delete_user(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database deletion error: {str(e)}")
+
+
+# ====================================================================
+# 7. PUBLIC UNSAUTHENTICATED FAULT / CRASH TELEMETRY ENDPOINT
+# ====================================================================
+class PublicGlitchTelemetryPayload(BaseModel):
+    console_logs: Optional[List[str]] = []
+    network_errors: Optional[List[str]] = []
+    current_page: Optional[str] = "Login / Signup Portal"
+    glitch_category: Optional[str] = "PUBLIC_PORTAL_FAILURE"
+    element_point: Optional[str] = "Sign-In Form"
+    description: Optional[str] = "Unauthenticated fault report"
+
+@router.post("/report-crash")
+@router.post("/api/v1/ai/report-crash")
+@router.post("/api/auth/report-crash")
+def report_public_client_crash(
+    payload: PublicGlitchTelemetryPayload,
+    db: Session = Depends(database.get_db),
+    logs_db: Session = Depends(get_logs_db)
+):
+    """
+    Publicly captures login/signup faults or unauthenticated crashes, logs them,
+    and dispatches a high-priority technical alert to Admin Communications.
+    """
+    try:
+        captured_logs = payload.console_logs or []
+        
+        glitch_summary = (
+            f"<p><strong>[PUBLIC PORTAL FAULT TELEMETRY]</strong></p>"
+            f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
+            f"<p><strong>Portal Page:</strong> {payload.current_page}</p>"
+            f"<p><strong>Element Point:</strong> {payload.element_point}</p>"
+            f"<p><strong>Description:</strong> {payload.description}</p>"
+            f"<hr/><p><strong>Diagnostics Trace:</strong> {json.dumps(captured_logs)}</p>"
+        )
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
+
+        # Locate CommModel safely
+        CommModel = getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))
+        if CommModel:
+            auto_dispatch = CommModel(
+                msg_ref=f"UPF/OPS/PUBLIC-FAULT/{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                sender_fnum="PUBLIC_VISITOR",
+                sender_name="Public Portal Safeguard (System Telemetry)",
+                target_audience="ADMINS_ONLY",
+                message_type="TECHNICAL_GLITCH_ALERT",
+                subject=f"⚠️ SIGN-IN FAULT REPORTED: {payload.current_page}",
+                message=glitch_summary,
+                created_at=uganda_now
+            )
+            db.add(auto_dispatch)
+            db.commit()
+
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum="PUBLIC_VISITOR",
+            action="PUBLIC_PORTAL_FAULT",
+            module="FRONTEND_TELEMETRY",
+            details=f"Fault on {payload.current_page}: {payload.description}"
+        )
+
+        return {"status": "success", "message": "Fault report securely transmitted to High Command IT Support."}
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        # Return success or soft failure so client doesn't break twice
+        return {"status": "success", "message": "Fault telemetry logged."}

@@ -1,3 +1,4 @@
+// src/AIcommand_console.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import {  
   Send,  
@@ -15,7 +16,9 @@ import {
   X,
   Power,
   Wrench,
-  CheckCircle2
+  CheckCircle2,
+  Paperclip,
+  Image as ImageIcon
 } from 'lucide-react';
 import { authFetch } from './api';
 
@@ -35,7 +38,7 @@ const AICommandConsole = ({ currentUser, onBack }) => {
   {
     id: 'init-1',
     sender: 'ai',
-    text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant**
+    text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant (Gemini 3.8/3.7 Powered)**
 
 Standing by for commander queries across all system modules. Here is an architectural overview of the system's operational interface:
 
@@ -47,7 +50,7 @@ Standing by for commander queries across all system modules. Here is an architec
 - **Impounded Exhibits:** Secure tracking ledger for confiscated vehicles, motorcycles, currency, and property exhibits. Fully integrated into the AI intelligence engine for automated property searches, status summaries, and jurisdiction-scoped queries.
 - **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
 - **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
-- **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
+- **AI Command Console:** Natural language intelligence engine powered by Gemini 3.8/3.7-flash, allowing authorized commanders to query live database records securely with full multimodal photo and screenshot analysis support.
 
 *Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
 Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
@@ -57,6 +60,8 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
 ]);
 
   const [inputQuery, setInputQuery] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isDbKillActive, setIsDbKillActive] = useState(false);
@@ -71,10 +76,25 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   const [verificationResult, setVerificationResult] = useState(null);
 
   const chatEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      setFilePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const clearAttachment = () => {
+    setSelectedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   const handleKillSwitchToggle = async () => {
     try {
@@ -125,29 +145,36 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   const handleSendQuery = async (e) => {
     e?.preventDefault();
     const cleanPrompt = inputQuery.trim();
-    if (!cleanPrompt || isLoading) return;
+    if ((!cleanPrompt && !selectedFile) || isLoading) return;
 
     const userMessage = {
       id: `usr-${Date.now()}`,
       sender: 'user',
-      text: cleanPrompt,
+      text: cleanPrompt || '[Attached Screenshot/Photo]',
+      image: filePreview,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       metadata: null
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInputQuery('');
+    const currentFile = selectedFile;
+    clearAttachment();
     setIsLoading(true);
 
     try {
+      // 🟢 Use FormData to transmit prompt, jurisdiction scope, and optional screenshot/photo file to Gemini 3.8/3.7 backend
+      const formData = new FormData();
+      formData.append('prompt', cleanPrompt || 'Analyze this attached image/screenshot.');
+      formData.append('target_region', currentUser?.region || 'ALL REGIONS');
+      formData.append('target_station', currentUser?.station || 'ALL STATIONS');
+      if (currentFile) {
+        formData.append('file', currentFile);
+      }
+
       const response = await authFetch('/api/v1/ai/query', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: cleanPrompt,
-          target_region: currentUser?.region || 'ALL REGIONS',
-          target_station: currentUser?.station || 'ALL STATIONS'
-        })
+        body: formData // Note: authFetch should not set Content-Type header manually when body is FormData
       });
 
       if (!response.ok) {
@@ -292,7 +319,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             <h3 className="font-black text-sm uppercase tracking-wider text-white flex items-center gap-2">
               KMP Tactical AI Command Console
               <span className="bg-sky-950 text-sky-300 text-[10px] px-2 py-0.5 rounded-full border border-sky-700 font-bold">
-                Tier-Restricted RAG / SQL
+                Gemini 3.8/3.7 Multimodal RAG
               </span>
             </h3>
             <p className="text-xs text-slate-300">
@@ -357,10 +384,15 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             </div>
 
             <div className={`flex flex-col max-w-4xl ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`p-4 sm:p-5 rounded-2xl text-xs sm:text-sm leading-relaxed border-2 whitespace-pre-wrap font-medium ${
+              <div className={`p-4 sm:p-5 rounded-2xl text-xs sm:text-sm leading-relaxed border-2 whitespace-pre-wrap font-medium space-y-3 ${
                 msg.sender === 'user' ? 'bg-amber-700 text-white border-amber-500 rounded-tr-none shadow-md' : msg.isError ? 'bg-red-950 text-red-100 border-red-700 rounded-tl-none shadow-md' : 'bg-[#0f172a] text-slate-100 border-slate-700 rounded-tl-none shadow-lg'
               }`}>
-                {msg.text}
+                {msg.image && (
+                  <div className="rounded-xl overflow-hidden border border-amber-400/40 max-w-xs">
+                    <img src={msg.image} alt="User Upload" className="w-full h-auto object-cover" />
+                  </div>
+                )}
+                <div>{msg.text}</div>
               </div>
 
               {msg.metadata && (
@@ -371,6 +403,11 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
                   {msg.metadata.structured_records_count > 0 && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-[#0f172a] text-emerald-200 border border-slate-600 px-2 py-0.5 rounded-md font-bold">
                       <Terminal className="w-3 h-3 text-emerald-400" /> {msg.metadata.structured_records_count} DB Rows Scanned
+                    </span>
+                  )}
+                  {msg.metadata.ai_model_used && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-[#0f172a] text-purple-200 border border-slate-600 px-2 py-0.5 rounded-md font-bold">
+                      <Sparkles className="w-3 h-3 text-purple-400" /> Model: {msg.metadata.ai_model_used}
                     </span>
                   )}
                 </div>
@@ -387,7 +424,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             </div>
             <div className="bg-[#0f172a] border-2 border-slate-700 rounded-2xl rounded-tl-none p-4 text-xs text-slate-200 font-bold flex items-center gap-2 shadow-lg">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
-              Processing tier-restricted intelligence metrics...
+              Processing Gemini 3.8/3.7 intelligence metrics...
             </div>
           </div>
         )}
@@ -404,16 +441,49 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
         ))}
       </div>
 
+      {/* File Preview Banner */}
+      {filePreview && (
+        <div className="px-6 sm:px-12 py-2 bg-[#0b1329] border-t border-slate-700 flex items-center justify-between shrink-0">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-lg overflow-hidden border border-sky-500">
+              <img src={filePreview} alt="Preview" className="w-full h-full object-cover" />
+            </div>
+            <div className="text-xs text-slate-200 font-bold truncate max-w-xs">
+              Attached: <span className="text-sky-400">{selectedFile?.name}</span>
+            </div>
+          </div>
+          <button onClick={clearAttachment} className="text-red-400 hover:text-red-300 text-xs font-bold flex items-center gap-1 cursor-pointer">
+            <X size={14} /> Remove
+          </button>
+        </div>
+      )}
+
       {/* Input Bar */}
       <form onSubmit={handleSendQuery} className="p-4 sm:px-12 bg-[#0f172a] border-t-2 border-slate-700 flex items-center gap-3 shrink-0">
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          onChange={handleFileChange} 
+          accept="image/*" 
+          className="hidden" 
+        />
+        <button 
+          type="button" 
+          onClick={() => fileInputRef.current?.click()} 
+          className="p-3 bg-[#020617] hover:bg-slate-800 border-2 border-slate-700 rounded-xl text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+          title="Attach Screenshot or Photo"
+        >
+          <Paperclip className="w-5 h-5" />
+        </button>
+
         <input
           type="text"
           value={inputQuery}
           onChange={(e) => setInputQuery(e.target.value)}
-          placeholder="Issue operational query (e.g. 'Summarize livestock thefts in Kawempe')..."
+          placeholder="Issue operational query or attach screenshot..."
           className="flex-1 bg-[#020617] border-2 border-slate-700 rounded-xl px-4 py-3 text-xs sm:text-sm text-white placeholder-slate-400 font-medium focus:outline-none focus:border-sky-500 transition-colors shadow-inner"
         />
-        <button type="submit" disabled={isLoading || !inputQuery.trim()} className="px-6 py-3 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-lg cursor-pointer border border-sky-400">
+        <button type="submit" disabled={isLoading || (!inputQuery.trim() && !selectedFile)} className="px-6 py-3 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-xs uppercase tracking-wider rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-lg cursor-pointer border border-sky-400">
           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           Execute
         </button>

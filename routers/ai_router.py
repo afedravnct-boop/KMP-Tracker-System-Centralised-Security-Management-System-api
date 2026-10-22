@@ -4,14 +4,14 @@ import json
 import re
 import time
 import traceback
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text, inspect, func, or_
 from google import genai
 from google.genai import types
+from typing import Optional
 
-from auth import get_current_user
 from app.database import get_db, get_logs_db, engine
 from app import models
 from routers.activity_logger import record_neon_activity
@@ -28,7 +28,9 @@ class QueryPayload(BaseModel):
     target_region: str = "ALL REGIONS"
     target_station: str = "ALL STATIONS"
 
-# 🟢 New Payload for AI Diagnosis Verification
+class PublicQueryPayload(BaseModel):
+    prompt: str
+
 class DiagnosisVerificationPayload(BaseModel):
     glitch_category: str
     page_name: str
@@ -37,7 +39,6 @@ class DiagnosisVerificationPayload(BaseModel):
     console_logs: list[str] = []
     network_errors: list[str] = []
 
-# 🟢 Respect global kill switch, but ONLY exempt Super and Assistant Super Admins
 def is_db_query_globally_enabled(user, db: Session) -> bool:
     role = (user.role or "").upper()
     if role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]:
@@ -72,10 +73,13 @@ def check_ai_db_query_clearance(user) -> bool:
 
 @router.post("/admin/toggle-db-query")
 async def toggle_ai_database_queries(
-    current_user = Depends(get_current_user),
     db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db)
+    logs_db: Session = Depends(get_logs_db),
+    request: Request = None
 ):
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     role = (current_user.role or "").upper()
     if role not in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]:
         perms = current_user.permissions or {}
@@ -120,7 +124,6 @@ async def toggle_ai_database_queries(
         "message": f"AI Database Querying has been {'ENABLED' if new_bool_state else 'DISABLED (Navigation & Docs Only for standard users)'}."
     }
 
-# Add this clearance helper in routers/ai.py
 def check_diagnostic_clearance(user) -> bool:
     role = (user.role or "").strip().upper()
     pos = (user.position or "").strip().upper()
@@ -130,17 +133,16 @@ def check_diagnostic_clearance(user) -> bool:
         "DEPUTY KMP COMMANDER" in pos
     )
 
-# Update the verification endpoint:
 @router.post("/verify-diagnosis")
 async def verify_client_diagnosis(
     payload: DiagnosisVerificationPayload,
-    current_user = Depends(get_current_user),
-    logs_db: Session = Depends(get_logs_db)
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    request: Request = None
 ):
-    """
-    Tasks the AI to cross-examine and audit a submitted technical glitch report 
-    against raw browser telemetry logs. Strictly restricted to High Command.
-    """
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     if not check_diagnostic_clearance(current_user):
         raise HTTPException(
             status_code=403, 
@@ -174,7 +176,7 @@ async def verify_client_diagnosis(
         """
 
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-3.8-flash',
             contents=verification_prompt,
             config=types.GenerateContentConfig(
                 system_instruction="You are a strict technical auditor for law enforcement IT infrastructure. Be concise, precise, and professional."
@@ -197,13 +199,74 @@ async def verify_client_diagnosis(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI Diagnosis Verification Failed: {str(e)}")
 
+@router.post("/public-query")
+async def process_public_tactical_query(
+    payload: PublicQueryPayload, 
+    db: Session = Depends(get_db)
+):
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="GEMINI_API_KEY is missing from the server environment.")
+
+    try:
+        client = genai.Client(api_key=api_key)
+        
+        system_rules = (
+            "You are the public-facing Kampala Metropolitan Police (KMP) System Navigation and Support Assistant. "
+            "Your role is strictly limited to helping users navigate the login/signup portal, "
+            "explaining system features, guiding them through password reset requests, account approval workflows, and answering questions about platform usage.\n\n"
+            "CRITICAL SECURITY RESTRICTION: You have NO access to live operational data, crime records, cell detentions, case files, or personnel nominal rolls. "
+            "Never hallucinate or provide live database metrics. Keep answers concise, helpful, and professional."
+        )
+
+        prompt_vector = get_embedding_vector(payload.prompt)
+        vector_str = str(prompt_vector)
+        
+        search_query = text("SELECT title, content FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
+        results = db.execute(search_query, {"vector": vector_str}).fetchall()
+        
+        retrieved_docs = ""
+        if results:
+            retrieved_docs = "SYSTEM DOCUMENTATION & USER GUIDES:\n"
+            for row in results:
+                clean_content = str(row.content).replace("<", "&lt;").replace(">", "&gt;")
+                retrieved_docs += f"--- [{row.title}] ---\n{clean_content}\n"
+
+        public_context = (
+            f"{retrieved_docs}\n\n"
+            f"VISITOR QUERY: {payload.prompt}"
+        )
+
+        response = client.models.generate_content(
+            model='gemini-3.8-flash',
+            contents=public_context,
+            config=types.GenerateContentConfig(system_instruction=system_rules)
+        )
+
+        return {
+            "response": response.text if hasattr(response, 'text') else str(response),
+            "metadata": {
+                "database_query_status": "Public / Restricted to System Docs Only",
+                "ai_model_used": "gemini-3.8-flash"
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Public Assistant Error: {str(e)}")
+
 @router.post("/query")
 async def process_tactical_query(
-    payload: QueryPayload, 
-    current_user = Depends(get_current_user),
+    prompt: str = Form(...),
+    target_region: str = Form("ALL REGIONS"),
+    target_station: str = Form("ALL STATIONS"),
+    file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db)
+    logs_db: Session = Depends(get_logs_db),
+    request: Request = None
 ):
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=401, detail="GEMINI_API_KEY is missing from the server environment.")
@@ -232,6 +295,8 @@ async def process_tactical_query(
         stats_records = []
         exhibits_records = []
         lockup_records = []
+        accidents_records = []
+        fire_records = []
         hr_aggregates = []
         hr_sample = []
 
@@ -241,6 +306,9 @@ async def process_tactical_query(
                 StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
                 ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'ImpoundedExhibits', None)))
                 LockupMatrixModel = getattr(models, 'Lockup_Matrix', getattr(models, 'LockupMatrix', getattr(models, 'lockup_matrix', None)))
+                
+                AccidentsModel = getattr(models, 'Accidents_Statistics', getattr(models, 'AccidentsStatistics', None))
+                CrimeReportsModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
                 
                 HrModel = None
                 for m_name in ['Nominal_Roll', 'NominalRoll', 'nominal_roll', 'NominalRolls']:
@@ -254,6 +322,8 @@ async def process_tactical_query(
                 stats_query = db.query(StatsModel) if StatsModel else None
                 exports_query = db.query(ExhibitsModel) if ExhibitsModel else None
                 lockup_query = db.query(LockupMatrixModel) if LockupMatrixModel else None
+                accidents_query = db.query(AccidentsModel) if AccidentsModel else None
+                crime_fire_query = db.query(CrimeReportsModel) if CrimeReportsModel else None
 
                 if not is_top_admin and not check_ai_db_query_clearance(current_user):
                     user_station_val = str(current_user.station).strip().upper()
@@ -265,11 +335,21 @@ async def process_tactical_query(
                         exports_query = exports_query.filter(func.upper(ExhibitsModel.station) == user_station_val)
                     if lockup_query and hasattr(LockupMatrixModel, 'station'):
                         lockup_query = lockup_query.filter(func.upper(LockupMatrixModel.station) == user_station_val)
+                    if accidents_query and hasattr(AccidentsModel, 'station'):
+                        accidents_query = accidents_query.filter(func.upper(AccidentsModel.station) == user_station_val)
+                    if crime_fire_query and hasattr(CrimeReportsModel, 'station'):
+                        crime_fire_query = crime_fire_query.filter(func.upper(CrimeReportsModel.station) == user_station_val)
 
                 agric_records = agric_query.limit(20).all() if agric_query else []
                 stats_records = stats_query.limit(20).all() if stats_query else []
                 exhibits_records = exports_query.limit(20).all() if exports_query else []
                 lockup_records = lockup_query.limit(20).all() if lockup_query else []
+                accidents_records = accidents_query.limit(20).all() if accidents_query else []
+                
+                if crime_fire_query:
+                    fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
+                    fire_conds = [or_(CrimeReportsModel.narrative.ilike(f"%{kw}%"), CrimeReportsModel.offence.ilike(f"%{kw}%")) for kw in fire_keywords]
+                    fire_records = crime_fire_query.filter(or_(*fire_conds)).limit(20).all()
 
                 live_data_context = "LIVE OPERATIONAL DATABASE EXTRACTS:\n"
                 if agric_records:
@@ -292,6 +372,14 @@ async def process_tactical_query(
                     live_data_context += "- Daily Suspects Lock-up Matrix (Cell Populations & Detention Thresholds):\n"
                     for l in lockup_records:
                         live_data_context += f"  * [{getattr(l, 'region', 'KMP')} / {getattr(l, 'station', 'HQ')}] Date: {getattr(l, 'date', 'N/A')} | Total Suspects: {getattr(l, 'suspects', 0)} (Male: {getattr(l, 'male_count', 0)}, Female: {getattr(l, 'female_count', 0)}) | >3 Days: {getattr(l, 'detention_3days_over', 0)}\n"
+                if accidents_records:
+                    live_data_context += "- Traffic & Road Accidents Statistics:\n"
+                    for a in accidents_records:
+                        live_data_context += f"  * [{getattr(a, 'region', 'KMP')} / {getattr(a, 'station', 'HQ')}] Date: {getattr(a, 'date', 'N/A')} | Minor: {getattr(a, 'minor', 0)}, Serious: {getattr(a, 'serious', 0)}, Fatal: {getattr(a, 'fatal', 0)}, Victims: {getattr(a, 'victims', 0)}\n"
+                if fire_records:
+                    live_data_context += "- Fire Outbreaks & Arson Intelligence Records:\n"
+                    for f in fire_records:
+                        live_data_context += f"  * [{getattr(f, 'region', 'KMP')} / {getattr(f, 'station', 'HQ')}] Date: {getattr(f, 'date', 'N/A')} | Offence: {getattr(f, 'offence', 'FIRE')} | Narrative: {str(getattr(f, 'narrative', ''))[:120]}...\n"
                 
                 if has_ai_hr_access and HrModel:
                     fnum_attr = getattr(HrModel, 'f_num', getattr(HrModel, 'fnum', getattr(HrModel, 'fNum', None)))
@@ -322,7 +410,7 @@ async def process_tactical_query(
                         hr_sample_query = hr_sample_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
                     
                     stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
-                    raw_words = re.findall(r'\b\w+\b', payload.prompt.lower())
+                    raw_words = re.findall(r'\b\w+\b', prompt.lower())
                     search_terms = [w for w in raw_words if w not in stop_words and len(w) > 2]
                     
                     if search_terms:
@@ -372,10 +460,10 @@ async def process_tactical_query(
             "Maintain a highly professional, concise, law-enforcement tone.\n\n"
             "SECURITY PROTOCOL: You are strictly forbidden from processing or hallucinating sensitive PII. "
             "You only have access to the OPSEC-cleared columns: Force Number, Rank, Name, Age, Sex, IPPS, and Unit.\n\n"
-            "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation, answer platform policy questions, and search uploaded command files."
+            "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation, answer platform policy questions, analyze uploaded photos/screenshots, and search uploaded command files."
         )
 
-        prompt_vector = get_embedding_vector(payload.prompt)
+        prompt_vector = get_embedding_vector(prompt)
         vector_str = str(prompt_vector)
         
         search_query = text("SELECT title, content, region, station FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
@@ -393,10 +481,20 @@ async def process_tactical_query(
             f"User Security Tier: {user_tier_scope}\n\n"
             f"{live_data_context}\n\n"
             f"{retrieved_docs}\n\n"
-            f"USER QUERY: {payload.prompt}"
+            f"USER QUERY: {prompt}"
         )
 
-        candidate_models = ['gemini-2.0-flash', 'gemini-3.5-flash']
+        contents = [tactical_context]
+        if file:
+            image_bytes = await file.read()
+            contents.append(
+                types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=file.content_type
+                )
+            )
+
+        candidate_models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.0-flash']
         response = None
         used_model = None
         last_exception = None
@@ -407,7 +505,7 @@ async def process_tactical_query(
                 try:
                     response = client.models.generate_content(
                         model=m,
-                        contents=tactical_context,
+                        contents=contents,
                         config=types.GenerateContentConfig(system_instruction=system_rules)
                     )
                     used_model = m
@@ -428,10 +526,10 @@ async def process_tactical_query(
             if LogModel:
                 new_ai_log = LogModel(
                     fnum=str(current_user.fnum or "UNKNOWN"),
-                    prompt=str(payload.prompt),
+                    prompt=str(prompt),
                     response=str(response.text if hasattr(response, 'text') else response),
-                    target_region=str(payload.target_region or current_user.region or "ALL REGIONS"),
-                    target_station=str(payload.target_station or current_user.station or "ALL STATIONS")
+                    target_region=str(target_region or current_user.region or "ALL REGIONS"),
+                    target_station=str(target_station or current_user.station or "ALL STATIONS")
                 )
                 db.add(new_ai_log)
                 db.commit()
@@ -444,7 +542,7 @@ async def process_tactical_query(
             action_type="REGISTER",
             module="TACTICAL_AI",
             target_id="AI_QUERY",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} submitted Tactical AI query prompt: \"{payload.prompt}\"."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} submitted Tactical AI query prompt: \"{prompt}\"."
         )
 
         return {
@@ -452,7 +550,7 @@ async def process_tactical_query(
             "metadata": {
                 "database_query_status": "Active" if (db_queries_allowed and can_run_db_query) else "Restricted / Disabled",
                 "jurisdiction_tier": user_tier_scope,
-                "structured_records_count": len(agric_records) + len(stats_records) + len(exhibits_records) + len(lockup_records) + len(hr_aggregates) + len(hr_sample) if (db_queries_allowed and can_run_db_query) else 0,
+                "structured_records_count": len(agric_records) + len(stats_records) + len(exhibits_records) + len(lockup_records) + len(accidents_records) + len(fire_records) + len(hr_aggregates) + len(hr_sample) if (db_queries_allowed and can_run_db_query) else 0,
                 "semantic_chunks_retrieved": len(results),
                 "ai_model_used": used_model
             }
@@ -462,8 +560,6 @@ async def process_tactical_query(
         tracecode = traceback.format_exc()
         print(tracecode)
         raise HTTPException(status_code=500, detail=f"Google API Connectivity Issue: {str(e)}")
-
-# Add to routers/ai.py
 
 class CrashTelemetryPayload(BaseModel):
     glitch_category: str
@@ -476,26 +572,33 @@ class CrashTelemetryPayload(BaseModel):
 @router.post("/report-crash")
 async def report_client_crash(
     payload: CrashTelemetryPayload,
-    current_user = Depends(get_current_user),
     db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db)
+    logs_db: Session = Depends(get_logs_db),
+    request: Request = None
 ):
     """
-    Silently captures frontend WSOD/crash telemetry from the ErrorBoundary,
+    Silently captures frontend WSOD/crash telemetry from the ErrorBoundary or Login Portal,
     logs it to audit trails, and auto-dispatches an internal alert to Super Admins.
     """
     try:
-        # 1. Record activity in neon audit logs
+        from auth import get_current_user
+        current_user = None
+        try:
+            current_user = get_current_user(request=request, db=db)
+        except Exception:
+            pass
+
+        fnum_val = current_user.fnum if current_user else "PUBLIC_VISITOR"
+
         record_neon_activity(
             logs_db=logs_db,
-            fnum=current_user.fnum if current_user else "SYSTEM",
+            fnum=fnum_val,
             action_type="CRASH_REPORT",
             module="FRONTEND_TELEMETRY",
             target_id=payload.page_name,
-            changes_summary=f"WSOD Crash on page [{payload.page_name}]. Element: {payload.element_point}. Error: {payload.description}"
+            changes_summary=f"WSOD/Login Crash on page [{payload.page_name}]. Element: {payload.element_point}. Error: {payload.description}"
         )
 
-        # 2. Auto-dispatch internal command communication alert to Super Admins
         AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', None))
         if AdminCommsModel:
             glitch_summary = (
@@ -508,7 +611,7 @@ async def report_client_crash(
             )
             
             new_dispatch = AdminCommsModel(
-                sender_fnum=current_user.fnum if current_user else "SYSTEM_AI",
+                sender_fnum=fnum_val,
                 sender_name="System AI Diagnostics",
                 sender_rank="AUTONOMOUS AUDITOR",
                 target_audience="ADMINS_ONLY",

@@ -1,3 +1,4 @@
+# routers/general_documents.py
 import io
 import os
 import json
@@ -20,14 +21,13 @@ from pptx import Presentation
 from pptx.util import Inches, Pt as PPTXPt
 from pptx.dml.color import RGBColor as PPTXRGBColor
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app import models
 from app.database import get_db, get_logs_db
-from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["General Documents"])
@@ -53,8 +53,11 @@ def get_general_doc_model():
 def get_general_documents(
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
-    current_user = Depends(get_current_user)
+    request: Request = None
 ):
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     try:
         Model = get_general_doc_model()
         docs = db.query(Model).order_by(Model.id.desc()).all()
@@ -95,8 +98,11 @@ async def upload_general_document(
     target_station: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user = Depends(get_current_user)
+    request: Request = None
 ):
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     Model = get_general_doc_model()
     file_list = [f for f in [file, *(files or [])] if f is not None]
     if not file_list:
@@ -159,8 +165,11 @@ def download_general_document(
     return_url: bool = False,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user = Depends(get_current_user)
+    request: Request = None
 ):
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     Model = get_general_doc_model()
     doc_record = db.query(Model).filter(Model.id == doc_id).first()
 

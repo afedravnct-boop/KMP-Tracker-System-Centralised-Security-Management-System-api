@@ -22,6 +22,50 @@ const isLockupLog = (item) => {
          (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0);
 };
 
+const cleanDisplayNarrative = (text) => {
+  if (!text) return '';
+  let clean = String(text)
+    .replace(/<[^>]*>?/gm, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'");
+  return clean.replace(/\s+/g, ' ').trim();
+};
+
+const parseFireIncidentAdvanced = (rawNarrative, offenceStr) => {
+    const textBlob = `${offenceStr || ''} ${rawNarrative || ''}`.toLowerCase();
+    
+    let classification = "RESIDENTIAL HOUSE";
+    if (textBlob.includes("school") || textBlob.includes("college") || textBlob.includes("dormitory")) {
+        classification = "SCHOOL";
+    } else if (textBlob.includes("church") || textBlob.includes("mosque") || textBlob.includes("chapel")) {
+        classification = "CHURCH / RELIGIOUS CENTRE";
+    } else if (textBlob.includes("vehicle") || textBlob.includes("car") || textBlob.includes("lorry") || textBlob.includes("boda")) {
+        classification = "MOTOR VEHICLE";
+    } else if (textBlob.includes("boat") || textBlob.includes("vessel") || textBlob.includes("ship")) {
+        classification = "VESSEL";
+    } else if (textBlob.includes("furniture") || textBlob.includes("shop") || textBlob.includes("market") || textBlob.includes("store") || textBlob.includes("warehouse") || textBlob.includes("hardware") || textBlob.includes("commercial")) {
+        classification = "FURNITURE SHOP / COMMERCIAL PROPERTY";
+    }
+    
+    let deaths = 0;
+    let injuries = 0;
+    
+    const deathMatch = textBlob.match(/(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)/);
+    if (deathMatch) deaths = parseInt(deathMatch[1], 10);
+        
+    const injuryMatch = textBlob.match(/(\d+)\s*(?:injured|injury|injuries|hurt|burn wounds|hospitalized|admitted)/);
+    if (injuryMatch) injuries = parseInt(injuryMatch[1], 10);
+
+    return {
+        classification,
+        deaths,
+        injuries,
+        totalCasualties: deaths + injuries
+    };
+};
+
 const normalizeOffenceCategory = (rawOffence) => {
   if (!rawOffence) return "UNSPECIFIED OFFENCE";
   let clean = String(rawOffence).trim().toUpperCase();
@@ -43,33 +87,20 @@ const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
     };
   }
 
-  const cleanHtmlAndEntities = (str) => {
-    if (!str) return '';
-    let cleaned = str.replace(/<[^>]*>?/gm, ' ');
-    cleaned = cleaned.replace(/&nbsp;/gi, ' '); 
-    cleaned = cleaned.replace(/&amp;/gi, '&'); 
-    cleaned = cleaned.replace(/&quot;/gi, '"'); 
-    cleaned = cleaned.replace(/&#39;/g, "'"); 
-    return cleaned.replace(/\s+/g, ' ').trim(); 
-  };
-
+  const cleanText = cleanDisplayNarrative(rawHtmlNarrative);
   const headlineMatch = rawHtmlNarrative.match(/<strong>(.*?)<\/strong>/i);
   let classification = "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION";
 
   if (headlineMatch && headlineMatch[1]) {
-     const cleanedHeadline = cleanHtmlAndEntities(headlineMatch[1]);
+     const cleanedHeadline = cleanDisplayNarrative(headlineMatch[1]);
      if (cleanedHeadline.length > 3) {
          classification = cleanedHeadline.toUpperCase();
      }
-  } else {
-     const fallbackText = cleanHtmlAndEntities(rawHtmlNarrative);
-     if (fallbackText) {
-         classification = fallbackText.split('.')[0].substring(0, 80).toUpperCase();
-     }
+  } else if (cleanText) {
+     classification = cleanText.split('.')[0].substring(0, 80).toUpperCase();
   }
 
-  const plainText = cleanHtmlAndEntities(rawHtmlNarrative);
-  const lowerText = plainText.toLowerCase();
+  const lowerText = cleanText.toLowerCase();
   
   let suspectsCount = 0;
   const suspectMatches = [
@@ -186,6 +217,40 @@ const aggregateTimeSeries = (records, dateField, valueFields) => {
     };
 };
 
+const processDailyDetentionProgression = (records) => {
+    const daysOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const dailyMap = {
+        'Monday': { day: 'Monday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
+        'Tuesday': { day: 'Tuesday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
+        'Wednesday': { day: 'Wednesday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
+        'Thursday': { day: 'Thursday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
+        'Friday': { day: 'Friday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
+        'Saturday': { day: 'Saturday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
+        'Sunday': { day: 'Sunday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 }
+    };
+
+    records.forEach(r => {
+        const dt = new Date(r.date || r.created_at);
+        if (isNaN(dt)) return;
+        const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
+        if (dailyMap[dayName]) {
+            const suspects = Number(r.suspects || r.daily_lock_up || 0);
+            const mAd = Number(r.male_count || r.male || 0);
+            const mJuv = Number(r.male_juvenile_count || r.male_juvenile || 0);
+            const fAd = Number(r.female_count || r.female || 0);
+            const fJuv = Number(r.female_juvenile_count || r.female_juvenile || 0);
+
+            dailyMap[dayName].closing += suspects;
+            dailyMap[dayName].maleAdult += mAd;
+            dailyMap[dayName].maleJuv += mJuv;
+            dailyMap[dayName].femaleAdult += fAd;
+            dailyMap[dayName].femaleJuv += fJuv;
+        }
+    });
+
+    return daysOrder.map(d => dailyMap[d]);
+};
+
 const AnalyticsDashboard = ({ 
   nominalRolls = [], 
   nominal_rolls = [], 
@@ -209,12 +274,16 @@ const AnalyticsDashboard = ({
 
   const [expandedManpowerRegions, setExpandedManpowerRegions] = useState({});
   const [expandedCrimeRegions, setExpandedCrimeRegions] = useState({});
+  const [expandedDays, setExpandedDays] = useState({});
 
   const toggleManpowerRegion = (regionName) => {
     setExpandedManpowerRegions(prev => ({ ...prev, [regionName]: !prev[regionName] }));
   };
   const toggleCrimeRegion = (regionName) => {
     setExpandedCrimeRegions(prev => ({ ...prev, [regionName]: !prev[regionName] }));
+  };
+  const toggleDayDropdown = (dayName) => {
+    setExpandedDays(prev => ({ ...prev, [dayName]: !prev[dayName] }));
   };
 
   useEffect(() => {
@@ -384,32 +453,33 @@ const AnalyticsDashboard = ({
     });
   }, [timeFilteredDataset]);
 
-  // 🟢 Intelligent Fire Incident Parser for Frontend
   const fireIntelligence = useMemo(() => {
     const records = timeFilteredData(resolvedCrimeRegistry);
     const fireKeywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"];
     const fireList = [];
-    let totalCasualties = 0;
+    let totalDeaths = 0;
+    let totalInjuries = 0;
 
     records.forEach(cr => {
-        const narrative = String(cr.narrative || "").toLowerCase();
-        const offence = String(cr.offence || "").toLowerCase();
-        if (fireKeywords.some(kw => narrative.includes(kw) || offence.includes(kw))) {
-            let casualties = 0;
-            const match = narrative.match(/(\d+)\s*(?:casualties|casualty|dead|deaths|injured|injury|burnt|victims)/);
-            if (match) casualties = parseInt(match[1], 10);
-            totalCasualties += casualties;
+        const narrative = String(cr.narrative || "");
+        const offence = String(cr.offence || "");
+        if (fireKeywords.some(kw => narrative.toLowerCase().includes(kw) || offence.toLowerCase().includes(kw))) {
+            const parsed = parseFireIncidentAdvanced(narrative, offence);
+            totalDeaths += parsed.deaths;
+            totalInjuries += parsed.injuries;
             fireList.push({
                 station: cr.station || 'UNKNOWN',
                 region: cr.region || 'KMP GENERAL',
                 date: cr.date || 'N/A',
-                casualties,
-                summary: stripHtmlTags(cr.narrative || cr.offence || 'Fire incident logged.')
+                classification: parsed.classification,
+                deaths: parsed.deaths,
+                injuries: parsed.injuries,
+                summary: cleanDisplayNarrative(narrative || offence || 'Fire incident logged.')
             });
         }
     });
 
-    return { totalFires: fireList.length, totalCasualties, fireList };
+    return { totalFires: fireList.length, totalDeaths, totalInjuries, fireList };
   }, [resolvedCrimeRegistry, selectedMonth, dateFilter, selectedRegion, selectedStation]);
 
   const detentionTimeSeriesData = useMemo(() => {
@@ -420,7 +490,6 @@ const AnalyticsDashboard = ({
       return aggregateTimeSeries(timeFilteredDataset, 'date', ['minor', 'serious', 'fatal', 'victims', 'total']);
   }, [timeFilteredDataset]);
 
-  // 🟢 Lockup Intelligence & Station Overstay Breakdown
   const lockupIntelligence = useMemo(() => {
     const records = fetchedLockup; 
     if (!Array.isArray(records) || records.length === 0) {
@@ -661,7 +730,7 @@ const AnalyticsDashboard = ({
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-4 py-2.5 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
         <div>
           <h1 className="text-lg font-extrabold text-[#3a3225] tracking-tight">KMP Relational Operations & Intelligence Dashboard</h1>
-          <p className="text-[11px] text-[#736450] font-medium">Monthly aggregates, crime categories, suspect legal statuses, open-ended recoveries, fire incidents, time-series detentions, and accident analytics.</p>
+          <p className="text-[11px] text-[#736450] font-medium">Monthly aggregates, crime categories, suspect legal statuses, open-ended recoveries, fire incidents, daily detentions, and accident analytics.</p>
         </div>
         <button onClick={handleExportExcel} className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-xs transition flex items-center space-x-1.5 cursor-pointer shrink-0">
           <Download size={14} className="mr-1" />
@@ -852,83 +921,55 @@ const AnalyticsDashboard = ({
         </div>
       )}
 
-      {/* 🔒 DETENTIONS ANALYSIS TAB (WITH PRECISE STATION OVERSTAY BREAKDOWN) */}
+      {/* 🔒 DETENTIONS ANALYSIS TAB (MONDAY TO SUNDAY PROGRESSION + CHEVRONS) */}
       {activeDomain === 'DETENTIONS' && (
         <div className="space-y-4 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Lock className="mr-2 text-[#C5A880] w-4 h-4" /> Cell Detentions Time-Series Intelligence & Human Rights Audit
+              <Lock className="mr-2 text-[#C5A880] w-4 h-4" /> Daily Detention Progression (Monday to Sunday Closure)
             </h2>
             <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
-              Tracking statutory 48-hour overstays, women counts, juvenile protection, and weekly population fluctuations.
+              Tracking daily cell populations from Monday through Sunday closure with granular demographic breakdowns.
             </p>
           </div>
 
-          {/* Intelligence Alert Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="bg-red-900 text-white p-4 rounded-xl shadow-sm border border-red-950 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-200">Constitutional Alert</span>
-                    <AlertTriangle size={18} className="text-red-300 animate-pulse" />
+          <div className="space-y-2">
+            {processDailyDetentionProgression(timeFilteredDataset).map((dayObj) => {
+              const isDayOpen = !!expandedDays[dayObj.day];
+              return (
+                <div key={dayObj.day} className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
+                  <div onClick={() => toggleDayDropdown(dayObj.day)} className="px-4 py-2.5 bg-[#efece6] hover:bg-[#e9eedf] flex justify-between items-center cursor-pointer font-bold text-xs transition-colors">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[#596E47]">{isDayOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                      <span className="text-[#3a3225] uppercase">{dayObj.day}</span>
+                    </div>
+                    <div className="flex items-center space-x-4 text-xs font-black text-[#596E47]">
+                      <span>Total Suspects: {dayObj.closing}</span>
+                    </div>
+                  </div>
+                  {isDayOpen && (
+                    <div className="p-4 bg-white grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs border-t border-[#e2d6c3] animate-in slide-in-from-top-2">
+                      <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                        <span className="font-bold text-blue-900 block mb-1">Male Adults</span>
+                        <strong className="text-base text-blue-950">{dayObj.maleAdult}</strong>
+                      </div>
+                      <div className="bg-blue-100 p-3 rounded-lg border border-blue-300">
+                        <span className="font-bold text-blue-900 block mb-1">Male Juveniles (Minors)</span>
+                        <strong className="text-base text-blue-950">{dayObj.maleJuv}</strong>
+                      </div>
+                      <div className="bg-pink-50 p-3 rounded-lg border border-pink-200">
+                        <span className="font-bold text-pink-900 block mb-1">Female Adults</span>
+                        <strong className="text-base text-pink-950">{dayObj.femaleAdult}</strong>
+                      </div>
+                      <div className="bg-pink-100 p-3 rounded-lg border border-pink-300">
+                        <span className="font-bold text-pink-900 block mb-1">Female Juveniles (Minors)</span>
+                        <strong className="text-base text-pink-950">{dayObj.femaleJuv}</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="mt-3">
-                    <div className="text-2xl font-black">{lockupIntelligence.overstayed}</div>
-                    <div className="text-xs font-semibold text-red-200">Overstayed Suspects (3+ Days Detention)</div>
-                </div>
-                <div className="mt-2 text-[10px] text-red-300 font-medium">
-                    {Object.keys(lockupIntelligence.stationMap).length > 0 ? (
-                        <div>
-                            <strong>Station Breakdown:</strong>
-                            {Object.entries(lockupIntelligence.stationMap).map(([stn, count]) => (
-                                <div key={stn}>• {stn}: {count} suspect(s)</div>
-                            ))}
-                        </div>
-                    ) : "No overstays flagged across stations."}
-                </div>
-            </div>
-
-            <div className="bg-[#3a3225] text-[#f4eee2] p-4 rounded-xl shadow-sm border border-[#534735] flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#C5A880]">Gender Demographics</span>
-                    <Users size={18} className="text-[#C5A880]" />
-                </div>
-                <div className="mt-3">
-                    <div className="text-2xl font-black">{lockupIntelligence.femaleTotal}</div>
-                    <div className="text-xs font-semibold text-[#b8ab97]">Total Women in Custody</div>
-                </div>
-                <div className="mt-2 text-[10px] text-[#b8ab97] font-medium">Breakdown: {lockupIntelligence.femaleAdults} Adults | {lockupIntelligence.femaleJuveniles} Juveniles</div>
-            </div>
-
-            <div className="bg-purple-900 text-white p-4 rounded-xl shadow-sm border border-purple-950 flex flex-col justify-between">
-                <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-purple-200">Child Protection</span>
-                    <Shield size={18} className="text-purple-300" />
-                </div>
-                <div className="mt-3">
-                    <div className="text-2xl font-black">{lockupIntelligence.totalJuveniles}</div>
-                    <div className="text-xs font-semibold text-purple-200">Total Juveniles (Minors) in Cells</div>
-                </div>
-                <div className="mt-2 text-[10px] text-purple-300 font-medium">Mandatory legal aid & probation tracking required.</div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-4 h-[400px]">
-             <h3 className="text-xs font-black text-[#3a3225] uppercase mb-3">Weekly Detentions Trend (Suspect Population & Overstays)</h3>
-             {detentionTimeSeriesData.weekly.length > 0 ? (
-               <ResponsiveContainer width="100%" height="88%">
-                  <LineChart data={detentionTimeSeriesData.weekly} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2d6c3" />
-                    <XAxis dataKey="period" tick={{fontSize: 10, fontWeight: 'bold'}} />
-                    <YAxis tick={{fontSize: 10}} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2d6c3', fontSize: '11px', fontWeight: 'bold' }} />
-                    <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
-                    <Line type="monotone" dataKey="suspects" name="Total Suspects" stroke="#596E47" strokeWidth={3} dot={{r: 4}} />
-                    <Line type="monotone" dataKey="detention_3days_over" name="Detained 3+ Days" stroke="#991B1B" strokeWidth={2} dot={{r: 3}} />
-                  </LineChart>
-               </ResponsiveContainer>
-             ) : (
-               <div className="w-full h-full flex items-center justify-center text-[11px] text-[#736450] font-bold">No lockup matrix time-series data available for the selected timeframe.</div>
-             )}
+              );
+            })}
           </div>
         </div>
       )}
@@ -968,28 +1009,30 @@ const AnalyticsDashboard = ({
         </div>
       )}
 
-      {/* 🔥 FIRE INCIDENTS ANALYSIS TAB */}
+      {/* 🔥 FIRE INCIDENTS ANALYSIS TAB (ADVANCED CLASSIFICATIONS & CASUALTIES) */}
       {activeDomain === 'FIRES' && (
         <div className="space-y-4 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Flame className="mr-2 text-amber-500 w-4 h-4" /> Fire Outbreaks & Arson Intelligence Audit
+              <Flame className="mr-2 text-amber-500 w-4 h-4" /> Fire Outbreaks & Property Casualty Intelligence Audit
             </h2>
             <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
-              Intelligently parsed from crime registry narratives, highlighting disaster locations and human casualties.
+              Classifying structures (schools, churches, residential houses, commercial/furniture shops, motor vehicles, vessels) and tracking explicit deaths vs. injuries.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
              <div className="bg-amber-900 text-white p-4 rounded-xl shadow-sm border border-amber-950 flex flex-col justify-between">
                 <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-200">Total Fire Incidents</span>
                 <div className="text-3xl font-black mt-2">{fireIntelligence.totalFires}</div>
-                <div className="text-xs text-amber-200 mt-1">Recorded across filtered jurisdictions</div>
              </div>
-             <div className="bg-red-950 text-white p-4 rounded-xl shadow-sm border border-red-900 flex flex-col justify-between">
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-200">Total Fire Casualties</span>
-                <div className="text-3xl font-black mt-2">{fireIntelligence.totalCasualties}</div>
-                <div className="text-xs text-red-200 mt-1">Injuries and fatalities from reported fires</div>
+             <div className="bg-red-900 text-white p-4 rounded-xl shadow-sm border border-red-950 flex flex-col justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-200">Total Fire Deaths</span>
+                <div className="text-3xl font-black mt-2">{fireIntelligence.totalDeaths}</div>
+             </div>
+             <div className="bg-orange-800 text-white p-4 rounded-xl shadow-sm border border-orange-950 flex flex-col justify-between">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-orange-200">Total Fire Injuries</span>
+                <div className="text-3xl font-black mt-2">{fireIntelligence.totalInjuries}</div>
              </div>
           </div>
 
@@ -999,8 +1042,10 @@ const AnalyticsDashboard = ({
                 <thead className="bg-[#efece6]">
                   <tr>
                     <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Region</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Casualties</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Incident Summary & Narrative</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Property / Structure Type</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Deaths</th>
+                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Injuries</th>
+                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Incident Narrative Summary</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
@@ -1010,12 +1055,14 @@ const AnalyticsDashboard = ({
                         <td className="px-3 py-2 text-[11px] font-bold text-[#3a3225]">
                           {f.station}<br/><span className="text-[10px] text-[#736450]">{f.region}</span>
                         </td>
-                        <td className="px-3 py-2 text-center font-black text-red-700 text-[11px]">{f.casualties}</td>
+                        <td className="px-3 py-2 text-[11px] font-extrabold text-amber-800 uppercase">{f.classification}</td>
+                        <td className="px-3 py-2 text-center font-black text-red-700 text-[11px]">{f.deaths}</td>
+                        <td className="px-3 py-2 text-center font-black text-amber-600 text-[11px]">{f.injuries}</td>
                         <td className="px-3 py-2 text-[11px] text-[#3a3225]">{f.summary}</td>
                       </tr>
                     ))
                   ) : (
-                    <tr><td colSpan="3" className="text-center py-6 text-[11px] text-[#736450]">No fire or arson incidents logged matching your filter.</td></tr>
+                    <tr><td colSpan="5" className="text-center py-6 text-[11px] text-[#736450]">No fire or arson incidents logged matching your filter.</td></tr>
                   )}
                 </tbody>
               </table>

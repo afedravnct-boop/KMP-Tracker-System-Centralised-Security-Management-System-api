@@ -1,5 +1,6 @@
+// src/components/SystemAssistant.jsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Bot, User, Loader2, Minimize2, Maximize2, ChevronDown, Database, FileText, Check, Copy, Wrench, X, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Send, Bot, User, Loader2, Minimize2, Maximize2, ChevronDown, Database, FileText, Check, Copy, Wrench, X, CheckCircle2, Paperclip } from 'lucide-react';
 import { authFetch } from './api';
 
 const FormattedMessage = ({ content }) => {
@@ -68,7 +69,7 @@ const SystemAssistant = ({ currentUser, canViewGlobal }) => {
   const [messages, setMessages] = useState([
     { 
       sender: 'ai', 
-      text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant**
+      text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant (Gemini 3.8/3.7 Powered)**
 
 Welcome to the KMP Tracker System AI assistant. The AI Assistant Responds to your queries across all system modules. Get guidance on how to proceed.
 Here is an architectural overview of the system's operational interface:
@@ -84,16 +85,21 @@ Here is an architectural overview of the system's operational interface:
   - *AI Search Security:* When answering searches, high-command clearance allows authorized officers to view operational details while sensitive personal identifiers (such as bank accounts, TINs, and NINs) remain protected under data security protocols.
 - **Tripartite Reports & Documents:** Secure repository for uploading, storing, and reviewing general documents, secure operational files, and standardized command templates.
 - **Access & Approvals (Super Control Panel):** High-command administrative gateway featuring unapproved user authorizations, a granular 20+ module clearance matrix, secure audit logs, password reset requests, and emergency system/regional/station lockdown toggles.
-- **AI Command Console:** Natural language intelligence engine allowing authorized commanders to query live database records securely.
+- **AI Command Console & Assistant:** Natural language intelligence engine powered by Gemini 3.8/3.7-flash, allowing authorized commanders to query live database records securely (with multimodal photo and screenshot analysis support).
 
 *Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
 Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
-      metadata: null 
+      metadata: null,
+      image: null
     }
   ]);
   const [inputPrompt, setInputPrompt] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
   const [loading, setLoading] = useState(false);
+  
   const chatScrollRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -108,22 +114,45 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     "How to troubleshoot login lockouts"
   ];
 
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setSelectedFile(file);
+      setFilePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const clearAttachment = () => {
+    setSelectedFile(null);
+    setFilePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const executeQuery = async (queryText) => {
-    if (!queryText.trim() || loading) return;
+    if ((!queryText.trim() && !selectedFile) || loading) return;
+
+    const currentPrompt = queryText.trim();
+    const currentFile = selectedFile;
+    const currentPreview = filePreview;
 
     setInputPrompt('');
-    setMessages(prev => [...prev, { sender: 'user', text: queryText, metadata: null }]);
+    clearAttachment();
+    setMessages(prev => [...prev, { sender: 'user', text: currentPrompt || '[Attached Screenshot/Photo]', image: currentPreview, metadata: null }]);
     setLoading(true);
 
     try {
+      // 🟢 Use FormData for multimodal support (text prompt + optional screenshot/photo file sent to Gemini 3.8/3.7 backend)
+      const formData = new FormData();
+      formData.append('prompt', currentPrompt || 'Analyze this attached image/screenshot.');
+      formData.append('target_region', currentUser?.region || "ALL REGIONS");
+      formData.append('target_station', currentUser?.station || "ALL STATIONS");
+      if (currentFile) {
+        formData.append('file', currentFile);
+      }
+
       const res = await authFetch('/api/v1/ai/query', {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          prompt: queryText,
-          target_region: currentUser?.region || "ALL REGIONS",
-          target_station: currentUser?.station || "ALL STATIONS"
-        })
+        body: formData
       });
 
       const data = await res.json();
@@ -288,7 +317,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
 
       {isOpen && (
         <div className={`mb-2 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col transition-all duration-300 ease-in-out animate-in slide-in-from-bottom-3 ${
-          isExpanded ? 'w-[560px] h-[640px] max-w-[95vw] max-h-[85vh]' : 'w-96 h-[470px] max-w-[90vw] max-h-[80vh]'
+          isExpanded ? 'w-[560px] h-[640px] max-w-[95vw] max-h-[85vh]' : 'w-96 h-[490px] max-w-[90vw] max-h-[80vh]'
         }`}>
           <div className="bg-slate-950 text-white px-3.5 py-2.5 flex justify-between items-center shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
@@ -348,9 +377,14 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
                     {m.sender === 'user' ? <User size={11} /> : <Bot size={11} />}
                   </div>
 
-                  <div className={`p-3 rounded-2xl relative group ${
+                  <div className={`p-3 rounded-2xl relative group space-y-2 ${
                     m.sender === 'user' ? 'bg-[#596E47] text-white rounded-tr-none shadow-xs' : 'bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-800 rounded-tl-none shadow-xs'
                   }`}>
+                    {m.image && (
+                      <div className="rounded-lg overflow-hidden border border-amber-400/40 max-w-[200px]">
+                        <img src={m.image} alt="User Upload" className="w-full h-auto object-cover" />
+                      </div>
+                    )}
                     <FormattedMessage content={m.text} />
                     {m.sender === 'ai' && (
                       <button type="button" onClick={() => handleCopy(m.text, idx)} className="absolute top-2 right-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition cursor-pointer p-0.5" title="Copy intelligence brief">
@@ -373,20 +407,53 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             {loading && (
               <div className="flex items-center space-x-2 text-slate-600 dark:text-slate-300 italic text-[11px] bg-slate-100/90 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 w-fit">
                 <Loader2 size={13} className="animate-spin text-amber-600" />
-                <span>Querying tier-restricted databases and compliance manuals...</span>
+                <span>Querying tier-restricted databases and multimodal inspection (Gemini 3.8/3.7)...</span>
               </div>
             )}
           </div>
 
-          <form onSubmit={handleSendMessage} className="p-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center space-x-2 shrink-0">
+          {/* File Preview Banner */}
+          {filePreview && (
+            <div className="px-3 py-1.5 bg-slate-200 dark:bg-slate-800 border-t border-slate-300 dark:border-slate-700 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2 truncate">
+                <div className="w-7 h-7 rounded overflow-hidden border border-amber-600 shrink-0">
+                  <img src={filePreview} alt="Preview" className="w-full h-full object-cover" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 truncate">
+                  {selectedFile?.name}
+                </span>
+              </div>
+              <button type="button" onClick={clearAttachment} className="text-red-600 hover:text-red-700 text-[10px] font-bold flex items-center gap-0.5 cursor-pointer">
+                <X size={12} /> Remove
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleSendMessage} className="p-2.5 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center space-x-1.5 shrink-0">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileChange} 
+              accept="image/*" 
+              className="hidden" 
+            />
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()} 
+              className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-300 transition cursor-pointer shrink-0"
+              title="Attach Screenshot or Photo"
+            >
+              <Paperclip size={14} />
+            </button>
+
             <input 
               type="text" 
               value={inputPrompt} 
               onChange={(e) => setInputPrompt(e.target.value)} 
-              placeholder="Ask about deployment stats, policies, or troubleshooting..." 
+              placeholder="Ask questions or attach screenshot..." 
               className="flex-1 text-[11px] border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 outline-none focus:border-[#596E47] bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-900 transition placeholder:text-slate-400"
             />
-            <button type="submit" disabled={loading || !inputPrompt.trim()} className="bg-[#3a3225] hover:bg-black text-white p-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 shadow-xs" title="Execute Query">
+            <button type="submit" disabled={loading || (!inputPrompt.trim() && !selectedFile)} className="bg-[#3a3225] hover:bg-black text-white p-2.5 rounded-xl transition cursor-pointer disabled:opacity-40 shadow-xs" title="Execute Query">
               <Send size={12} />
             </button>
           </form>
