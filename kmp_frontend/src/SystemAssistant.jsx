@@ -140,23 +140,36 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     setMessages(prev => [...prev, { sender: 'user', text: currentPrompt || '[Attached Screenshot/Photo]', image: currentPreview, metadata: null }]);
     setLoading(true);
 
+    // Check if the user has an active auth token
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+
     try {
-      // 🟢 Use FormData for multimodal support (text prompt + optional screenshot/photo file sent to Gemini 3.8/3.7 backend)
-      const formData = new FormData();
-      formData.append('prompt', currentPrompt || 'Analyze this attached image/screenshot.');
-      formData.append('target_region', currentUser?.region || "ALL REGIONS");
-      formData.append('target_station', currentUser?.station || "ALL STATIONS");
-      if (currentFile) {
-        formData.append('file', currentFile);
+      let res;
+      if (!token) {
+        // 🟢 Unauthenticated flow: use the secure public-query backend endpoint
+        res = await fetch('/api/v1/ai/public-query', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: currentPrompt || 'Guide me through the system portal.' })
+        });
+      } else {
+        // Authenticated tactical flow
+        const formData = new FormData();
+        formData.append('prompt', currentPrompt || 'Analyze this attached image/screenshot.');
+        formData.append('target_region', currentUser?.region || "ALL REGIONS");
+        formData.append('target_station', currentUser?.station || "ALL STATIONS");
+        if (currentFile) {
+          formData.append('file', currentFile);
+        }
+
+        res = await authFetch('/api/v1/ai/query', {
+          method: "POST",
+          body: formData
+        });
       }
 
-      const res = await authFetch('/api/v1/ai/query', {
-        method: "POST",
-        body: formData
-      });
-
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Tactical intelligence engine unreachable.");
+      if (!res.ok) throw new Error(data.detail || "Intelligence engine unreachable.");
 
       setMessages(prev => [
         ...prev, 
