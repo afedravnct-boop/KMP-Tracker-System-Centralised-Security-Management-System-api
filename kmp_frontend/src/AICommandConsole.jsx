@@ -38,7 +38,7 @@ const AICommandConsole = ({ currentUser, onBack }) => {
   {
     id: 'init-1',
     sender: 'ai',
-    text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant (Gemini 3.8/3.7 Powered)**
+    text: `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant (Gemini 2.5/2.0 Powered)**
 
 Standing by for commander queries across all system modules. Here is an architectural overview of the system's operational interface:
 
@@ -50,7 +50,7 @@ Standing by for commander queries across all system modules. Here is an architec
 - **Impounded Exhibits:** Secure tracking ledger for confiscated vehicles, motorcycles, currency, and property exhibits. Fully integrated into the AI intelligence engine for automated property searches, status summaries, and jurisdiction-scoped queries.
 - **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
 - **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
-- **AI Command Console:** Natural language intelligence engine powered by Gemini 3.8/3.7-flash, allowing authorized commanders to query live database records securely with full multimodal photo and screenshot analysis support.
+- **AI Command Console:** Natural language intelligence engine powered by Gemini 2.5/2.0-flash, allowing authorized commanders to query live database records securely with full multimodal photo and screenshot analysis support.
 
 *Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
 Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station || 'ALL'}\``,
@@ -80,7 +80,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading]);
+  }, [messages, setIsLoading]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -163,7 +163,6 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     setIsLoading(true);
 
     try {
-      // 🟢 Use FormData to transmit prompt, jurisdiction scope, and optional screenshot/photo file to Gemini 3.8/3.7 backend
       const formData = new FormData();
       formData.append('prompt', cleanPrompt || 'Analyze this attached image/screenshot.');
       formData.append('target_region', currentUser?.region || 'ALL REGIONS');
@@ -174,7 +173,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
 
       const response = await authFetch('/api/v1/ai/query', {
         method: 'POST',
-        body: formData // Note: authFetch should not set Content-Type header manually when body is FormData
+        body: formData 
       });
 
       if (!response.ok) {
@@ -319,7 +318,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             <h3 className="font-black text-sm uppercase tracking-wider text-white flex items-center gap-2">
               KMP Tactical AI Command Console
               <span className="bg-sky-950 text-sky-300 text-[10px] px-2 py-0.5 rounded-full border border-sky-700 font-bold">
-                Gemini 3.8/3.7 Multimodal RAG
+                Gemini Multimodal RAG
               </span>
             </h3>
             <p className="text-xs text-slate-300">
@@ -329,7 +328,6 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
         </div>
 
         <div className="flex items-center space-x-2">
-          {/* 🟢 High-Command Glitch Audit Button */}
           {hasDiagnosticClearance && (
             <button
               onClick={() => setShowVerificationModal(true)}
@@ -424,7 +422,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             </div>
             <div className="bg-[#0f172a] border-2 border-slate-700 rounded-2xl rounded-tl-none p-4 text-xs text-slate-200 font-bold flex items-center gap-2 shadow-lg">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
-              Processing Gemini 3.8/3.7 intelligence metrics...
+              Processing Gemini intelligence metrics...
             </div>
           </div>
         )}

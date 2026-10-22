@@ -126,14 +126,26 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
 # AUTHENTICATION DEPENDENCY (WITH SESSION TIMEOUT AUDIT LOGGING)
 # ====================================================================
 def get_current_user(
+    request: Request = None,
     token: Optional[str] = Depends(oauth2_scheme), 
     db: Session = Depends(database.get_db),
-    logs_db: Session = Depends(get_logs_db)
+    logs_db: Session = Depends(get_logs_db),
+    *args,
+    **kwargs
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
     )
+    
+    # Fallback to extract token from request cookies or headers if oauth2_scheme missed it
+    if not token and request:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+        elif "access_token" in request.cookies:
+            token = request.cookies.get("access_token")
+
     if not token:
         raise credentials_exception
 

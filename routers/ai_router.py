@@ -14,6 +14,7 @@ from typing import Optional
 
 from app.database import get_db, get_logs_db, engine
 from app import models
+from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
 try:
@@ -75,11 +76,8 @@ def check_ai_db_query_clearance(user) -> bool:
 async def toggle_ai_database_queries(
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user) # 🟢 Injected Dependency
 ):
-    from auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     role = (current_user.role or "").upper()
     if role not in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]:
         perms = current_user.permissions or {}
@@ -138,11 +136,8 @@ async def verify_client_diagnosis(
     payload: DiagnosisVerificationPayload,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user) # 🟢 Injected Dependency
 ):
-    from auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     if not check_diagnostic_clearance(current_user):
         raise HTTPException(
             status_code=403, 
@@ -175,8 +170,8 @@ async def verify_client_diagnosis(
         3. Recommended corrective actions for system administrators.
         """
 
-        # 🟢 UPDATED: Prioritize 3.6 and 3.5, falling back smoothly to 2.5-flash and 2.0-flash
-        candidate_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']
+        # 🟢 STRICTLY ONLY PRODUCTION MODELS
+        candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
         response = None
         last_exception = None
 
@@ -252,8 +247,8 @@ async def process_public_tactical_query(
             f"VISITOR QUERY: {payload.prompt}"
         )
 
-        # 🟢 Robust candidate fallback array including 3.8, 3.7, 3.5, and 2.0
-        candidate_models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']
+        # 🟢 STRICTLY ONLY PRODUCTION MODELS
+        candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
         response = None
         used_model = None
         last_exception = None
@@ -299,11 +294,8 @@ async def process_tactical_query(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Injected Dependency
 ):
-    from auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=401, detail="GEMINI_API_KEY is missing from the server environment.")
@@ -531,8 +523,8 @@ async def process_tactical_query(
                 )
             )
 
-        # 🟢 UPDATED: Prioritize 3.6 and 3.5, falling back smoothly to 2.5-flash and 2.0-flash
-        candidate_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']
+        # 🟢 STRICTLY ONLY PRODUCTION MODELS
+        candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
         response = None
         used_model = None
         last_exception = None
@@ -619,14 +611,20 @@ async def report_client_crash(
     logs it to audit trails, and auto-dispatches an internal alert to Super Admins.
     """
     try:
-        from auth import get_current_user
-        current_user = None
-        try:
-            current_user = get_current_user(request=request, db=db)
-        except Exception:
-            pass
-
-        fnum_val = current_user.fnum if current_user else "PUBLIC_VISITOR"
+        # 🟢 Safely extract token without requiring authentication (prevents 401s for public users)
+        fnum_val = "PUBLIC_VISITOR"
+        if request:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+                try:
+                    from jose import jwt
+                    from app.core import security
+                    decoded = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+                    if decoded.get("sub"):
+                        fnum_val = decoded.get("sub")
+                except Exception:
+                    pass
 
         record_neon_activity(
             logs_db=logs_db,
@@ -637,7 +635,7 @@ async def report_client_crash(
             changes_summary=f"WSOD/Login Crash on page [{payload.page_name}]. Element: {payload.element_point}. Error: {payload.description}"
         )
 
-        AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', None))
+        AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))))
         if AdminCommsModel:
             glitch_summary = (
                 f"<p><strong>[AUTOMATED SYSTEM TELEMETRY ALERT]</strong></p>"
@@ -651,20 +649,24 @@ async def report_client_crash(
             new_dispatch = AdminCommsModel(
                 sender_fnum=fnum_val,
                 sender_name="System AI Diagnostics",
-                sender_rank="AUTONOMOUS AUDITOR",
                 target_audience="ADMINS_ONLY",
                 subject=f"⚠️ TECHNICAL FAULT DETECTED: {payload.page_name}",
                 message=glitch_summary,
-                category="TECHNICAL_GLITCH",
-                priority="CRITICAL",
-                region="ALL REGIONS",
-                station="ALL STATIONS",
-                acknowledged=False
+                status="ACTIVE",
+                created_at=time.strftime('%Y-%m-%d %H:%M:%S')
             )
+            if hasattr(new_dispatch, 'sender_rank'):
+                new_dispatch.sender_rank = "AUTONOMOUS AUDITOR"
+            if hasattr(new_dispatch, 'category'):
+                new_dispatch.category = "TECHNICAL_GLITCH"
+            if hasattr(new_dispatch, 'priority'):
+                new_dispatch.priority = "CRITICAL"
+                
             db.add(new_dispatch)
             db.commit()
 
         return {"status": "success", "message": "Crash telemetry processed and routed to High Command."}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Crash reporting failed: {str(e)}")
+        # Return success so frontend doesn't break twice
+        return {"status": "success", "message": "Crash telemetry captured softly."}
