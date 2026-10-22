@@ -55,7 +55,7 @@ def get_general_documents(
     logs_db: Session = Depends(get_logs_db),
     request: Request = None
 ):
-    from auth import get_current_user
+    from app.auth import get_current_user
     current_user = get_current_user(request=request, db=db)
 
     try:
@@ -100,7 +100,7 @@ async def upload_general_document(
     logs_db: Session = Depends(get_logs_db),
     request: Request = None
 ):
-    from auth import get_current_user
+    from app.auth import get_current_user
     current_user = get_current_user(request=request, db=db)
 
     Model = get_general_doc_model()
@@ -167,7 +167,7 @@ def download_general_document(
     logs_db: Session = Depends(get_logs_db),
     request: Request = None
 ):
-    from auth import get_current_user
+    from app.auth import get_current_user
     current_user = get_current_user(request=request, db=db)
 
     Model = get_general_doc_model()

@@ -1,6 +1,6 @@
 // src/components/SystemAssistant.jsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, Send, Bot, User, Loader2, Minimize2, Maximize2, ChevronDown, Database, FileText, Check, Copy, Wrench, X, CheckCircle2, Paperclip } from 'lucide-react';
+import { Sparkles, Send, Bot, User, Loader2, Minimize2, Maximize2, ChevronDown, Wrench, X } from 'lucide-react';
 import { authFetch } from './api';
 
 const FormattedMessage = ({ content }) => {
@@ -41,16 +41,11 @@ const renderInlineStyles = (text) => {
   });
 };
 
-const SystemAssistant = ({ currentUser, canViewGlobal, limitedMode = false, embedded = false }) => {
+const SystemAssistant = ({ currentUser, limitedMode = false, embedded = false }) => {
   const [isOpen, setIsOpen] = useState(embedded || false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const [copiedIndex, setCopiedIndex] = useState(null);
 
-  const officerFnum = currentUser?.fnum || 'AUTH';
-  const officerRank = currentUser?.rank || '';
-  const officerName = currentUser?.name || '';
-  
   // High-Command Clearance Check for Technical Glitch Diagnostics
   const hasDiagnosticClearance = 
     ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes((currentUser?.role || '').toUpperCase()) ||
@@ -71,20 +66,14 @@ const SystemAssistant = ({ currentUser, canViewGlobal, limitedMode = false, embe
       sender: 'ai', 
       text: limitedMode 
         ? "Greetings, Officer. I am your KMP Access Assistant. Tap a quick query below or type your question regarding credentials and portal access."
-        : `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant (Gemini Powered)**
-
-Welcome to the KMP Tracker System AI assistant. How may I assist your command jurisdiction today?`,
-      metadata: null,
-      image: null
+        : `**KMP Centralised Security Data Management System (CSDMS) - Intelligence Assistant**\n\nWelcome, ${currentUser?.rank || 'Officer'} ${currentUser?.name || ''}. How may I assist your command jurisdiction today?`,
+      metadata: null
     }
   ]);
   const [inputPrompt, setInputPrompt] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [filePreview, setFilePreview] = useState(null);
   const [loading, setLoading] = useState(false);
   
   const chatScrollRef = useRef(null);
-  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -104,60 +93,64 @@ Welcome to the KMP Tracker System AI assistant. How may I assist your command ju
     "How to troubleshoot login lockouts"
   ];
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setSelectedFile(file);
-      setFilePreview(URL.createObjectURL(file));
-    }
-  };
+  // 🟢 Local rule-based engine for unauthenticated visitors on the login screen (Zero token, zero server latency)
+  const getLocalLoginAnswer = (query) => {
+    const lower = query.toLowerCase();
 
-  const clearAttachment = () => {
-    setSelectedFile(null);
-    setFilePreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (lower.includes('access') || lower.includes('request') || lower.includes('signup') || lower.includes('account')) {
+      return "### Access Request Workflow\nTo request access as a new officer:\n• Click **'Sign Up (Request Access)'** on the main login card.\n• Fill out your official **Force Number** and **IPPS** details.\n• Upload your mandatory service identification photograph.\n• Accept the **Terms & Policy** before submitting your application for High Command review.";
+    } 
+    if (lower.includes('force number') || lower.includes('fnum') || lower.includes('format')) {
+      return "### Force Number Formatting\n• Force Numbers must be entered in official uppercase format (e.g., `A/2408` or numeric service IDs like `63034`).\n• Ensure it matches your active deployment records in the HR Nominal Roll.";
+    } 
+    if (lower.includes('password') || lower.includes('key') || lower.includes('requirement')) {
+      return "### Security Key & Password Policy\n• Passwords require a minimum of **8 characters** combining uppercase letters, lowercase letters, and digits.\n• Accounts trigger a temporary **30-second security lockout** after 3 consecutive failed login attempts.";
+    } 
+    if (lower.includes('reset') || lower.includes('forgot')) {
+      return "### Password Recovery\n• Click **'Forgot Security Key?'** on the login form.\n• Enter your registered Force Number and submit a reset request directly to Command review logs.";
+    }
+    if (lower.includes('status') || lower.includes('approval')) {
+      return "### Account Approval Status\n• New account requests are vetted by Super Administrators or Regional Commanders.\n• Once approved, your credentials will authorize successfully against the central database.";
+    }
+    
+    return `### KMP Access Guide\nI received your query regarding "${query}". Because you are accessing the public portal prior to authorization, live database queries are restricted. Please consult the login screen navigation guide above or submit a manual fault ticket.`;
   };
 
   const executeQuery = async (queryText) => {
-    if ((!queryText.trim() && !selectedFile) || loading) return;
+    if (!queryText.trim() || loading) return;
 
     const currentPrompt = queryText.trim();
-    const currentFile = selectedFile;
-    const currentPreview = filePreview;
-
     setInputPrompt('');
-    clearAttachment();
-    setMessages(prev => [...prev, { sender: 'user', text: currentPrompt || '[Attached Screenshot/Photo]', image: currentPreview, metadata: null }]);
+    setMessages(prev => [...prev, { sender: 'user', text: currentPrompt, metadata: null }]);
     setLoading(true);
 
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-
     try {
-      let res;
-      if (!token) {
-        res = await fetch('/api/v1/ai/public-query', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: currentPrompt || 'Guide me through the system portal.' })
-        });
-      } else {
-        const formData = new FormData();
-        formData.append('prompt', currentPrompt || 'Analyze this attached image/screenshot.');
-        formData.append('target_region', currentUser?.region || "ALL REGIONS");
-        formData.append('target_station', currentUser?.station || "ALL STATIONS");
-        if (currentFile) {
-          formData.append('file', currentFile);
-        }
+      // 🟢 Login screen mode: Answer instantly via local logic without needing tokens or hitting Render backend
+      if (limitedMode) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        const localAnswer = getLocalLoginAnswer(currentPrompt);
+        setMessages(prev => [...prev, { sender: 'ai', text: localAnswer, metadata: { ai_model_used: 'Local Rule Engine' } }]);
+        setLoading(false);
+        return;
+      }
 
-        res = await authFetch('/api/v1/ai/query', {
-          method: "POST",
-          body: formData
-        });
+      // Authenticated Dashboard User Query Flow
+      const formData = new FormData();
+      formData.append('prompt', currentPrompt);
+      formData.append('target_region', currentUser?.region || "ALL REGIONS");
+      formData.append('target_station', currentUser?.station || "ALL STATIONS");
+
+      const res = await authFetch('/api/v1/ai/query', {
+        method: "POST",
+        body: formData
+      });
+
+      const contentType = res.headers.get("content-type");
+      if (!res.ok || !contentType || !contentType.includes("application/json")) {
+        throw new Error(`Server returned status ${res.status}`);
       }
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Intelligence engine unreachable.");
-
       setMessages(prev => [
         ...prev, 
         { 
@@ -171,7 +164,7 @@ Welcome to the KMP Tracker System AI assistant. How may I assist your command ju
         ...prev, 
         { 
           sender: 'ai', 
-          text: `⚠️ **System Intelligence Notice:** ${err.message}`,
+          text: `⚠️ **System Intelligence Notice:** Connection to server delayed (${err.message}). Please try your prompt again in a moment.`,
           metadata: null 
         }
       ]);
@@ -218,13 +211,6 @@ Welcome to the KMP Tracker System AI assistant. How may I assist your command ju
     executeQuery(inputPrompt);
   };
 
-  const handleCopy = (text, idx) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(idx);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
-
-  // If embedded (used directly inside the login help modal), render the chat box directly without floating wrappers
   if (embedded) {
     return (
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-300 dark:border-slate-700 overflow-hidden flex flex-col h-full shadow-inner font-sans">
@@ -285,14 +271,12 @@ Welcome to the KMP Tracker System AI assistant. How may I assist your command ju
     );
   }
 
-  // Standard floating widget mode for dashboard view
   return (
     <div className="fixed bottom-2 right-4 sm:right-18 z-[99990] flex flex-col items-end font-sans select-none">
       {isOpen && (
         <div className={`mb-2 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col transition-all duration-300 ease-in-out animate-in slide-in-from-bottom-3 ${
           isExpanded ? 'w-[560px] h-[640px] max-w-[95vw] max-h-[85vh]' : 'w-96 h-[490px] max-w-[90vw] max-h-[80vh]'
         }`}>
-          {/* Header */}
           <div className="bg-slate-950 text-white px-3.5 py-2.5 flex justify-between items-center shrink-0 border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <span className="relative flex h-2 w-2">
@@ -330,7 +314,6 @@ Welcome to the KMP Tracker System AI assistant. How may I assist your command ju
             </div>
           </div>
 
-          {/* Chat content container */}
           <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-slate-50 dark:bg-slate-950 text-[11px]">
             {messages.map((m, idx) => (
               <div key={idx} className={`flex flex-col ${m.sender === 'user' ? 'items-end' : 'items-start'}`}>
