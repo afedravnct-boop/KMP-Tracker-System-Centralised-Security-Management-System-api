@@ -42,12 +42,11 @@ s3_client = boto3.client(
 )
 
 def get_general_doc_model():
-    for name in ['GeneralDocuments', 'General_Documents', 'general_documents']:
+    for name in ['GeneralDocument', 'GeneralDocuments', 'General_Documents', 'general_documents']:
         if hasattr(models, name):
             return getattr(models, name)
-    raise HTTPException(status_code=500, detail="General Documents model not configured.")
+    return None  # Return None safely instead of throwing 500
 
-# 🟢 Matches frontend sync (/api/v1/general-documents) as well as legacy list (/api/v1/general-docs/list)
 @router.get("/general-documents")
 @router.get("/general-docs/list")
 def get_general_documents(
@@ -55,38 +54,66 @@ def get_general_documents(
     logs_db: Session = Depends(get_logs_db),
     request: Request = None
 ):
-    from app.auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
+    # 🟢 STEP 1: Completely isolate authentication so an invalid token never throws a 500
+    current_user = None
+    try:
+        from app.auth import get_current_user
+        current_user = get_current_user(request=request, db=db)
+    except Exception as auth_err:
+        print(f"Auth notice in general-docs: {auth_err}")
+        return []  # Safely return empty array instead of 500ing
 
+    # 🟢 STEP 2: Isolate database querying with explicit table check
     try:
         Model = get_general_doc_model()
+        if not Model:
+            return []
+
         docs = db.query(Model).order_by(Model.id.desc()).all()
         
-        serialized_docs = [{
-            "id": d.id,
-            "name": getattr(d, 'file_name', getattr(d, 'name', 'Document')),
-            "type": getattr(d, 'doc_type', getattr(d, 'type', 'General Document')),
-            "date": d.upload_date.strftime("%Y-%m-%d") if isinstance(getattr(d, 'upload_date', None), datetime) else str(getattr(d, 'upload_date', getattr(d, 'created_at', ''))).split(' ')[0],
-            "size": getattr(d, 'file_size', getattr(d, 'size', 'N/A')),
-            "file_path": getattr(d, 'file_path', getattr(d, 'url', '')),
-            "region": getattr(d, 'region', 'KMP HEADQUARTERS'),
-            "station": getattr(d, 'station', 'HQ')
-        } for d in docs]
+        serialized_docs = []
+        for d in docs:
+            try:
+                raw_date = getattr(d, 'upload_date', getattr(d, 'created_at', ''))
+                if isinstance(raw_date, datetime):
+                    date_str = raw_date.strftime("%Y-%m-%d")
+                else:
+                    date_str = str(raw_date).split(' ')[0] if raw_date else 'N/A'
 
-        # 🟢 Record VIEW activity into NeonDB Activity Logs branch
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="VIEW",
-            module="GENERAL_DOCUMENTS",
-            target_id="ALL_DOCUMENTS",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} accessed General Documents repository (Fetched {len(serialized_docs)} files)."
-        )
+                serialized_docs.append({
+                    "id": getattr(d, 'id', 0),
+                    "name": getattr(d, 'file_name', getattr(d, 'name', 'Document')),
+                    "type": getattr(d, 'doc_type', getattr(d, 'type', 'General Document')),
+                    "date": date_str,
+                    "size": getattr(d, 'file_size', getattr(d, 'size', 'N/A')),
+                    "file_path": getattr(d, 'file_path', getattr(d, 'url', '')),
+                    "region": getattr(d, 'region', 'KMP HEADQUARTERS'),
+                    "station": getattr(d, 'station', 'HQ')
+                })
+            except Exception as row_err:
+                print(f"Skipping malformed document row: {row_err}")
+                continue
+
+        # 🟢 STEP 3: Non-blocking activity logging
+        if current_user:
+            try:
+                record_neon_activity(
+                    logs_db=logs_db,
+                    fnum=current_user.fnum,
+                    action_type="VIEW",
+                    module="GENERAL_DOCUMENTS",
+                    target_id="ALL_DOCUMENTS",
+                    changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} accessed General Documents repository (Fetched {len(serialized_docs)} files)."
+                )
+            except Exception:
+                pass
 
         return serialized_docs
-    except Exception as e:
-        print(f"General docs fetch error: {e}")
-        return []
+
+    except Exception as db_err:
+        import traceback
+        traceback.print_exc()  # Prints exact error trace to Render logs for diagnosis
+        return []  # Always return safe empty list to stop frontend 500 loops
 
 # 🟢 Matches both upload endpoints
 @router.post("/general-documents/upload")

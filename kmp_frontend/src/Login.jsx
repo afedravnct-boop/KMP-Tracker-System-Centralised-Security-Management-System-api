@@ -59,20 +59,49 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   // 🟢 Mandatory Policy Agreement State (Strictly for Signup)
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   
-  // 🟢 NEW: State for the Help / Support Guide
+  // 🟢 State for the Help / Support Guide
   const [showHelpModal, setShowHelpModal] = useState(false);
   
-  // Place this inside your Login or Workspace Standby component
+  // 🟢 Local Storage Telemetry Buffer Helper for Offline Resilience
+  const logClientErrorLocally = (errorPayload) => {
+    try {
+      const existingQueue = JSON.parse(localStorage.getItem('kmp_pending_telemetry') || '[]');
+      existingQueue.push(errorPayload);
+      if (existingQueue.length > 20) existingQueue.shift();
+      localStorage.setItem('kmp_pending_telemetry', JSON.stringify(existingQueue));
+    } catch (e) {
+      // Storage restricted or full
+    }
+  };
+
+  // Flush any pending offline telemetry once online / authorized
+  useEffect(() => {
+    const flushPendingTelemetry = async () => {
+      try {
+        const pending = JSON.parse(localStorage.getItem('kmp_pending_telemetry') || '[]');
+        if (pending.length === 0) return;
+
+        for (const payload of pending) {
+          await fetch(`${API_URL}/api/v1/ai/report-crash`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+        localStorage.removeItem('kmp_pending_telemetry');
+      } catch (e) {
+        // Keep buffered if network drops again
+      }
+    };
+    flushPendingTelemetry();
+  }, []);
+
   useEffect(() => {
     let animationFrameId;
     const syncGlobesToEpoch = () => {
-      // 20-second complete rotation cycle mapped to Epoch milliseconds
       const currentTime = Date.now() / 20; 
-      const rotationPosition = currentTime % 500; // Loops every 500px of background texture
-      
-      // Push the synchronized coordinate directly to the HTML root
+      const rotationPosition = currentTime % 500; 
       document.documentElement.style.setProperty('--universal-globe-pos', `${rotationPosition}px`);
-      
       animationFrameId = requestAnimationFrame(syncGlobesToEpoch);
     };
     
@@ -202,7 +231,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
     if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
 
-    // Client-side Password Policy Verification
     if (!signupData.password || signupData.password.length < 8) {
       return setAuthMessage("⚠️ Error: Password must be at least 8 characters long.");
     }
@@ -294,6 +322,13 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       } catch (err) { 
         setPassword(''); 
         setAuthMessage("Network error. Could not connect to the server."); 
+        logClientErrorLocally({
+          glitch_category: "Network Gateway Offline",
+          page_name: "Login Screen",
+          element_point: "handleLoginSubmit",
+          description: err.toString(),
+          timestamp: new Date().toISOString()
+        });
       }
     } else if (mode === 'forgot') {
       try {
@@ -363,6 +398,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             <span className="inline-flex items-center justify-center shrink-0 animate-spin" style={{ animationDuration: '12s' }}>
               <Globe size={18} className="text-amber-300" />
             </span>
+
           </div>
 
           <p className="text-xs text-slate-300 mt-4 font-medium tracking-wide relative z-20">
@@ -786,7 +822,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       {/* SYSTEM HELP & USER GUIDE MODAL */}
       {showHelpModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
-          {/* Flexes wider with max-w-4xl and increases base font size */}
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh]">
             <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
               <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center gap-2">
@@ -797,10 +832,8 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
               </button>
             </div>
             
-            {/* Upgraded text size to text-sm and fixed font color contrast */}
             <div className="p-6 overflow-y-auto space-y-6 text-sm text-slate-800 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
               
-              {/* COMPREHENSIVE LOGIN SCREEN & NAVIGATION GUIDE */}
               <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
                 <h4 className="font-black text-slate-950 uppercase text-base border-b border-slate-200 pb-2">Login Screen Navigation & Input Guide</h4>
                 <p><strong>1. Main Sign-In Mode (Existing Users):</strong></p>
@@ -831,7 +864,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                 </ul>
               </div>
 
-              {/* EMBEDDED INTERACTIVE AI ASSISTANT */}
               <div className="space-y-3">
                 <div className="text-xs font-black text-slate-600 uppercase tracking-wider">Interactive Help Assistant</div>
                 <div className="relative h-72 w-full bg-white rounded-xl overflow-hidden border border-slate-300 shadow-inner">
