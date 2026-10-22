@@ -1,46 +1,167 @@
-// TechnicalTroubleshootingModal.jsx
-import React from 'react';
-import { X, Wrench } from 'lucide-react';
+// src/components/TechnicalTroubleshootingModal.jsx
+import React, { useState } from 'react';
+import { X, HelpCircle, Wrench, Send } from 'lucide-react';
+import SystemAssistant from './SystemAssistant';
+import { authFetch, API_BASE_URL } from '../api';
 
-export default function TechnicalTroubleshootingModal({ isOpen, onClose }) {
+export default function TechnicalTroubleshootingModal({ isOpen, onClose, fileOrForceNumber }) {
   if (!isOpen) return null;
+
+  // Manual Help & Glitch Report States
+  const [helpCategory, setHelpCategory] = useState('LOGIN_AUTH_FAILURE');
+  const [helpDescription, setHelpDescription] = useState('');
+  const [isSubmittingHelp, setIsSubmittingHelp] = useState(false);
+  const [helpSuccess, setHelpSuccess] = useState('');
+
+  const handleSendHelpTicket = async (e) => {
+    e.preventDefault();
+    if (!helpDescription.trim()) return;
+
+    setIsSubmittingHelp(true);
+    setHelpSuccess('');
+
+    try {
+      const payload = {
+        glitch_category: helpCategory,
+        page_name: "Login / Authentication Portal",
+        element_point: "Sign-In Form / Access Barrier",
+        description: `[PUBLIC LOGIN SUPPORT TICKET] User ID/Force No: ${fileOrForceNumber || 'UNKNOWN'}. Details: ${helpDescription}`,
+        console_logs: [navigator.userAgent, `Timestamp: ${new Date().toISOString()}`],
+        network_errors: ['Authentication Blocked']
+      };
+
+      const response = await authFetch('/api/v1/ai/report-crash', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        setHelpSuccess("✅ Ticket successfully routed to High Command IT Support and Admin Communications inbox.");
+        setHelpDescription('');
+        setTimeout(() => {
+          onClose();
+          setHelpSuccess('');
+        }, 3000);
+      } else {
+        throw new Error("Failed to dispatch ticket to server.");
+      }
+    } catch (err) {
+      try {
+        const baseUrl = API_BASE_URL || import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+        await fetch(`${baseUrl}/api/v1/ai/report-crash`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            glitch_category: helpCategory,
+            page_name: "Login / Authentication Portal",
+            element_point: "Sign-In Form / Unauthenticated",
+            description: `[PUBLIC LOGIN SUPPORT TICKET] Force No: ${fileOrForceNumber || 'UNKNOWN'}. Details: ${helpDescription}`,
+            console_logs: [navigator.userAgent],
+            network_errors: []
+          })
+        });
+        setHelpSuccess("✅ Support ticket dispatched successfully.");
+        setHelpDescription('');
+        setTimeout(() => onClose(), 2500);
+      } catch (fallbackErr) {
+        alert("Failed to transmit support ticket. Check your network connection.");
+      }
+    } finally {
+      setIsSubmittingHelp(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
-        <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
+        
+        {/* Header named "help" */}
+        <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
           <div className="flex items-center space-x-2">
-            <Wrench className="w-5 h-5 text-amber-400" />
+            <HelpCircle className="w-4 h-4 text-blue-400" />
             <h3 className="font-extrabold uppercase text-xs tracking-wider">
-              TECHNICAL TROUBLESHOOTING & ADMIN GUIDE
+              help
             </h3>
           </div>
-          <button onClick={onClose} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white">
-            <X size={18} />
+          <button onClick={onClose} className="hover:bg-slate-800 p-1 rounded transition cursor-pointer text-slate-300 hover:text-white">
+            <X size={16} />
           </button>
         </div>
         
-        <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
-          <h4 className="font-black text-sm text-slate-900 uppercase border-b pb-2">Step-by-Step Diagnostic & Resolution Protocols</h4>
-          
-          <div className="space-y-3">
-            <p><strong>1. Authentication & Access Issues:</strong> Ensure Force Numbers follow uppercase formatting (e.g., $\text{A/2408}$ or $63034$). Accounts trigger a mandatory 30-second lockout after 3 consecutive failed attempts. Pending accounts require manual command clearance verification against the HR Nominal Roll.</p>
-            <p><strong>2. Network & Offline Synchronization:</strong> When operating in offline mode, local memory safely queues updates until connection to Render/NeonDB servers is restored. Re-authenticate via the login portal if bearer tokens expire upon reconnection.</p>
-            <p><strong>3. Data Entry & Duplicate Errors:</strong> Duplicate checks prevent identical reference numbers (SD Ref, CRB) or exact narrative strings. Switch the file control toggle to "Update Existing" if modifying active cases. Ensure image/mugshot files are standard web formats under 5MB.</p>
-            <p><strong>4. Master Export & Decryption:</strong> Ensure browser allows downloads from the domain. When extracting downloaded `.zip` master database exports secured via AES-256 encryption, enter your exact official Force Number as the extraction password.</p>
-            <p><strong>5. Session Management & Security Curtains:</strong> Inactivity timeouts enforce a secure logout after 30 minutes of no user interaction, displaying a 60-second warning modal prior to clearing session state.</p>
+        {/* Content Body */}
+        <div className="p-4 overflow-y-auto space-y-3 text-xs text-slate-700 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
+          <p className="font-medium text-[11px] text-slate-600">
+            Need guidance or troubleshooting support? Consult the interactive assistant below or submit a manual ticket.
+          </p>
+
+          {/* Interactive Assistant integrated in limited mode */}
+          <div className="border border-slate-200 rounded-lg overflow-hidden bg-white p-1.5 mt-1 shadow-inner">
+            <div className="text-[9px] font-extrabold text-slate-400 uppercase px-1.5 py-0.5">Interactive Help Assistant</div>
+            <div className="relative h-44 w-full">
+              <SystemAssistant limitedMode={true} />
+            </div>
           </div>
+
+          <hr className="border-slate-200 my-1" />
+
+          {/* Manual Fault / Help Ticket Form */}
+          <form onSubmit={handleSendHelpTicket} className="space-y-2">
+            <h4 className="font-extrabold text-slate-800 uppercase tracking-tight text-[10px] flex items-center gap-1">
+              <Wrench size={12} className="text-amber-500" /> Manual Fault Ticket
+            </h4>
+
+            {helpSuccess && (
+              <div className="p-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg font-bold text-[10px]">
+                {helpSuccess}
+              </div>
+            )}
+
+            <div>
+              <label className="block font-bold text-slate-700 uppercase mb-0.5 text-[10px]">Category</label>
+              <select 
+                value={helpCategory} 
+                onChange={(e) => setHelpCategory(e.target.value)}
+                className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded-md font-bold text-slate-900 text-[11px] outline-none focus:border-blue-600"
+              >
+                <option value="LOGIN_AUTH_FAILURE">Login / Authentication Failure</option>
+                <option value="RENDER_SERVER_SLEEP">Server Unresponsive / Cold Start Timeout</option>
+                <option value="WHITE_SCREEN_ERROR">White Screen / Frontend Crash (WSOD)</option>
+                <option value="ACCOUNT_UNAPPROVED">Account Pending Approval / Unrecognized</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 uppercase mb-0.5 text-[10px]">Description *</label>
+              <textarea 
+                rows={2}
+                required
+                value={helpDescription}
+                onChange={(e) => setHelpDescription(e.target.value)}
+                placeholder="Describe issue..."
+                className="w-full p-1.5 bg-slate-50 border border-slate-300 rounded-md text-[11px] text-slate-900 outline-none focus:border-blue-600"
+              />
+            </div>
+
+            <div className="flex justify-end gap-1.5 pt-1">
+              <button 
+                type="button" 
+                onClick={onClose}
+                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold text-[11px] transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button 
+                type="submit" 
+                disabled={isSubmittingHelp}
+                className="px-3.5 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-extrabold text-[11px] flex items-center gap-1 transition cursor-pointer shadow disabled:opacity-50"
+              >
+                {isSubmittingHelp ? 'Sending...' : <><Send size={11} /> Send</>}
+              </button>
+            </div>
+          </form>
         </div>
 
-        <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
-          <button 
-            type="button"
-            onClick={onClose} 
-            className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
-          >
-            Close Troubleshooting Guide
-          </button>
-        </div>
       </div>
     </div>
   );

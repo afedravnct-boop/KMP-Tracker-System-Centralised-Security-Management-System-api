@@ -175,13 +175,28 @@ async def verify_client_diagnosis(
         3. Recommended corrective actions for system administrators.
         """
 
-        response = client.models.generate_content(
-            model='gemini-3.8-flash',
-            contents=verification_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction="You are a strict technical auditor for law enforcement IT infrastructure. Be concise, precise, and professional."
-            )
-        )
+        # 🟢 UPDATED: Prioritize 3.6 and 3.5, falling back smoothly to 2.5-flash and 2.0-flash
+        candidate_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']
+        response = None
+        last_exception = None
+
+        for m in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=m,
+                    contents=verification_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction="You are a strict technical auditor for law enforcement IT infrastructure. Be concise, precise, and professional."
+                    )
+                )
+                if response:
+                    break
+            except Exception as mod_err:
+                last_exception = mod_err
+                continue
+
+        if not response:
+            raise Exception(f"All AI audit models busy: {str(last_exception)}")
 
         record_neon_activity(
             logs_db=logs_db,
@@ -237,17 +252,39 @@ async def process_public_tactical_query(
             f"VISITOR QUERY: {payload.prompt}"
         )
 
-        response = client.models.generate_content(
-            model='gemini-3.8-flash',
-            contents=public_context,
-            config=types.GenerateContentConfig(system_instruction=system_rules)
-        )
+        # 🟢 Robust candidate fallback array including 3.8, 3.7, 3.5, and 2.0
+        candidate_models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']
+        response = None
+        used_model = None
+        last_exception = None
+
+        for m in candidate_models:
+            success = False
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=m,
+                        contents=public_context,
+                        config=types.GenerateContentConfig(system_instruction=system_rules)
+                    )
+                    used_model = m
+                    success = True
+                    break
+                except Exception as mod_err:
+                    last_exception = mod_err
+                    time.sleep(1.5 * (attempt + 1))
+            if success:
+                break
+            time.sleep(0.5)
+
+        if not response:
+            raise Exception(f"All Google AI servers are temporarily busy. Details: {str(last_exception)}")
 
         return {
             "response": response.text if hasattr(response, 'text') else str(response),
             "metadata": {
                 "database_query_status": "Public / Restricted to System Docs Only",
-                "ai_model_used": "gemini-3.8-flash"
+                "ai_model_used": used_model
             }
         }
 
@@ -494,7 +531,8 @@ async def process_tactical_query(
                 )
             )
 
-        candidate_models = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.0-flash']
+        # 🟢 UPDATED: Prioritize 3.6 and 3.5, falling back smoothly to 2.5-flash and 2.0-flash
+        candidate_models = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash']
         response = None
         used_model = None
         last_exception = None
