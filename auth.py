@@ -126,12 +126,10 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
 # AUTHENTICATION DEPENDENCY (WITH SESSION TIMEOUT AUDIT LOGGING)
 # ====================================================================
 def get_current_user(
-    request: Request = None,
+    request: Request,  # 🟢 Strict Request injection, completely removing *args and **kwargs
     token: Optional[str] = Depends(oauth2_scheme), 
     db: Session = Depends(database.get_db),
-    logs_db: Session = Depends(get_logs_db),
-    *args,
-    **kwargs
+    logs_db: Session = Depends(get_logs_db)
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
