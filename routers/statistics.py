@@ -124,18 +124,19 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
             )
 
     if start_date and hasattr(ModelClass, 'date'):
-        query = query.filter(ModelClass.date >= start_date)
+        # Ensure string comparison aligns correctly with YYYY-MM-DD format
+        query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) >= start_date)
     
     if end_date and hasattr(ModelClass, 'date'):
-        query = query.filter(ModelClass.date <= end_date)
+        query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) <= end_date)
 
     if search:
         term = f"%{search.strip().upper()}%"
         search_conds = []
         if hasattr(ModelClass, 'station'): search_conds.append(ModelClass.station.ilike(term))
-        if hasattr(ModelClass, 'date'): search_conds.append(func.cast(ModelClass.date, text).ilike(term))
-        if hasattr(ModelClass, 'id'): search_conds.append(func.cast(ModelClass.id, text).ilike(term))
-        if hasattr(ModelClass, 'sn'): search_conds.append(func.cast(ModelClass.sn, text).ilike(term))
+        if hasattr(ModelClass, 'date'): search_conds.append(func.cast(ModelClass.date, text("VARCHAR")).ilike(term))
+        if hasattr(ModelClass, 'id'): search_conds.append(func.cast(ModelClass.id, text("VARCHAR")).ilike(term))
+        if hasattr(ModelClass, 'sn'): search_conds.append(func.cast(ModelClass.sn, text("VARCHAR")).ilike(term))
         if hasattr(ModelClass, 'agric_crime_report'): search_conds.append(ModelClass.agric_crime_report.ilike(term))
         if hasattr(ModelClass, 'nature_of_accident'): search_conds.append(ModelClass.nature_of_accident.ilike(term))
         if search_conds:

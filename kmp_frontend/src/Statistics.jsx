@@ -153,8 +153,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const getDateRangeParams = (filterOption) => {
     if (filterOption === 'ALL TIME') return { start: null, end: null };
-    const end = new Date();
-    const start = new Date();
+    
+    // Use East Africa Time (EAT) anchor for accurate range evaluation
+    const nowStr = new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" });
+    const end = new Date(nowStr);
+    const start = new Date(nowStr);
+
     if (filterOption === 'LAST 7 DAYS') { start.setDate(start.getDate() - 7); }
     else if (filterOption === 'LAST 14 DAYS') { start.setDate(start.getDate() - 14); }
     else if (filterOption === 'LAST 21 DAYS') { start.setDate(start.getDate() - 21); }
@@ -163,10 +167,11 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     else if (filterOption === 'LAST 90 DAYS') { start.setDate(start.getDate() - 90); }
     else if (filterOption === 'LAST 120 DAYS') { start.setDate(start.getDate() - 120); }
     else if (filterOption === 'LAST 180 DAYS') { start.setDate(start.getDate() - 180); }
+    
     const pad = (n) => n.toString().padStart(2, '0');
     const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     
-    if (filterOption === 'TODAY') return { start: format(start), end: format(start) };
+    if (filterOption === 'TODAY') return { start: format(end), end: format(end) };
     return { start: format(start), end: format(end) };
   };
 
