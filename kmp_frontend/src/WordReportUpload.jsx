@@ -429,7 +429,7 @@ const WordReportUpload = ({ currentUser, overrideRegion, overrideStation, canVie
                   <input type="file" multiple onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"/>
                   <UploadCloud className={`w-10 h-10 mx-auto mb-2 ${activeCategory === 'templates' ? 'text-amber-500' : 'text-sky-600 dark:text-sky-400'}`} />
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide">Click or drop multiple files here for secure ingest</p>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Word, Excel, PDF, PowerPoint supported</p>
+                  <p className="text-[3.5px] text-slate-400 mt-1 font-medium">Word, Excel, PDF, PowerPoint supported</p>
                 </div>
 
                 {files.length > 0 && (

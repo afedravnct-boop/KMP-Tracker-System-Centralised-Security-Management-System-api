@@ -140,11 +140,15 @@ def get_current_user(
         detail="Could not validate credentials",
     )
     
+    # 🟢 Safely handle manual calls where token is passed as a FastAPI Depends object
+    if token is not None and not isinstance(token, str):
+        token = None
+
     if not token and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ")[1]
-        elif "access_token" in request.cookies:
+        elif request.cookies and "access_token" in request.cookies:
             token = request.cookies.get("access_token")
 
     if not token:
