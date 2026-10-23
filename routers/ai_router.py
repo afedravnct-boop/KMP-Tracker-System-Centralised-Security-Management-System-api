@@ -1,4 +1,4 @@
-# routers/ai.py
+# ai_router.py
 import os
 import json
 import re
@@ -76,7 +76,7 @@ def check_ai_db_query_clearance(user) -> bool:
 async def toggle_ai_database_queries(
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user) # 🟢 Injected Dependency
+    current_user: models.Users = Depends(get_current_user)
 ):
     role = (current_user.role or "").upper()
     if role not in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "ADMIN"]:
@@ -136,7 +136,7 @@ async def verify_client_diagnosis(
     payload: DiagnosisVerificationPayload,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user) # 🟢 Injected Dependency
+    current_user: models.Users = Depends(get_current_user)
 ):
     if not check_diagnostic_clearance(current_user):
         raise HTTPException(
@@ -170,7 +170,6 @@ async def verify_client_diagnosis(
         3. Recommended corrective actions for system administrators.
         """
 
-        # 🟢 STRICTLY ONLY PRODUCTION MODELS
         candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
         response = None
         last_exception = None
@@ -229,25 +228,27 @@ async def process_public_tactical_query(
             "Never hallucinate or provide live database metrics. Keep answers concise, helpful, and professional."
         )
 
-        prompt_vector = get_embedding_vector(payload.prompt)
-        vector_str = str(prompt_vector)
-        
-        search_query = text("SELECT title, content FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
-        results = db.execute(search_query, {"vector": vector_str}).fetchall()
-        
         retrieved_docs = ""
-        if results:
-            retrieved_docs = "SYSTEM DOCUMENTATION & USER GUIDES:\n"
-            for row in results:
-                clean_content = str(row.content).replace("<", "&lt;").replace(">", "&gt;")
-                retrieved_docs += f"--- [{row.title}] ---\n{clean_content}\n"
+        try:
+            prompt_vector = get_embedding_vector(payload.prompt)
+            vector_str = str(prompt_vector)
+            search_query = text("SELECT title, content FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
+            results = db.execute(search_query, {"vector": vector_str}).fetchall()
+            
+            if results:
+                retrieved_docs = "SYSTEM DOCUMENTATION & USER GUIDES:\n"
+                for row in results:
+                    clean_content = str(row.content).replace("<", "&lt;").replace(">", "&gt;")
+                    retrieved_docs += f"--- [{row.title}] ---\n{clean_content}\n"
+        except Exception as embed_err:
+            db.rollback() 
+            print(f"Public vector search notice: {embed_err}")
 
         public_context = (
             f"{retrieved_docs}\n\n"
             f"VISITOR QUERY: {payload.prompt}"
         )
 
-        # 🟢 STRICTLY ONLY PRODUCTION MODELS
         candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
         response = None
         used_model = None
@@ -294,7 +295,7 @@ async def process_tactical_query(
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)  # 🟢 Injected Dependency
+    current_user: models.Users = Depends(get_current_user)
 ):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -305,181 +306,160 @@ async def process_tactical_query(
         
         user_role_upper = (current_user.role or "").upper()
         is_top_admin = user_role_upper in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]
-        
         db_queries_allowed = is_db_query_globally_enabled(current_user, db)
         can_run_db_query = check_ai_db_query_clearance(current_user)
+        user_station_val = str(current_user.station).strip().upper() if current_user.station else "HQ"
 
         user_perms = current_user.permissions or {}
         if isinstance(user_perms, str):
-            try:
-                user_perms = json.loads(user_perms)
-            except Exception:
-                user_perms = {}
+            try: user_perms = json.loads(user_perms)
+            except Exception: user_perms = {}
                 
         has_ai_hr_access = is_top_admin or user_role_upper in ['ADMIN'] or user_perms.get('ai_hr_access') is True or user_perms.get('can_approve') is True
         user_tier_scope = f"Station Scope: Station {current_user.station}, Region {current_user.region}"
 
-        live_data_context = ""
-        agric_records = []
-        stats_records = []
-        exhibits_records = []
-        lockup_records = []
-        accidents_records = []
-        fire_records = []
-        hr_aggregates = []
-        hr_sample = []
+        live_data_context = "LIVE OPERATIONAL DATABASE EXTRACTS:\n"
+        records_scanned = 0
+        diagnostic_errors = [] # 🟢 Track exact failing SQL queries
 
         if db_queries_allowed and can_run_db_query:
+            
+            # 1. Agricultural Crimes
             try:
-                AgricModel = getattr(models, 'Agricultural_Crime_Summary', getattr(models, 'AgriculturalCrimeSummary', None))
+                AgricModel = getattr(models, 'Agricultural_Crime_Summary', getattr(models, 'AgriculturalCrimeSummary', getattr(models, 'AgricCrimesStatistics', None)))
+                if AgricModel:
+                    q = db.query(AgricModel)
+                    if not is_top_admin and hasattr(AgricModel, 'station'): q = q.filter(func.upper(AgricModel.station) == user_station_val)
+                    recs = q.limit(20).all()
+                    if recs:
+                        live_data_context += "- Agricultural/Produce Crimes:\n"
+                        for r in recs:
+                            live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] {getattr(r, 'agric_crime_report', 'N/A')}: Stolen={getattr(r, 'number_count', 0)}, Rec={getattr(r, 'recoveries', 0)}\n"
+                        records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"Agric Table: {str(e)}")
+
+            # 2. Operational Statistics
+            try:
                 StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
-                ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'ImpoundedExhibits', None)))
-                LockupMatrixModel = getattr(models, 'Lockup_Matrix', getattr(models, 'LockupMatrix', getattr(models, 'lockup_matrix', None)))
-                
+                if StatsModel:
+                    q = db.query(StatsModel)
+                    if not is_top_admin and hasattr(StatsModel, 'station'): q = q.filter(func.upper(StatsModel.station) == user_station_val)
+                    recs = q.limit(20).all()
+                    if recs:
+                        live_data_context += "- Disruptive OPS:\n"
+                        for r in recs:
+                            live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] Date: {getattr(r, 'date', 'N/A')} | Arr={getattr(r, 'arrested', 0)}, Rem={getattr(r, 'remanded', 0)}, Conv={getattr(r, 'convicted', 0)}\n"
+                        records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"Stats Table: {str(e)}")
+
+            # 3. Exhibits
+            try:
+                ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'ImpoundedExhibits', None))
+                if ExhibitsModel:
+                    q = db.query(ExhibitsModel)
+                    if not is_top_admin and hasattr(ExhibitsModel, 'station'): q = q.filter(func.upper(ExhibitsModel.station) == user_station_val)
+                    recs = q.limit(20).all()
+                    if recs:
+                        live_data_context += "- Impounded Exhibits:\n"
+                        for r in recs:
+                            live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] Reg: {getattr(r, 'reg_no', 'N/A')} | Desc: {getattr(r, 'type_make', getattr(r, 'category', 'N/A'))} | Status: {getattr(r, 'status', 'UNKNOWN')}\n"
+                        records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"Exhibits Table: {str(e)}")
+
+            # 4. Lockups / Suspect Lockup Matrix
+            try:
+                LockupModel = getattr(models, 'Lockup_Matrix', getattr(models, 'LockupMatrix', getattr(models, 'SuspectLockup', None)))
+                if LockupModel:
+                    q = db.query(LockupModel)
+                    if not is_top_admin and hasattr(LockupModel, 'station'): q = q.filter(func.upper(LockupModel.station) == user_station_val)
+                    recs = q.limit(20).all()
+                    if recs:
+                        live_data_context += "- Lock-up Matrix:\n"
+                        for r in recs:
+                            live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] Total: {getattr(r, 'suspects', 0)} | M: {getattr(r, 'male_count', 0)} F: {getattr(r, 'female_count', 0)} | >3 Days: {getattr(r, 'detention_3days_over', 0)}\n"
+                        records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"Lockup Table: {str(e)}")
+
+            # 5. Accidents
+            try:
                 AccidentsModel = getattr(models, 'Accidents_Statistics', getattr(models, 'AccidentsStatistics', None))
+                if AccidentsModel:
+                    q = db.query(AccidentsModel)
+                    if not is_top_admin and hasattr(AccidentsModel, 'station'): q = q.filter(func.upper(AccidentsModel.station) == user_station_val)
+                    recs = q.limit(20).all()
+                    if recs:
+                        live_data_context += "- Traffic Accidents:\n"
+                        for r in recs:
+                            live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] Minor: {getattr(r, 'minor', 0)}, Serious: {getattr(r, 'serious', 0)}, Fatal: {getattr(r, 'fatal', 0)}, Victims: {getattr(r, 'victims', 0)}\n"
+                        records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"Accidents Table: {str(e)}")
+
+            # 6. Crime Reports (Fire Outbreaks)
+            try:
                 CrimeReportsModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
-                
-                HrModel = None
-                for m_name in ['Nominal_Roll', 'NominalRoll', 'nominal_roll', 'NominalRolls']:
-                    if hasattr(models, m_name):
-                        HrModel = getattr(models, m_name)
-                        break
-                if not HrModel:
-                    HrModel = getattr(models, 'User', getattr(models, 'Users', None))
-                
-                agric_query = db.query(AgricModel) if AgricModel else None
-                stats_query = db.query(StatsModel) if StatsModel else None
-                exports_query = db.query(ExhibitsModel) if ExhibitsModel else None
-                lockup_query = db.query(LockupMatrixModel) if LockupMatrixModel else None
-                accidents_query = db.query(AccidentsModel) if AccidentsModel else None
-                crime_fire_query = db.query(CrimeReportsModel) if CrimeReportsModel else None
-
-                if not is_top_admin and not check_ai_db_query_clearance(current_user):
-                    user_station_val = str(current_user.station).strip().upper()
-                    if agric_query and hasattr(AgricModel, 'station'): 
-                        agric_query = agric_query.filter(func.upper(AgricModel.station) == user_station_val)
-                    if stats_query and hasattr(StatsModel, 'station'): 
-                        stats_query = stats_query.filter(func.upper(StatsModel.station) == user_station_val)
-                    if exports_query and hasattr(ExhibitsModel, 'station'): 
-                        exports_query = exports_query.filter(func.upper(ExhibitsModel.station) == user_station_val)
-                    if lockup_query and hasattr(LockupMatrixModel, 'station'):
-                        lockup_query = lockup_query.filter(func.upper(LockupMatrixModel.station) == user_station_val)
-                    if accidents_query and hasattr(AccidentsModel, 'station'):
-                        accidents_query = accidents_query.filter(func.upper(AccidentsModel.station) == user_station_val)
-                    if crime_fire_query and hasattr(CrimeReportsModel, 'station'):
-                        crime_fire_query = crime_fire_query.filter(func.upper(CrimeReportsModel.station) == user_station_val)
-
-                agric_records = agric_query.limit(20).all() if agric_query else []
-                stats_records = stats_query.limit(20).all() if stats_query else []
-                exhibits_records = exports_query.limit(20).all() if exports_query else []
-                lockup_records = lockup_query.limit(20).all() if lockup_query else []
-                accidents_records = accidents_query.limit(20).all() if accidents_query else []
-                
-                if crime_fire_query:
+                if CrimeReportsModel:
                     fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
-                    fire_conds = [or_(CrimeReportsModel.narrative.ilike(f"%{kw}%"), CrimeReportsModel.offence.ilike(f"%{kw}%")) for kw in fire_keywords]
-                    fire_records = crime_fire_query.filter(or_(*fire_conds)).limit(20).all()
+                    if hasattr(CrimeReportsModel, 'narrative') and hasattr(CrimeReportsModel, 'offence'):
+                        fire_conds = [or_(CrimeReportsModel.narrative.ilike(f"%{kw}%"), CrimeReportsModel.offence.ilike(f"%{kw}%")) for kw in fire_keywords]
+                        q = db.query(CrimeReportsModel).filter(or_(*fire_conds))
+                        if not is_top_admin and hasattr(CrimeReportsModel, 'station'): q = q.filter(func.upper(CrimeReportsModel.station) == user_station_val)
+                        recs = q.limit(20).all()
+                        if recs:
+                            live_data_context += "- Fire/Arson Records:\n"
+                            for r in recs:
+                                live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] Offence: {getattr(r, 'offence', 'FIRE')} | {str(getattr(r, 'narrative', ''))[:120]}...\n"
+                            records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"CrimeReports Table: {str(e)}")
 
-                live_data_context = "LIVE OPERATIONAL DATABASE EXTRACTS:\n"
-                if agric_records:
-                    live_data_context += "- Agricultural/Produce Crimes Summary:\n"
-                    for r in agric_records:
-                        live_data_context += f"  * [{r.region} / {r.station}] {r.agric_crime_report}: Stolen={r.number_count}, Recovered={r.recoveries}\n"
-                if stats_records:
-                    live_data_context += "- Disruptive OPS Weekly Metrics:\n"
-                    for s in stats_records:
-                        live_data_context += f"  * [{s.region} / {s.station}] Date: {s.date} | Arrested={s.arrested}, Remanded={s.remanded}, Convicted={s.convicted}\n"
-                if exhibits_records:
-                    live_data_context += "- Impounded Fleet & Exhibits Register:\n"
-                    for e in exhibits_records:
-                        e_reg = getattr(e, 'reg_no', 'NIL')
-                        e_desc = getattr(e, 'type_make', getattr(e, 'category', 'EXHIBIT'))
-                        e_status = getattr(e, 'status', 'UNKNOWN')
-                        e_case = getattr(e, 'case_no', 'N/A')
-                        live_data_context += f"  * [{getattr(e, 'region', 'KMP')} / {getattr(e, 'station', 'HQ')}] Reg/Serial: {e_reg} | Desc: {e_desc} | Case: {e_case} | Status: {e_status}\n"
-                if lockup_records:
-                    live_data_context += "- Daily Suspects Lock-up Matrix (Cell Populations & Detention Thresholds):\n"
-                    for l in lockup_records:
-                        live_data_context += f"  * [{getattr(l, 'region', 'KMP')} / {getattr(l, 'station', 'HQ')}] Date: {getattr(l, 'date', 'N/A')} | Total Suspects: {getattr(l, 'suspects', 0)} (Male: {getattr(l, 'male_count', 0)}, Female: {getattr(l, 'female_count', 0)}) | >3 Days: {getattr(l, 'detention_3days_over', 0)}\n"
-                if accidents_records:
-                    live_data_context += "- Traffic & Road Accidents Statistics:\n"
-                    for a in accidents_records:
-                        live_data_context += f"  * [{getattr(a, 'region', 'KMP')} / {getattr(a, 'station', 'HQ')}] Date: {getattr(a, 'date', 'N/A')} | Minor: {getattr(a, 'minor', 0)}, Serious: {getattr(a, 'serious', 0)}, Fatal: {getattr(a, 'fatal', 0)}, Victims: {getattr(a, 'victims', 0)}\n"
-                if fire_records:
-                    live_data_context += "- Fire Outbreaks & Arson Intelligence Records:\n"
-                    for f in fire_records:
-                        live_data_context += f"  * [{getattr(f, 'region', 'KMP')} / {getattr(f, 'station', 'HQ')}] Date: {getattr(f, 'date', 'N/A')} | Offence: {getattr(f, 'offence', 'FIRE')} | Narrative: {str(getattr(f, 'narrative', ''))[:120]}...\n"
-                
-                if has_ai_hr_access and HrModel:
-                    fnum_attr = getattr(HrModel, 'f_num', getattr(HrModel, 'fnum', getattr(HrModel, 'fNum', None)))
-                    id_col = getattr(HrModel, 'id', getattr(HrModel, 'sn', fnum_attr))
-                    
-                    agg_query = db.query(
-                        getattr(HrModel, 'rank', 'rank'),
-                        getattr(HrModel, 'sex', 'sex'),
-                        getattr(HrModel, 'status', 'status'),
-                        func.count(id_col)
-                    )
-                    if not is_top_admin and not check_ai_db_query_clearance(current_user) and hasattr(HrModel, 'station'):
-                        agg_query = agg_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
+            # 7. HR / Nominal Roll
+            try:
+                if has_ai_hr_access:
+                    HrModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', getattr(models, 'Users', getattr(models, 'User', None))))
+                    if HrModel:
+                        hr_sample_query = db.query(HrModel)
+                        if not is_top_admin and hasattr(HrModel, 'station'):
+                            hr_sample_query = hr_sample_query.filter(func.upper(HrModel.station) == user_station_val)
                         
-                    hr_aggregates = agg_query.group_by(
-                        getattr(HrModel, 'rank', 'rank'), 
-                        getattr(HrModel, 'sex', 'sex'), 
-                        getattr(HrModel, 'status', 'status')
-                    ).all()
-                    
-                    if hr_aggregates:
-                        live_data_context += "- Nominal Roll Demographics (Aggregated):\n"
-                        for r_rank, r_sex, r_status, r_count in hr_aggregates:
-                            live_data_context += f"  * Rank: {r_rank} | Sex: {r_sex} | Status: {r_status} => Total: {r_count}\n"
-                    
-                    hr_sample_query = db.query(HrModel)
-                    if not is_top_admin and not check_ai_db_query_clearance(current_user) and hasattr(HrModel, 'station'):
-                        hr_sample_query = hr_sample_query.filter(func.upper(HrModel.station) == str(current_user.station).strip().upper())
-                    
-                    stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
-                    raw_words = re.findall(r'\b\w+\b', prompt.lower())
-                    search_terms = [w for w in raw_words if w not in stop_words and len(w) > 2]
-                    
-                    if search_terms:
-                        search_conditions = []
-                        for term in search_terms:
-                            term_cond = []
-                            if hasattr(HrModel, 'name'): term_cond.append(HrModel.name.ilike(f"%{term}%"))
-                            if hasattr(HrModel, 'f_num'): term_cond.append(HrModel.f_num.ilike(f"%{term}%"))
-                            elif hasattr(HrModel, 'fnum'): term_cond.append(HrModel.fnum.ilike(f"%{term}%"))
-                            elif hasattr(HrModel, 'fNum'): term_cond.append(HrModel.fNum.ilike(f"%{term}%"))
-                            if hasattr(HrModel, 'ipps'): term_cond.append(HrModel.ipps.ilike(f"%{term}%"))
-                            if hasattr(HrModel, 'station'): term_cond.append(HrModel.station.ilike(f"%{term}%"))
-                            
-                            if term_cond:
-                                search_conditions.append(or_(*term_cond))
-                    
-                        if search_conditions:
-                            hr_sample_query = hr_sample_query.filter(or_(*search_conditions))
+                        stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
+                        raw_words = re.findall(r'\b\w+\b', prompt.lower())
+                        search_terms = [w for w in raw_words if w not in stop_words and len(w) > 2]
+                        
+                        if search_terms:
+                            search_conditions = []
+                            for term in search_terms:
+                                term_cond = []
+                                if hasattr(HrModel, 'name'): term_cond.append(HrModel.name.ilike(f"%{term}%"))
+                                if hasattr(HrModel, 'f_num'): term_cond.append(HrModel.f_num.ilike(f"%{term}%"))
+                                elif hasattr(HrModel, 'fnum'): term_cond.append(HrModel.fnum.ilike(f"%{term}%"))
+                                elif hasattr(HrModel, 'fNum'): term_cond.append(HrModel.fNum.ilike(f"%{term}%"))
+                                if hasattr(HrModel, 'ipps'): term_cond.append(HrModel.ipps.ilike(f"%{term}%"))
+                                if hasattr(HrModel, 'station'): term_cond.append(HrModel.station.ilike(f"%{term}%"))
+                                if term_cond: search_conditions.append(or_(*term_cond))
+                            if search_conditions:
+                                hr_sample_query = hr_sample_query.filter(or_(*search_conditions))
 
-                    hr_sample = hr_sample_query.limit(50).all()
+                        recs = hr_sample_query.limit(30).all()
+                        if recs:
+                            live_data_context += "- Nominal Roll Personnel Directory:\n"
+                            for r in recs:
+                                live_data_context += f"  * Force No: {getattr(r, 'f_num', getattr(r, 'fnum', getattr(r, 'fNum', 'N/A')))} | Rank: {getattr(r, 'rank', 'N/A')} | Name: {getattr(r, 'name', 'N/A')} | Sex: {getattr(r, 'sex', 'N/A')} | IPPS: {getattr(r, 'ipps', 'N/A')} | Unit: {getattr(r, 'station', getattr(r, 'region', 'N/A'))}\n"
+                            records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"HR/Users Table: {str(e)}")
 
-                    if hr_sample:
-                        live_data_context += "- Nominal Roll Personnel Directory (SAFE OPSEC COLUMNS):\n"
-                        for u in hr_sample:
-                            u_fnum = getattr(u, 'f_num', getattr(u, 'fnum', getattr(u, 'fNum', 'N/A')))
-                            u_rank = getattr(u, 'rank', 'N/A')
-                            u_name = getattr(u, 'name', 'N/A')
-                            u_age = getattr(u, 'age', getattr(u, 'dob', getattr(u, 'date_of_birth', 'N/A')))
-                            u_sex = getattr(u, 'sex', 'N/A')
-                            u_ipps = getattr(u, 'ipps', 'N/A')
-                            u_unit = getattr(u, 'station', getattr(u, 'region', 'N/A'))
-                            
-                            live_data_context += (
-                                f"  * Force Number: {u_fnum} | Rank: {u_rank} | Name: {u_name} | "
-                                f"Age: {u_age} | Sex: {u_sex} | IPPS: {u_ipps} | Unit: {u_unit}\n"
-                            )
-
-            except Exception as db_fetch_err:
-                print(f"Error fetching live data for AI: {db_fetch_err}")
-                live_data_context += "\n[Database extraction skipped due to formatting error]"
         else:
             live_data_context = "🛑 System Note: Direct database querying for the AI is either globally disabled or restricted by your command clearance tier."
 
@@ -492,18 +472,22 @@ async def process_tactical_query(
             "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation, answer platform policy questions, analyze uploaded photos/screenshots, and search uploaded command files."
         )
 
-        prompt_vector = get_embedding_vector(prompt)
-        vector_str = str(prompt_vector)
-        
-        search_query = text("SELECT title, content, region, station FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
-        results = db.execute(search_query, {"vector": vector_str}).fetchall()
-        
         retrieved_docs = ""
-        if results:
-            retrieved_docs = "UPLOADED DOCUMENT INTELLIGENCE:\n"
-            for row in results:
-                clean_content = str(row.content).replace("<", "&lt;").replace(">", "&gt;")
-                retrieved_docs += f"--- [{row.title} | {row.region}/{row.station}] ---\n{clean_content}\n"
+        try:
+            prompt_vector = get_embedding_vector(prompt)
+            vector_str = str(prompt_vector)
+            
+            search_query = text("SELECT title, content, region, station FROM operational_document_embeddings ORDER BY embedding <=> CAST(:vector AS vector) LIMIT 3")
+            results = db.execute(search_query, {"vector": vector_str}).fetchall()
+            
+            if results:
+                retrieved_docs = "UPLOADED DOCUMENT INTELLIGENCE:\n"
+                for row in results:
+                    clean_content = str(row.content).replace("<", "&lt;").replace(">", "&gt;")
+                    retrieved_docs += f"--- [{row.title} | {row.region}/{row.station}] ---\n{clean_content}\n"
+        except Exception as embed_err:
+            db.rollback()
+            diagnostic_errors.append(f"Vector Database Search Error: {str(embed_err)}")
 
         tactical_context = (
             f"Executing Officer: {current_user.fnum} {current_user.rank} {current_user.name}\n"
@@ -523,7 +507,6 @@ async def process_tactical_query(
                 )
             )
 
-        # 🟢 STRICTLY ONLY PRODUCTION MODELS
         candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
         response = None
         used_model = None
@@ -580,9 +563,9 @@ async def process_tactical_query(
             "metadata": {
                 "database_query_status": "Active" if (db_queries_allowed and can_run_db_query) else "Restricted / Disabled",
                 "jurisdiction_tier": user_tier_scope,
-                "structured_records_count": len(agric_records) + len(stats_records) + len(exhibits_records) + len(lockup_records) + len(accidents_records) + len(fire_records) + len(hr_aggregates) + len(hr_sample) if (db_queries_allowed and can_run_db_query) else 0,
-                "semantic_chunks_retrieved": len(results),
-                "ai_model_used": used_model
+                "structured_records_count": records_scanned,
+                "ai_model_used": used_model,
+                "diagnostic_errors": diagnostic_errors  # 🟢 Errors exposed directly to the frontend here
             }
         }
 
@@ -611,7 +594,6 @@ async def report_client_crash(
     logs it to audit trails, and auto-dispatches an internal alert to Super Admins.
     """
     try:
-        # 🟢 Safely extract token without requiring authentication (prevents 401s for public users)
         fnum_val = "PUBLIC_VISITOR"
         if request:
             auth_header = request.headers.get("Authorization")
@@ -668,5 +650,4 @@ async def report_client_crash(
         return {"status": "success", "message": "Crash telemetry processed and routed to High Command."}
     except Exception as e:
         db.rollback()
-        # Return success so frontend doesn't break twice
         return {"status": "success", "message": "Crash telemetry captured softly."}
