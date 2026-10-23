@@ -28,10 +28,17 @@ REGIONAL_HIERARCHY = {
 }
 
 def get_model_safe(*model_names):
-    """🟢 Safe helper to resolve database models across varying naming conventions."""
+    """🟢 Safe helper to resolve database models across varying naming conventions and tablenames."""
     for name in model_names:
         if hasattr(models, name):
             return getattr(models, name)
+            
+    # Fallback to inspecting tablenames directly
+    target_slug = model_names[-1].lower()
+    for attr_name, cls in models.__dict__.items():
+        if isinstance(cls, type) and hasattr(cls, '__tablename__'):
+            if cls.__tablename__.lower() in [n.lower() for n in model_names] or cls.__tablename__.lower() == target_slug:
+                return cls
     return None
 
 def strip_html_tags(text_str: str) -> str:
@@ -137,14 +144,24 @@ def parse_success_story_backend(raw_narrative: str):
         formatted_count = str(count_val).zfill(2)
         recoveries_list.append(f"{formatted_count} | {item_val.strip()}")
 
-    if not recoveries_list and ('recovery' in lower_text or 'recovered' in lower_text or 'recover' in lower_text or 'impound' in lower_text):
-        recoveries_list.append("01 | recovered exhibit / asset")
+    if not recoveries_list:
+        if 'motorcycle' in lower_text or 'boda' in lower_text: recoveries_list.append('01 | MOTORCYCLE RECOVERED')
+        elif 'vehicle' in lower_text or 'car' in lower_text: recoveries_list.append('01 | MOTOR VEHICLE RECOVERED')
+        elif 'phone' in lower_text or 'mobile' in lower_text: recoveries_list.append('01 | MOBILE PHONE RECOVERED')
+        elif 'cattle' in lower_text or 'cow' in lower_text: recoveries_list.append('01 | STOLEN CATTLE RECOVERED')
+        elif 'cash' in lower_text or 'money' in lower_text or 'shillings' in lower_text: recoveries_list.append('01 | CASH / FUNDS RECOVERED')
+        elif 'gun' in lower_text or 'pistol' in lower_text or 'firearm' in lower_text: recoveries_list.append('01 | FIREARM RECOVERED')
+        elif 'uniform' in lower_text or 'stores' in lower_text: recoveries_list.append('01 | GOVERNMENT STORES')
+        else: recoveries_list.append('NONE RECORDED')
+
+    classification_str = str(classification)
+    formatted_classification = (classification_str[:52] + '...') if len(classification_str) > 55 else classification_str
 
     return {
         "suspects": suspects_count,
-        "recoveries": " || ".join(recoveries_list) if recoveries_list else "None recorded",
+        "recoveries": " || ".join(recoveries_list),
         "legalStatus": legal_status,
-        "classification": classification
+        "classification": formatted_classification
     }
 
 # ==========================================
@@ -160,7 +177,7 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         try:
             if isinstance(d_str, str):
                 dt = datetime.strptime(d_str.split('T')[0], "%Y-%m-%d")
-            elif isinstance(d_str, datetime):  # 🟢 Fixed variable reference bug
+            elif isinstance(d_str, datetime):
                 dt = d_str
             else:
                 continue
@@ -257,8 +274,8 @@ def export_analytics_report(
         NomModel = get_model_safe('Nominal_Roll', 'NominalRoll', 'User', 'Users', 'nominal_roll')
         AgricModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary')
         ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
-        LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix')
-        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+        LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
+        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
 
         def get_scoped_records(ModelClass):
             if not ModelClass:

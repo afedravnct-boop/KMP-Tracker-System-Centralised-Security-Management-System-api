@@ -12,11 +12,6 @@ import json
 import base64
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
-from docx.shared import Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-import urllib.parse
-import pymupdf
-import zipfile
 
 import pytz
 import uvicorn
@@ -44,15 +39,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import Column, Integer
-from docx.shared import Pt, RGBColor
-import openpyxl
-from openpyxl.styles import Alignment, PatternFill, Font
-from pptx import Presentation
-from pptx.util import Inches, Pt as PPTXPt
-from pptx.dml.color import RGBColor as PPTXRGBColor
 from sqlalchemy.orm.attributes import flag_modified
 from passlib.context import CryptContext
+import openpyxl
+from openpyxl.styles import Alignment, PatternFill, Font
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -61,13 +51,8 @@ from app import models, schemas, database
 from app.database import engine, get_db, get_logs_db, SQLALCHEMY_DATABASE_URL
 from app.core import security
 from auth import router as auth_router
-from docx import Document
-from app.schemas import AgricStatsCreate, AgricStatsResponse
-from routers import exhibits, statistics
 from routers.activity_logger import record_neon_activity, SystemActivityMiddleware 
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
-from routers import hr_router
-from routers import consolidated_ledger
 
 # ==========================================
 # 0. LOAD ENVIRONMENT VARIABLES & CONFIG
@@ -76,6 +61,7 @@ load_dotenv()
 
 app = FastAPI(title="KMP Centralised Security Data Management System")
 
+# Import all modular routers
 from routers import (
     document_upload,
     general_documents,
@@ -89,7 +75,10 @@ from routers import (
     admin_communication,
     ai_router,
     analytics_export,
-    statistics
+    statistics,
+    exhibits,
+    hr_router,
+    consolidated_ledger
 )
 
 # ==========================================
@@ -111,7 +100,7 @@ app.include_router(auth_router)
 app.include_router(exhibits.router)
 app.include_router(hr_router.router)
 app.include_router(consolidated_ledger.router)
-app.include_router(statistics.router)  # 🟢 Included missing statistics router
+app.include_router(statistics.router)
 
 # ==========================================
 # GLOBAL EXCEPTION HANDLER
@@ -267,28 +256,6 @@ def clean_html_for_export(raw_text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def get_officer_signature(user):
-    if not user:
-        return "UNKNOWN COMMANDER"
-    fnum = (user.fnum or "").strip()
-    rank = (user.rank or "").strip()
-    name = (user.name or "").strip()
-    return f"{fnum} {rank} {name}".strip().upper()
-
-def sanitize_df_for_excel(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-    for col in df.select_dtypes(include=['datetimetz', 'datetime', 'datetime64[ns, UTC]', 'datetime64[ns]']).columns:
-        try:
-            df[col] = df[col].dt.tz_localize(None)
-        except Exception:
-            df[col] = df[col].astype(str)
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].apply(lambda x: x.replace(tzinfo=None) if isinstance(x, datetime) and x.tzinfo is not None else x)
-        if col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'reason', 'assorted_items']:
-            df[col] = df[col].apply(clean_html_for_export)
-    return df
-
 def serialize_model_row(row):
     if not row:
         return {}
@@ -309,6 +276,63 @@ def serialize_model_row(row):
         elif k in ['category', 'offence', 'type'] and isinstance(v, str):
             d[k] = format_crime_category(v)
     return d
+
+def get_model_safe(*model_names):
+    """🟢 Safe helper to resolve database models across varying naming conventions."""
+    for name in model_names:
+        if hasattr(models, name):
+            return getattr(models, name)
+    return None
+
+def get_eat_time():
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
+
+def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
+    try:
+        new_activity = models.Activity_Logs(
+            fnum=str(fnum or "SYSTEM").strip().upper(),
+            action=str(action or "ACTION").strip().upper(),
+            module=str(module or "GENERAL").strip().upper(),
+            details=details,
+            created_at=get_eat_time()
+        )
+        logs_db.add(new_activity)
+        logs_db.commit()
+    except Exception as e:
+        logs_db.rollback()
+        print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
+
+def require_admin_or_observer(current_user: models.Users = Depends(auth_router)):
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    if "ADMIN" in user_role or "RPC" in user_role:
+        return current_user
+        
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+            
+    if perms.get("global_observer") is True or perms.get("view_global_roster") is True:
+        return current_user
+        
+    raise HTTPException(status_code=403, detail="Clearance Denied: Admin or Global Observer privileges required.")
+
+def require_export_privilege(current_user: models.Users = Depends(auth_router)):
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+        
+    if (
+        user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and 
+        not perms.get("export_data", False) and 
+        not perms.get("global_observer", False) and
+        not perms.get("view_global_roster", False)
+    ):
+        raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
+    return current_user
 
 # ==========================================
 # 2. STARTUP & MIDDLEWARE
@@ -350,243 +374,10 @@ app.add_middleware(
 app.add_middleware(SystemActivityMiddleware)
 
 # ==========================================
-# 3. SECURITY & DEPENDENCIES
+# 3. CORE SYSTEM ENDPOINTS (Users, Heartbeat, Audit Logs)
 # ==========================================
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
-
-def get_eat_time():
-    eat_tz = pytz.timezone('Africa/Nairobi')
-    return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
-
-def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
-    try:
-        new_activity = models.Activity_Logs(
-            fnum=str(fnum or "SYSTEM").strip().upper(),
-            action=str(action or "ACTION").strip().upper(),
-            module=str(module or "GENERAL").strip().upper(),
-            details=details,
-            created_at=get_eat_time()
-        )
-        logs_db.add(new_activity)
-        logs_db.commit()
-    except Exception as e:
-        logs_db.rollback()
-        print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
-
-def get_current_user(request: Request, db: Session = Depends(get_db)):
-    token = None
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-    if not token:
-        token = request.cookies.get("access_token") or request.cookies.get("kmp_authToken")
-
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
-    try:
-        payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
-        fnum: str = payload.get("sub")
-        if fnum is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
-    
-    clean_fnum = str(fnum).strip().upper()
-    user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ).first()
-    
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-
-    try:
-        eat_tz = pytz.timezone('Africa/Nairobi')
-        user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
-        db.commit()
-    except Exception:
-        db.rollback()
-
-    if user.role != "SUPER_ADMIN":
-        sys_lock = db.query(models.SystemConfig).filter(
-            models.SystemConfig.config_key == "lockdown_system_global",
-            models.SystemConfig.config_value == "TRUE"
-        ).first()
-        if sys_lock:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SYSTEM LOCKDOWN: The centralized database is currently under maintenance. All access is suspended.")
-
-        if user.region:
-            reg_key = f"lockdown_region_{user.region.lower().replace(' ', '_')}"
-            reg_lock = db.query(models.SystemConfig).filter(
-                models.SystemConfig.config_key == reg_key,
-                models.SystemConfig.config_value == "TRUE"
-            ).first()
-            if reg_lock:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"REGIONAL LOCKDOWN: Command operations for {user.region} are currently suspended.")
-
-        if user.station:
-            stn_key = f"lockdown_station_{user.station.lower().replace(' ', '_')}"
-            stn_lock = db.query(models.SystemConfig).filter(
-                models.SystemConfig.config_key == stn_key,
-                models.SystemConfig.config_value == "TRUE"
-            ).first()
-            if stn_lock:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"STATION LOCKDOWN: Command operations for {user.station} are currently suspended.")
-
-    return user
-
-def require_admin(current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" not in user_role and "RPC" not in user_role:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Admin privileges required.")
-    return current_user
-
-def require_admin_or_observer(current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" in user_role or "RPC" in user_role:
-        return current_user
-        
-    perms = current_user.permissions or {}
-    if isinstance(perms, str):
-        try: perms = json.loads(perms)
-        except Exception: perms = {}
-            
-    if perms.get("global_observer") is True or perms.get("view_global_roster") is True:
-        return current_user
-        
-    raise HTTPException(status_code=403, detail="Clearance Denied: Admin or Global Observer privileges required.")
-
-def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    perms = current_user.permissions or {}
-    if isinstance(perms, str):
-        try: perms = json.loads(perms)
-        except Exception: perms = {}
-        
-    if (
-        user_role not in ["ADMIN", "SUPER_ADMIN", "RPC"] and 
-        not perms.get("export_data", False) and 
-        not perms.get("global_observer", False) and
-        not perms.get("view_global_roster", False)
-    ):
-        raise HTTPException(status_code=403, detail="Clearance Denied: Data Export Privileges Required.")
-    return current_user
-
-def log_semantic_audit(db, fnum: str, action: str, target_identifier: str, changes: dict, remarks: str = ""):
-    try:
-        formatted_details = f"Target: {target_identifier} | Changes: " + ", ".join(
-            [f"{k}: {v[0]} -> {v[1]}" for k, v in changes.items()]
-        ) + f" | Remarks: {remarks}"
-        
-        user_name_val = ""
-        if fnum and fnum != "SYSTEM":
-            user_obj = db.query(models.Users).filter(func.upper(models.Users.fnum) == fnum.upper()).first()
-            if user_obj:
-                user_name_val = user_obj.name
-        
-        audit_model = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
-        if audit_model:
-            new_audit = audit_model(
-                event_type=action,
-                target_user=target_identifier,
-                status="SUCCESS",
-                details=formatted_details,
-                user_fnum=fnum,
-                user_name=user_name_val,
-                created_at=get_eat_time()
-            )
-            db.add(new_audit)
-            db.commit()
-    except Exception as e:
-        print(f"Audit Log Failed: {e}")
-        db.rollback()
-
-def check_is_global_user(user) -> bool:
-    if not user:
-        return False
-    if user.role in ['SUPER_ADMIN', 'ADMIN', 'RPC']:
-        return True
-    if str(user.region or "").strip().upper() in ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS']:
-        return True
-        
-    perms = user.permissions or {}
-    if isinstance(perms, str):
-        try: perms = json.loads(perms)
-        except: perms = {}
-            
-    return perms.get("global_observer") is True or perms.get("view_global_roster") is True
-
-# ==========================================
-# 4. USERS, HEARTBEAT & ACTIVITY LOGS
-# ==========================================
-@app.get("/api/v1/accidents")
-def get_accidents_records(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    """🟢 Dedicated Accidents Endpoint querying the correct 'accidents_statistics' table."""
-    try:
-        AccidentsModel = getattr(models, 'Accidents_Statistics', getattr(models, 'AccidentsStatistics', None))
-        
-        # Fallback dynamic lookup if exact model attribute name varies
-        if not AccidentsModel:
-            for name, cls in models.__dict__.items():
-                if isinstance(cls, type) and hasattr(cls, '__tablename__') and cls.__tablename__ == 'accidents_statistics':
-                    AccidentsModel = cls
-                    break
-
-        if not AccidentsModel:
-            return []
-
-        query = db.query(AccidentsModel)
-        query = apply_opsec_scope(current_user, query, AccidentsModel)
-        records = query.all()
-        
-        return [serialize_model_row(r) for r in records]
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return []
-
-@app.get("/api/v1/analytics/export")
-def export_analytics_report(
-    db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_export_privilege)
-):
-    """🟢 Robust Analytics Export Endpoint to resolve 500 errors."""
-    try:
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="ANALYTICS_EXPORT",
-            module="EXCEL_EXPORTS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded analytics report."
-        )
-
-        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
-        query = db.query(CrimeModel) if CrimeModel else None
-        if query is not None:
-            query = apply_opsec_scope(current_user, query, CrimeModel)
-            records = query.limit(1000).all()
-        else:
-            records = []
-
-        df = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(r) for r in records]))
-        
-        output = io.BytesIO()
-        df.to_excel(output, index=False, engine='openpyxl')
-        output.seek(0)
-        
-        return StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=Analytics_Report.xlsx"}
-        )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Analytics export failed: {str(e)}")
-
 @app.get("/api/v1/users")
-def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(auth_router)):
     try:
         users = db.query(models.Users).filter(models.Users.is_approved == True).all()
         return [
@@ -600,255 +391,6 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/v1/general-documents")
-def get_general_documents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    try:
-        DocModel = getattr(models, 'GeneralDocuments', getattr(models, 'General_Documents', None))
-        if not DocModel:
-            return []
-        docs = db.query(DocModel).order_by(DocModel.id.desc()).all()
-        return [serialize_model_row(d) for d in docs]
-    except Exception as e:
-        print(f"General Documents Fetch Error: {e}")
-        return []
-
-@app.get("/api/v1/templates/list")
-def get_command_templates(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    try:
-        TemplateModel = getattr(models, 'CommandTemplate', getattr(models, 'command_templates', None))
-        if not TemplateModel:
-            return []
-        templates = db.query(TemplateModel).order_by(TemplateModel.id.desc()).all()
-        results = []
-        for t in templates:
-            filename = getattr(t, 'file_name', None) or getattr(t, 's3_url', '') or "document"
-            ext = filename.split('.')[-1].lower() if '.' in filename else "unknown"
-            if ext in ['docx', 'doc']: file_type = "Word Document"
-            elif ext in ['xlsx', 'xls']: file_type = "Excel Spreadsheet"
-            elif ext in ['pptx', 'ppt']: file_type = "PowerPoint Presentation"
-            elif ext == 'pdf': file_type = "PDF Document"
-            else: file_type = "Command Template"
-
-            last_up = getattr(t, 'upload_date', getattr(t, 'created_at', None))
-            date_str = last_up.strftime("%Y-%m-%d") if isinstance(last_up, datetime) else str(last_up or "")
-
-            results.append({
-                "id": getattr(t, 'id', 1),
-                "name": filename,
-                "type": file_type,
-                "date": date_str,
-                "size": getattr(t, 'file_size', "N/A"),
-                "file_path": getattr(t, 'file_path', getattr(t, 's3_url', '')),
-                "region": getattr(t, 'region', "KMP HEADQUARTERS"),
-                "station": getattr(t, 'station', "HQ")
-            })
-        return results
-    except Exception as e:
-        print(f"Templates List Error Traceback: {str(e)}")
-        return []
-
-@app.get("/api/v1/weekly-reports/list")
-def get_weekly_reports_list(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    try:
-        ReportModel = getattr(models, 'WeeklyReports', getattr(models, 'weekly_reports', getattr(models, 'Reports', None)))
-        if not ReportModel:
-            return []
-        reports = db.query(ReportModel).order_by(ReportModel.id.desc()).all()
-        return [serialize_model_row(r) for r in reports]
-    except Exception as e:
-        print(f"Weekly Reports Fetch Error: {e}")
-        return []
-
-@app.get("/api/v1/admin/pending-users")
-def get_pending_users(
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db), 
-    current_user: models.Users = Depends(require_admin_or_observer)
-):
-    log_independent_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action="ACCESS_APPROVALS_TAB_VIEW",
-        module="ADMIN_APPROVALS",
-        details=f"Officer {current_user.name} ({current_user.fnum}) accessed Access & Command Approvals."
-    )
-    try:
-        pending = db.query(models.Users).filter(models.Users.is_approved == False).all()
-        return [
-            {
-                "id": getattr(u, 'id', 0),
-                "fnum": u.fnum, 
-                "name": u.name, 
-                "rank": u.rank,
-                "station": u.station, 
-                "region": u.region,
-                "division": u.division,     
-                "position": u.position,     
-                "role": u.role,
-                "email": u.email, 
-                "phone": u.phone, 
-                "ipps": u.ipps, 
-                "sex": u.sex,
-                "nin": u.nin,
-                "profile_photo_path": u.profile_photo_path  
-            } for u in pending
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/v1/requests")
-def get_system_requests(
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_admin_or_observer)
-):
-    log_independent_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action="VIEW_HR_TRANSFERS",
-        module="HR_TRANSFERS",
-        details=f"Officer {current_user.name} ({current_user.fnum}) viewed active HR modification and transfer requests."
-    )
-    try:
-        ReqModel = getattr(models, 'modification_requests', getattr(models, 'Modification_Requests', None))
-        if not ReqModel:
-            return []
-            
-        requests = db.query(ReqModel).filter(or_(ReqModel.status == 'PENDING', ReqModel.status == None)).all()
-        
-        result_payload = []
-        for r in requests:
-            req_data = serialize_model_row(r)
-            
-            target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(r.fnum).upper()).first()
-            if target_user:
-                req_data["current_name"] = target_user.name
-                req_data["current_rank"] = target_user.rank
-                req_data["current_region"] = target_user.region
-                req_data["current_station"] = target_user.station
-            else:
-                req_data["current_name"] = "UNKNOWN OFFICER"
-                req_data["current_rank"] = "N/A"
-                req_data["current_region"] = "N/A"
-                req_data["current_station"] = "N/A"
-                
-            result_payload.append(req_data)
-            
-        return result_payload
-    except Exception as e:
-        print(f"Error fetching modification requests: {e}")
-        return []
-
-@app.post("/api/v1/requests")
-def create_system_request(
-    data: dict, 
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    try:
-        target_rank = (data.get("requested_rank") or current_user.rank or "").strip().upper()
-        target_fnum = (data.get("requested_fnum") or current_user.fnum or "").strip().upper()
-        
-        nco_ranks = ['PC', 'SPC', 'CPL', 'SGT']
-        is_fnum_numeric = target_fnum.isdigit()
-        
-        if target_rank in nco_ranks and not is_fnum_numeric:
-            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires a purely numeric Force Number.")
-            
-        if target_rank not in nco_ranks and is_fnum_numeric and target_rank != "":
-            raise HTTPException(status_code=400, detail=f"PROTOCOL ERROR: Rank {target_rank} requires an alphanumeric Force/File Number.")
-
-        ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
-        if not ReqModel:
-            raise HTTPException(status_code=500, detail="Modification Requests model not found in database.")
-            
-        new_request = ReqModel(
-            fnum=current_user.fnum,
-            requested_fnum=data.get("requested_fnum"),
-            requested_name=data.get("requested_name"),
-            requested_rank=data.get("requested_rank"),
-            requested_region=data.get("requested_region"),
-            requested_station=data.get("requested_station"),
-            status="PENDING",
-            created_at=get_eat_time()
-        )
-        db.add(new_request)
-        db.commit()
-
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="SUBMIT_HR_MODIFICATION",
-            module="HR_TRANSFERS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) submitted an HR modification/transfer request."
-        )
-
-        return {"status": "success", "message": "HR Modification request submitted successfully."}
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
-
-@app.patch("/api/v1/requests/{req_id}")
-@app.put("/api/v1/requests/{req_id}")
-def review_system_request(
-    req_id: int, 
-    data: dict, 
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_admin)
-):
-    ReqModel = getattr(models, 'Modification_Requests', getattr(models, 'modification_requests', None))
-    req = db.query(ReqModel).filter(ReqModel.id == req_id).first()
-    
-    if not req: 
-        raise HTTPException(status_code=404, detail="Request not found.")
-        
-    action_status = data.get("status", "").upper()
-    
-    if action_status == "APPROVED":
-        target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == str(req.fnum).upper()).first()
-        if target_user:
-            if req.requested_fnum: target_user.fnum = req.requested_fnum
-            if req.requested_name: target_user.name = req.requested_name
-            if req.requested_rank: target_user.rank = req.requested_rank
-            if req.requested_region: target_user.region = req.requested_region
-            if req.requested_station: target_user.station = req.requested_station
-            
-        req.status = "APPROVED"
-        req.reviewed_by = current_user.fnum
-        req.reviewed_at = get_eat_time()
-        db.commit()
-
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="APPROVE_HR_TRANSFER",
-            module="HR_TRANSFERS",
-            details=f"Admin {current_user.name} ({current_user.fnum}) approved HR transfer request for officer {req.fnum}."
-        )
-
-        return {"status": "success", "message": "Modification approved and executed."}
-        
-    elif action_status == "REJECTED":
-        db.delete(req)
-        db.commit()
-
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="REJECT_HR_TRANSFER",
-            module="HR_TRANSFERS",
-            details=f"Admin {current_user.name} ({current_user.fnum}) rejected HR transfer request for officer {req.fnum}."
-        )
-
-        return {"status": "success", "message": "Modification request rejected."}
-        
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action status provided.")
 
 @app.get("/api/v1/audit-logs")
 def get_audit_logs(
@@ -883,548 +425,6 @@ def get_audit_logs(
     except Exception as e:
         print(f"Audit log fetch error: {e}")
         return []
-
-@app.put("/api/v1/users/{fnum:path}/access")
-@app.post("/api/v1/admin/bulk-permissions")
-@app.put("/api/v1/admin/bulk-permissions")
-def update_user_access(
-    data: dict, 
-    fnum: Optional[str] = None, 
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_admin)
-):
-    target_fnum = fnum or data.get("fnum") or data.get("user_fnum")
-    if not target_fnum:
-        raise HTTPException(status_code=400, detail="Officer force number (fnum) is required.")
-
-    clean_fnum = unquote(unquote(target_fnum)).strip().upper()
-    
-    if clean_fnum == "A/2408":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="SECURITY OVERRIDE DENIED: Principal Super Admin (A/2408) account is immutable and cannot be modified."
-        )
-    
-    user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ).first()
-    
-    if not user:
-        alt_fnum = clean_fnum.replace('/', '')
-        user = db.query(models.Users).filter(
-            func.trim(func.upper(models.Users.fnum)) == alt_fnum
-        ).first()
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="Officer record not found.")
-
-    if "role" in data and data["role"]:
-        user.role = str(data["role"]).strip().upper()
-
-    user.is_approved = True
-
-    if "is_approved" in data:
-        user.is_approved = bool(data["is_approved"])
-
-    if "permissions" in data and data["permissions"] is not None:
-        merged_perms = dict(user.permissions or {})
-        if isinstance(data["permissions"], dict):
-            merged_perms.update(data["permissions"])
-        user.permissions = merged_perms
-        flag_modified(user, "permissions")
-
-    try:
-        db.commit()
-        db.refresh(user)
-
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="USER_ACCESS_UPDATE",
-            module="ACCESS_MATRIX",
-            details=f"Admin {current_user.name} ({current_user.fnum}) modified clearance matrix for officer {clean_fnum}. Role Tier: {user.role}"
-        )
-
-        return {
-            "status": "success",
-            "message": f"Access matrix and approval permanently committed for {user.fnum}",
-            "permissions": user.permissions,
-            "role": user.role,
-            "is_approved": user.is_approved
-        }
-    except Exception as e:
-        db.rollback()
-        logs_db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database commit error: {str(e)}")
-
-@app.put("/api/v1/admin/users/{fnum:path}/force-password")
-def force_user_password(
-    fnum: str, 
-    payload: dict, 
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    if current_user.role != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="SECURITY OVERRIDE DENIED: Only Super Admins can force password resets.")
-        
-    target_fnum = unquote(unquote(fnum)).strip().upper()
-    target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == target_fnum).first()
-    
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Officer record not found in database.")
-        
-    new_pass = payload.get("new_password")
-    if not new_pass or len(new_pass) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long.")
-        
-    target_user.hashed_password = pwd_context.hash(new_pass)
-    
-    log_independent_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action="FORCE_PASSWORD_RESET",
-        module="SECURITY_VAULT",
-        details=f"Super Admin {current_user.name} ({current_user.fnum}) forcibly reset the security key for officer {target_fnum}."
-    )
-
-    if hasattr(models, 'Audit_Logs'):
-        log_semantic_audit(
-            db=db, 
-            fnum=current_user.fnum, 
-            action="FORCE_PASSWORD_RESET",
-            target_identifier=target_fnum, 
-            changes={}, 
-            remarks="Super Admin forced a new security key override."
-        )
-        
-    db.commit()
-    return {"status": "success", "message": f"Password forcibly updated for {target_fnum}"}
-
-@app.get("/api/v1/admin/reset-requests")
-def get_reset_requests(
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_admin_or_observer)
-):
-    log_independent_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action="VIEW_PASSWORD_RESETS",
-        module="PASSWORD_RESETS",
-        details=f"Officer {current_user.name} ({current_user.fnum}) viewed the password recovery requests tab."
-    )
-    try:
-        target_model = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
-        if target_model:
-            resets = db.query(target_model).all()
-            return [{"id": r.id, "fnum": r.fnum, "status": r.status} for r in resets]
-        return []
-    except Exception as e:
-        return []
-
-@app.post("/api/v1/admin/execute-reset/{req_id}")
-def execute_password_reset(
-    req_id: int,
-    action: str = Form(...),
-    db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_admin)
-):
-    TargetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
-    if not TargetModel:
-        raise HTTPException(status_code=404, detail="Password reset model not initialized.")
-
-    reset_req = db.query(TargetModel).filter(TargetModel.id == req_id).first()
-    if not reset_req:
-        raise HTTPException(status_code=404, detail="Password reset request not found.")
-
-    target_fnum = str(reset_req.fnum).strip().upper()
-
-    if action.upper() == "APPROVE":
-        temp_password = "UPF" + secrets.token_hex(3).upper()
-        hashed_pw = pwd_context.hash(temp_password)
-        target_user = db.query(models.Users).filter(
-            func.trim(func.upper(models.Users.fnum)) == target_fnum
-        ).first()
-
-        if target_user:
-            target_user.hashed_password = hashed_pw
-
-        db.delete(reset_req)
-        db.commit()
-
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="PASSWORD_RESET_APPROVED",
-            module="PASSWORD_RESETS",
-            details=f"Admin {current_user.name} ({current_user.fnum}) authorized password recovery for officer {target_fnum}."
-        )
-
-        return {"status": "success", "new_password": temp_password}
-    else:
-        db.delete(reset_req)
-        db.commit()
-        
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="PASSWORD_RESET_REJECTED",
-            module="PASSWORD_RESETS",
-            details=f"Admin {current_user.name} ({current_user.fnum}) rejected password recovery for officer {target_fnum}."
-        )
-
-        return {"status": "success", "message": "Password reset request rejected."}
-
-class HeartbeatPayload(BaseModel):
-    fnum: Optional[str] = None
-
-@app.post("/api/v1/users/heartbeat")
-@app.post("/api/v1/users/heartbeat/")
-def heartbeat(
-    request: Request,
-    payload: Optional[HeartbeatPayload] = None,
-    db: Session = Depends(get_db)
-):
-    token = None
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-    if not token:
-        token = request.cookies.get("access_token") or request.cookies.get("kmp_authToken")
-
-    user = None
-    if token:
-        try:
-            jwt_data = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
-            token_fnum = jwt_data.get("sub")
-            if token_fnum:
-                user = db.query(models.Users).filter(
-                    func.trim(func.upper(models.Users.fnum)) == str(token_fnum).strip().upper()
-                ).first()
-        except JWTError:
-            pass
-
-    if not user and payload and payload.fnum:
-        user = db.query(models.Users).filter(
-            func.trim(func.upper(models.Users.fnum)) == str(payload.fnum).strip().upper()
-        ).first()
-
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session credentials")
-
-    if user.role != "SUPER_ADMIN":
-        sys_lock = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == "lockdown_system_global", models.SystemConfig.config_value == "TRUE").first()
-        if sys_lock:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="SYSTEM LOCKDOWN")
-            
-        if user.region:
-            reg_lock = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == f"lockdown_region_{user.region.lower().replace(' ', '_')}", models.SystemConfig.config_value == "TRUE").first()
-            if reg_lock: raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="REGION LOCKDOWN")
-            
-        if user.station:
-            stn_lock = db.query(models.SystemConfig).filter(models.SystemConfig.config_key == f"lockdown_station_{user.station.lower().replace(' ', '_')}", models.SystemConfig.config_value == "TRUE").first()
-            if stn_lock: raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="STATION LOCKDOWN")
-
-    try:
-        eat_tz = pytz.timezone('Africa/Nairobi')
-        user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
-        db.commit()
-        
-        expire = datetime.utcnow() + timedelta(minutes=60)
-        new_token = jwt.encode(
-            {"sub": str(user.fnum).strip().upper(), "exp": expire},
-            security.SECRET_KEY, algorithm=security.ALGORITHM
-        )
-        return {"status": "alive", "user": user.fnum, "new_token": new_token}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/v1/users/online")
-def get_online_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    eat_tz = pytz.timezone('Africa/Nairobi')
-    now_eat = datetime.now(eat_tz).replace(tzinfo=None)
-    threshold = now_eat - timedelta(minutes=2)
-    
-    active_users = db.query(models.Users).filter(
-        models.Users.is_approved == True,
-        models.Users.last_active_at >= threshold
-    ).all()
-    
-    return [
-        {
-            "fnum": u.fnum,
-            "name": u.name,
-            "station": u.station,
-            "profile_photo_path": u.profile_photo_path
-        } for u in active_users
-    ]
-
-@app.get("/api/v1/activity-logs")
-def get_system_activity_logs(db: Session = Depends(get_logs_db), current_user: models.Users = Depends(require_admin_or_observer)):
-    try:
-        logs = db.query(models.Activity_Logs).order_by(models.Activity_Logs.id.desc()).limit(100).all()
-        return [
-            {
-                "id": log.id,
-                "created_at": log.created_at.isoformat() if hasattr(log.created_at, 'isoformat') else str(log.created_at),
-                "fnum": log.fnum or '',
-                "action": log.action or '',
-                "module": log.module or '',
-                "details": log.details or ''
-            } for log in logs
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch activity logs: {str(e)}")
-
-@app.post("/api/v1/activity-logs")
-def create_system_activity_log(data: dict, db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        page = data.get("module", data.get("page_accessed", "UNKNOWN"))
-        act = data.get("action", "PAGE_ACCESS")
-        details = data.get("details", f"Officer {current_user.name} ({current_user.fnum}) accessed {page}")
-        
-        new_activity = models.Activity_Logs(
-            fnum=current_user.fnum,
-            action=act,
-            module=page,
-            details=details,
-            created_at=get_eat_time()
-        )
-        db.add(new_activity)
-        db.commit()
-        return {"status": "success"}
-    except Exception as e:
-        db.rollback()
-        return {"status": "error", "detail": str(e)}
-
-@app.post("/api/v1/system/log-session")
-def log_user_session(data: dict, db: Session = Depends(get_db)):
-    fnum = data.get("fnum")
-    if hasattr(models, 'Audit_Logs') and fnum:
-        log_semantic_audit(
-            db=db, fnum=fnum, action="OFFICER_AUTHENTICATION", 
-            target_identifier="SYSTEM", changes={}, remarks="Secure session initiated via Dashboard Gateway"
-        )
-    return {"status": "success"}
-
-@app.post("/api/v1/auth/log-logout")
-def log_user_logout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
-    try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
-        if token:
-            payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
-            fnum = payload.get("sub")
-            if fnum:
-                log_semantic_audit(
-                    db=db,
-                    fnum=fnum,
-                    action="OFFICER_LOGOUT",
-                    target_identifier="SYSTEM",
-                    changes={},
-                    remarks="Officer performed a secure manual logout."
-                )
-                log_independent_activity(
-                    logs_db=logs_db,
-                    fnum=fnum,
-                    action="OFFICER_LOGOUT",
-                    module="SECURITY_VAULT",
-                    details=f"Officer {fnum} performed a secure manual logout."
-                )
-    except Exception as e:
-        print(f"Logout logging error: {e}")
-    return {"status": "success"}
-
-@app.post("/api/v1/auth/log-timeout")
-def log_user_timeout(request: Request, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db)):
-    try:
-        token = request.headers.get("Authorization", "").replace("Bearer ", "") or request.cookies.get("kmp_authToken")
-        if token:
-            payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
-            fnum = payload.get("sub")
-            if fnum:
-                log_semantic_audit(
-                    db=db,
-                    fnum=fnum,
-                    action="SESSION_TIMEOUT_EXPIRED",
-                    target_identifier="SYSTEM",
-                    changes={},
-                    remarks="Session expired due to inactivity curtain timeout."
-                )
-                log_independent_activity(
-                    logs_db=logs_db,
-                    fnum=fnum,
-                    action="SESSION_TIMEOUT_EXPIRED",
-                    module="SECURITY_VAULT",
-                    details=f"Officer {fnum} session expired due to inactivity curtain timeout."
-                )
-    except Exception as e:
-        print(f"Timeout logging error: {e}")
-    return {"status": "success"}
-
-@app.get("/api/v1/users/recipients-list")
-@app.get("/api/v1/communications/recipients-list")
-def get_recipients_list(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    try:
-        users = db.query(models.Users).filter(
-            models.Users.role != 'REVOKED',
-            models.Users.is_approved == True
-        ).all()
-        return [
-            {
-                "fnum": u.fnum,
-                "name": u.name,
-                "rank": u.rank,
-                "region": u.region,
-                "station": u.station,
-                "position": u.position,
-                "role": u.role
-            } for u in users
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch recipients: {str(e)}")
-
-@app.delete("/api/v1/users/{fnum:path}/revoke")
-def revoke_user_access(
-    fnum: str,
-    reason: str = "Administrative Revocation",
-    db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_admin)
-):
-    clean_fnum = unquote(unquote(fnum)).strip().upper()
-    target_user = db.query(models.Users).filter(
-        func.trim(func.upper(models.Users.fnum)) == clean_fnum
-    ).first()
-
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User record not found.")
-
-    target_user.role = "REVOKED"
-    target_user.is_approved = False
-
-    try:
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="REVOKE_USER_ACCESS",
-            module="ACCESS_MATRIX",
-            details=f"Admin {current_user.name} ({current_user.fnum}) revoked system access for officer {clean_fnum}. Reason: {reason}"
-        )
-
-        if hasattr(models, 'Audit_Logs'):
-            log_semantic_audit(
-                db=db,
-                fnum=current_user.fnum,
-                action="REVOKE_USER_ACCESS",
-                target_identifier=clean_fnum,
-                changes={"role": [target_user.role, "REVOKED"]},
-                remarks=reason
-            )
-        db.commit()
-        return {"status": "success", "message": f"Access successfully revoked for {clean_fnum}."}
-    except Exception as e:
-        db.rollback()
-        logs_db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database revocation error: {str(e)}")
-
-@app.delete("/api/v1/users/{fnum:path}/permanent-delete")
-def permanently_delete_user(
-    fnum: str,
-    db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    if current_user.role != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="SECURITY OVERRIDE DENIED: Only Super Admins can execute permanent record deletion.")
-        
-    target_fnum = unquote(unquote(fnum)).strip().upper()
-    target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == target_fnum).first()
-    
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Officer record not found in database.")
-        
-    officer_name = target_user.name
-    
-    try:
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="PERMANENT_ACCOUNT_PURGE",
-            module="SECURITY_VAULT",
-            details=f"Super Admin {current_user.name} ({current_user.fnum}) permanently purged officer record {officer_name} ({target_fnum})."
-        )
-
-        if hasattr(models, 'Audit_Logs'):
-            log_semantic_audit(
-                db=db, 
-                fnum=current_user.fnum, 
-                action="PERMANENT_ACCOUNT_PURGE",
-                target_identifier=target_fnum, 
-                changes={"action": ["EXISTING", "PERMANENTLY_ERASED"]}, 
-                remarks=f"Super Admin completely erased user {officer_name}"
-            )
-
-        db.delete(target_user)
-        db.commit()
-        
-        return {"status": "success", "message": f"Officer record {target_fnum} permanently purged."}
-    except Exception as e:
-        db.rollback()
-        logs_db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database purge failed: {str(e)}")
-
-@app.get("/api/v1/reports/establishments-json")
-def get_establishments_json(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    try:
-        est_model = getattr(models, 'Establishments', getattr(models, 'establishments', None))
-        nom_model = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
-        
-        est = db.query(est_model).all() if est_model else []
-        nom = db.query(nom_model).all() if nom_model else []
-        
-        return {
-            "establishments": [serialize_model_row(e) for e in est],
-            "nominal_rolls": [serialize_model_row(n) for n in nom]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to compile HR Ledger: {str(e)}")
-
-@app.get("/api/v1/reports/consolidated-ledger")
-def get_consolidated_ledger(
-    start_date: Optional[str] = None, 
-    end_date: Optional[str] = None, 
-    db: Session = Depends(get_db), 
-    current_user = Depends(get_current_user)
-):
-    try:
-        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
-        StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', None))
-        StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', None))
-        EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
-        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
-
-        crimes = db.query(CrimeModel).limit(500).all() if CrimeModel else []
-        stats = db.query(StatsModel).limit(500).all() if StatsModel else []
-        stories = db.query(StoryModel).limit(200).all() if StoryModel else []
-        establishments = db.query(EstModel).all() if EstModel else []
-        nominal_roll = db.query(NomModel).limit(1000).all() if NomModel else []
-        
-        return {
-            "status": "success",
-            "crimes": [serialize_model_row(c) for c in crimes],
-            "statistics": [serialize_model_row(s) for s in stats],
-            "stories": [serialize_model_row(st) for st in stories],
-            "establishments": [serialize_model_row(e) for e in establishments],
-            "nominal_rolls": [serialize_model_row(n) for n in nominal_roll],
-            "manpower": [serialize_model_row(n) for n in nominal_roll]
-        }
-    except Exception as e:
-        print(f"Consolidated Ledger DB Query Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch consolidated data: {str(e)}")
 
 @app.get("/api/v1/audit-logs/export")
 def export_audit_logs_excel(
@@ -1513,382 +513,81 @@ def export_audit_logs_excel(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
 
-@app.get("/api/v1/hr/export-ledger")
-def export_hr_ledger(
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_export_privilege)
+class HeartbeatPayload(BaseModel):
+    fnum: Optional[str] = None
+
+@app.post("/api/v1/users/heartbeat")
+@app.post("/api/v1/users/heartbeat/")
+def heartbeat(
+    request: Request,
+    payload: Optional[HeartbeatPayload] = None,
+    db: Session = Depends(database.get_db)
 ):
-    try:
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="HR_LEDGER_EXPORT",
-            module="EXCEL_EXPORTS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the secure encrypted HR establishments ledger archive."
-        )
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    if not token:
+        token = request.cookies.get("access_token") or request.cookies.get("kmp_authToken")
 
-        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
-        EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
-        ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))        
+    user = None
+    if token:
+        try:
+            jwt_data = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+            token_fnum = jwt_data.get("sub")
+            if token_fnum:
+                user = db.query(models.Users).filter(
+                    func.trim(func.upper(models.Users.fnum)) == str(token_fnum).strip().upper()
+                ).first()
+        except JWTError:
+            pass
 
-        def get_orm_data(ModelClass, columns):
-            if not ModelClass: return []
-            try:
-                query = db.query(ModelClass)
-                query = apply_opsec_scope(current_user, query, ModelClass)
-                
-                rows = []
-                for r in query.all():
-                    row_data = []
-                    for col in columns:
-                        val = getattr(r, col, '')
-                        if isinstance(val, datetime):
-                            val = val.strftime("%Y-%m-%d %H:%M")
-                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason']:
-                            val = clean_html_for_export(val)
-                        row_data.append(str(val) if val is not None else '')
-                    rows.append(row_data)
-                return rows
-            except: return []
-
-        nr_records = get_orm_data(NomModel, ['f_num', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status'])
-        est_records = get_orm_data(EstModel, ['region', 'division', 'station', 'personnel_in_station', 'sub_station', 'personnel_in_sub_station', 'post', 'personnel_in_post', 'booths', 'personnel_in_booth', 'installed_by', 'location', 'status', 'comment', 'last_updated_by'])
-        arc_records = get_orm_data(ArcModel, ['fnum', 'name', 'rank', 'sex', 'region', 'station', 'position', 'status', 'archive_reason', 'archive_date'])
-
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active) 
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        
-        def add_sheet(title, headers, data):
-            ws = wb.create_sheet(title=title)
-            ws.append(["SN"] + headers)
-            for cell in ws[1]:
-                cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
-            for idx, row in enumerate(data, 1): ws.append([idx] + row)
-            for col in ws.columns:
-                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 65)
-
-        add_sheet("Nominal Roll", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status"], nr_records)
-        add_sheet("establishments", ["Region", "Division", "Station", "Personnel (Station)", "Sub-Station", "Personnel (Sub-Stn)", "Post", "Personnel (Post)", "Booths", "Personnel (Booth)", "Installed By", "Location", "Status", "Comment", "Last Updated By"], est_records)
-        add_sheet("Archived Personnel", ["Force Number", "Name", "Rank", "Sex", "Region", "Station", "Position", "Status", "Reason", "Archived On"], arc_records)
-
-        excel_stream = io.BytesIO()
-        wb.save(excel_stream)
-        
-        zip_stream = io.BytesIO()
-        eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
-        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
-        
-        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
-            zf.writestr(f"{fnum_clean}_HR_Ledger_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
-
-        zip_stream.seek(0)
-        return StreamingResponse(
-            zip_stream, media_type="application/zip",
-            headers={'Content-Disposition': f'attachment; filename="SECURE_HR_LEDGER_{eat_time.strftime("%y%m%d")}.zip"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
-
-@app.get("/api/v1/reports/export")
-def export_master_database(
-    timeframe: str = "all", 
-    scope: Optional[str] = None, 
-    value: Optional[str] = None, 
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_export_privilege)
-):
-    try:
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action="MASTER_DATABASE_EXPORT",
-            module="EXCEL_EXPORTS",
-            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted master database archive."
-        )
-
-        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', getattr(models, 'Reports', None)))
-        StatsModel = getattr(models, 'Operational_Statistics', getattr(models, 'OperationalStatistics', getattr(models, 'Stats', None)))
-        StoryModel = getattr(models, 'Success_Stories', getattr(models, 'SuccessStories', getattr(models, 'Stories', None)))
-        NomModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', None))
-        EstModel = getattr(models, 'Establishments', getattr(models, 'establishments', None))
-        DocsModel = getattr(models, 'DocumentArchive', getattr(models, 'Document_Archive', getattr(models, 'document_archive', None)))
-        ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
-        AIModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
-        ArcModel = getattr(models, 'NominalRollArchive', getattr(models, 'Nominal_Roll_Archive', None))
-        AgricStatsModel = getattr(models, 'AgricStats', getattr(models, 'agric_stats', getattr(models, 'Agric_Stats', None)))
-        ExhibitsModel = getattr(models, 'Exhibits', getattr(models, 'exhibits', getattr(models, 'Exhibit', getattr(models, 'ImpoundedExhibits', None))))
-
-        def get_full_dataframe(ModelClass):
-            if not ModelClass: 
-                return pd.DataFrame()
-            try:
-                query = db.query(ModelClass)
-                query = apply_opsec_scope(current_user, query, ModelClass)
-                
-                records = query.all()
-                if not records:
-                    return pd.DataFrame()
-                
-                data = []
-                for r in records:
-                    row_dict = {}
-                    for col in r.__table__.columns.keys():
-                        val = getattr(r, col, '')
-                        if isinstance(val, datetime):
-                            val = val.strftime("%Y-%m-%d %H:%M")
-                        elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'status', 'agric_crime_report', 'recovery_report', 'reason', 'assorted_items']:
-                            val = clean_html_for_export(val)
-                        elif col in ['category', 'offence', 'type'] and isinstance(val, str):
-                            val = format_crime_category(val)
-                        row_dict[col] = val if val is not None else ''
-                    data.append(row_dict)
-                return pd.DataFrame(data)
-            except Exception as ex:
-                print(f"DataFrame fetch error for {ModelClass}: {ex}")
-                return pd.DataFrame()
-
-        df_crime = get_full_dataframe(CrimeModel)
-        df_stats = get_full_dataframe(StatsModel)
-        df_agric_stats = get_full_dataframe(AgricStatsModel)
-        df_stories = get_full_dataframe(StoryModel)
-        df_users = get_full_dataframe(NomModel)
-        df_est = get_full_dataframe(EstModel)
-        df_docs = get_full_dataframe(DocsModel)
-        df_arc = get_full_dataframe(ArcModel)
-        df_exhibits = get_full_dataframe(ExhibitsModel)
-
-        ai_rows = []
-        if AIModel:
-            try:
-                for r in db.query(AIModel).all():
-                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(getattr(r, 'created_at', ''))
-                    ai_rows.append({"Interaction Type": "AI_PROMPT_EXECUTION", "Details": clean_html_for_export(f"Prompt: {r.prompt} | Response: {r.response}"), "Officer FNUM": getattr(r, 'fnum', ''), "Timestamp": v_time})
-            except Exception: 
-                pass
-                
-        if ActivityModel:
-            try:
-                ai_act = db.query(ActivityModel).filter(or_(ActivityModel.module.ilike('%AI%'), ActivityModel.module.ilike('%ai_console%'))).all()
-                for r in ai_act:
-                    v_time = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r.created_at, 'strftime') else str(getattr(r, 'created_at', ''))
-                    ai_rows.append({"Interaction Type": "PAGE_ACCESS_LOG", "Details": clean_html_for_export(getattr(r, 'details', 'AI Console Access')), "Officer FNUM": getattr(r, 'fnum', ''), "Timestamp": v_time})
-            except Exception: 
-                pass
-        df_ai = pd.DataFrame(ai_rows)
-
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active) 
-        
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        header_align = Alignment(horizontal="center", vertical="center")
-
-        def write_wrapped_sheet(df, title, wrap_columns=[]):
-            if df.empty:
-                return
-            
-            ws = wb.create_sheet(title=title)
-            columns_to_write = [c for c in df.columns if c.lower() not in ['sn', 'id']]
-            ws.append(["SN"] + list(columns_to_write))
-            
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = header_align
-            
-            for idx, row in enumerate(df[columns_to_write].values, 1):
-                ws.append([idx] + list(row))
-                
-            for col in ws.columns:
-                col_letter = col[0].column_letter
-                col_name = col[1].value if len(col) > 1 else ""
-                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                
-                if col_name in wrap_columns or max_len > 40:
-                    ws.column_dimensions[col_letter].width = 45
-                    for cell in col:
-                        if cell.row > 1:
-                            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                else:
-                    ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
-                    for cell in col:
-                        if cell.row > 1:
-                            cell.alignment = Alignment(horizontal="center", vertical="center")
-
-        write_wrapped_sheet(df_crime, "Crime Registry", ['narrative', 'offence', 'sd_ref'])
-        write_wrapped_sheet(df_stats, "OPS Statistics", [])
-        write_wrapped_sheet(df_agric_stats, "Agric Statistics", ['agric_crime_report', 'recovery_report'])
-        write_wrapped_sheet(df_stories, "Success Stories", ['narrative'])
-        write_wrapped_sheet(df_users, "Nominal Roll", ['position', 'name'])
-        write_wrapped_sheet(df_est, "Establishments", ['comment', 'location', 'station'])
-        write_wrapped_sheet(df_arc, "Archived Personnel", ['archive_reason'])
-        write_wrapped_sheet(df_docs, "Documents & Reports", ['file_name'])
-        write_wrapped_sheet(df_ai, "AI Command Logs", ['Details'])
-        write_wrapped_sheet(df_exhibits, "Impounded Exhibits", ['reason', 'assorted_items', 'comment', 'case_no'])
-
-        eat_tz = pytz.timezone("Africa/Nairobi")
-        eat_time = datetime.now(eat_tz).replace(tzinfo=None)
-        
-        officer_fnum = (current_user.fnum or "HQ-UNKNOWN").strip().upper()
-        stamp_id = f"KMP-STAMP-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
-        encoded_token = base64.b64encode(json.dumps({"f": officer_fnum, "s": stamp_id}).encode('utf-8')).decode('utf-8')
-        
-        wb.properties.keywords = f"KMP_AUDIT;{encoded_token}"
-        wb.properties.category = "RESTRICTED / FORENSIC POLICE RECORD"
-
-        excel_stream = io.BytesIO()
-        wb.save(excel_stream)
-        
-        zip_stream = io.BytesIO()
-        zip_password = str(current_user.fnum).strip().encode('utf-8')
-        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
-
-        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            zf.setpassword(zip_password)
-            excel_filename = f"{fnum_clean}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx"
-            zf.writestr(excel_filename, excel_stream.getvalue())
-
-        zip_stream.seek(0)
-        zip_filename = f"SECURE_MASTER_DB_{eat_time.strftime('%Y%m%d')}.zip"
-        
-        return StreamingResponse(
-            zip_stream, media_type="application/zip",
-            headers={'Content-Disposition': f'attachment; filename="{zip_filename}"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Master export failed: {str(e)}")
-
-@app.get("/api/v1/export/establishments")
-def export_establishments_summary(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    try:
-        est_model = getattr(models, 'Establishments', getattr(models, 'establishments', None))
-        query = db.query(est_model) if est_model else None
-        if query is not None:
-            query = apply_opsec_scope(current_user, query, est_model)
-            est = query.all()
-        else:
-            est = []
-        df_est = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(e) for e in est]))
-        
-        output = io.BytesIO()
-        df_est.to_excel(output, index=False, engine='openpyxl')
-        output.seek(0)
-        
-        return StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=HR_Establishments_Summary.xlsx"}
-        )
-    except Exception as e:
-        print(f"HR export error: {e}")
-        raise HTTPException(status_code=500, detail=f"HR export failed: {str(e)}")
-
-class LockdownPayload(BaseModel):
-    lockdown_type: str 
-    target_name: str   
-    reason: str
-
-@app.get("/api/v1/admin/lockdown/status")
-def get_lockdown_status(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    if current_user.role not in ["ADMIN", "SUPER_ADMIN"]:
-        raise HTTPException(status_code=403, detail="Clearance Denied: Admin required.")
-
-    try:
-        active_lockdowns = db.query(models.SystemConfig).filter(
-            models.SystemConfig.config_key.like("lockdown_%"),
-            models.SystemConfig.config_value == "TRUE"
-        ).all()
-
-        status_report = {
-            "system_lockdown": False,
-            "active_regions": [],
-            "active_stations": []
-        }
-
-        for lockdown in active_lockdowns:
-            key = lockdown.config_key
-            if key == "lockdown_system_global":
-                status_report["system_lockdown"] = True
-            elif key.startswith("lockdown_region_"):
-                region_name = key.replace("lockdown_region_", "").replace("_", " ").upper()
-                status_report["active_regions"].append(region_name)
-            elif key.startswith("lockdown_station_"):
-                station_name = key.replace("lockdown_station_", "").replace("_", " ").upper()
-                status_report["active_stations"].append(station_name)
-
-        return status_report
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch lockdown status: {str(e)}")
-
-@app.post("/api/v1/admin/toggle-maintenance")
-def toggle_granular_maintenance(
-    payload: LockdownPayload,
-    db: Session = Depends(get_db),
-    current_user: models.Users = Depends(get_current_user)
-):
-    if current_user.role != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="Clearance Denied: Super Admin status required for system lockdowns.")
-
-    try:
-        config_key = f"lockdown_{payload.lockdown_type.lower()}_{payload.target_name.lower().replace(' ', '_')}"
-        
-        config_entry = db.query(models.SystemConfig).filter(
-            models.SystemConfig.config_key == config_key
+    if not user and payload and payload.fnum:
+        user = db.query(models.Users).filter(
+            func.trim(func.upper(models.Users.fnum)) == str(payload.fnum).strip().upper()
         ).first()
 
-        current_status = False
-        if config_entry:
-            current_status = str(config_entry.config_value).strip().upper() == "TRUE"
-            new_status = "FALSE" if current_status else "TRUE"
-            config_entry.config_value = new_status
-        else:
-            new_status = "TRUE"
-            new_config = models.SystemConfig(
-                config_key=config_key,
-                config_value=new_status
-            )
-            db.add(new_config)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session credentials")
 
+    try:
+        eat_tz = pytz.timezone('Africa/Nairobi')
+        user.last_active_at = datetime.now(eat_tz).replace(tzinfo=None)
         db.commit()
         
-        action_text = "ACTIVATED" if new_status == "TRUE" else "LIFTED"
-
-        if hasattr(models, 'Audit_Logs'):
-            log_semantic_audit(
-                db=db,
-                fnum=current_user.fnum,
-                action=f"LOCKDOWN_{action_text}",
-                target_identifier=f"{payload.lockdown_type}: {payload.target_name}",
-                changes={"status": [str(current_status).upper(), new_status]},
-                remarks=payload.reason
-            )
-
-        return {
-            "status": "success",
-            "message": f"Lockdown {action_text} for [{payload.lockdown_type}: {payload.target_name}]. Reason: {payload.reason}"
-        }
+        expire = datetime.utcnow() + timedelta(minutes=60)
+        new_token = jwt.encode(
+            {"sub": str(user.fnum).strip().upper(), "exp": expire},
+            security.SECRET_KEY, algorithm=security.ALGORITHM
+        )
+        return {"status": "alive", "user": user.fnum, "new_token": new_token}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to execute lockdown toggle: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/users/online")
+def get_online_users(db: Session = Depends(database.get_db)):
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    now_eat = datetime.now(eat_tz).replace(tzinfo=None)
+    threshold = now_eat - timedelta(minutes=2)
+    
+    active_users = db.query(models.Users).filter(
+        models.Users.is_approved == True,
+        models.Users.last_active_at >= threshold
+    ).all()
+    
+    return [
+        {
+            "fnum": u.fnum,
+            "name": u.name,
+            "station": u.station,
+            "profile_photo_path": u.profile_photo_path
+        } for u in active_users
+    ]
 
 # ====================================================================
 # 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
 # ====================================================================
-@app.post("/api/v1/admin/trigger-briefs")
-def trigger_briefs_manually(
-    background_tasks: BackgroundTasks, 
-    current_user: models.Users = Depends(require_admin)
-):
-    background_tasks.add_task(run_weekly_tactical_briefing_job, conf)
-    return {"status": "success", "message": "Weekly tactical briefings are dispatching in the background."}
-
 eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler(timezone=eat_tz)
 scheduler.add_job(

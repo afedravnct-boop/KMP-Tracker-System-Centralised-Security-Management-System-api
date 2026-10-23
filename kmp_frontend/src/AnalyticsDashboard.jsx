@@ -66,7 +66,6 @@ const parseFireIncidentAdvanced = (rawNarrative, offenceStr) => {
     };
 };
 
-// 🟢 Corrected Offence Normalizer (Preserves natural word order & fixes Sudden Death phrasing)
 const normalizeOffenceCategory = (rawOffence) => {
   if (!rawOffence) return "UNSPECIFIED OFFENCE";
   let clean = String(rawOffence).trim().toUpperCase();
@@ -105,21 +104,19 @@ const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
       suspects: 0,
       recoveries: "NONE RECORDED",
       legalStatus: "UNDER INVESTIGATION",
-      classification: "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION"
+      classification: "OPERATIONAL BREAKTHROUGH"
     };
   }
 
   const cleanText = cleanDisplayNarrative(rawHtmlNarrative);
   const headlineMatch = rawHtmlNarrative.match(/<strong>(.*?)<\/strong>/i);
-  let classification = "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION";
+  let classification = "ARREST & RECOVERY OPERATION";
 
   if (headlineMatch && headlineMatch[1]) {
      const cleanedHeadline = cleanDisplayNarrative(headlineMatch[1]);
-     if (cleanedHeadline.length > 3) {
+     if (cleanedHeadline.length > 3 && cleanedHeadline.length < 60) {
          classification = cleanedHeadline.toUpperCase();
      }
-  } else if (cleanText) {
-     classification = cleanText.split('.')[0].substring(0, 80).toUpperCase();
   }
 
   const lowerText = cleanText.toLowerCase();
@@ -155,15 +152,22 @@ const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
     recoveriesList.push(`${formattedCount} | ${match[2].trim().toUpperCase()}`);
   }
 
-  if (recoveriesList.length === 0 && (lowerText.includes('recovery') || lowerText.includes('recovered') || lowerText.includes('recover') || lowerText.includes('impound'))) {
-    recoveriesList.push('01 | RECOVERED EXHIBIT / ASSET');
+  if (recoveriesList.length === 0) {
+    if (lowerText.includes('motorcycle') || lowerText.includes('boda')) recoveriesList.push('01 | MOTORCYCLE RECOVERED');
+    else if (lowerText.includes('vehicle') || lowerText.includes('car')) recoveriesList.push('01 | MOTOR VEHICLE RECOVERED');
+    else if (lowerText.includes('phone') || lowerText.includes('mobile')) recoveriesList.push('01 | MOBILE PHONE RECOVERED');
+    else if (lowerText.includes('cattle') || lowerText.includes('cow')) recoveriesList.push('01 | STOLEN CATTLE RECOVERED');
+    else if (lowerText.includes('money') || lowerText.includes('cash') || lowerText.includes('shillings')) recoveriesList.push('01 | CASH / FUNDS RECOVERED');
+    else if (lowerText.includes('gun') || lowerText.includes('pistol') || lowerText.includes('firearm')) recoveriesList.push('01 | FIREARM RECOVERED');
+    else if (lowerText.includes('uniform') || lowerText.includes('stores')) recoveriesList.push('01 | GOVERNMENT STORES');
+    else recoveriesList.push('NONE RECORDED');
   }
 
   return {
     suspects: suspectsCount,
-    recoveries: recoveriesList.length > 0 ? recoveriesList.join(' || ') : 'NONE RECORDED',
+    recoveries: recoveriesList.join(' || '),
     legalStatus: legalStatus,
-    classification: classification
+    classification: classification.length > 55 ? classification.substring(0, 52) + '...' : classification
   };
 };
 
@@ -294,15 +298,16 @@ const AnalyticsDashboard = ({
   const [fetchedAccidents, setFetchedAccidents] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const [expandedManpowerRegions, setExpandedManpowerRegions] = useState({});
-  const [expandedCrimeRegions, setExpandedCrimeRegions] = useState({});
+  // 🟢 Exclusive Accordion State (Only one region expanded at a time)
+  const [expandedManpowerRegion, setExpandedManpowerRegion] = useState(null);
+  const [expandedCrimeRegion, setExpandedCrimeRegion] = useState(null);
   const [expandedDays, setExpandedDays] = useState({});
 
   const toggleManpowerRegion = (regionName) => {
-    setExpandedManpowerRegions(prev => ({ ...prev, [regionName]: !prev[regionName] }));
+    setExpandedManpowerRegion(prev => (prev === regionName ? null : regionName));
   };
   const toggleCrimeRegion = (regionName) => {
-    setExpandedCrimeRegions(prev => ({ ...prev, [regionName]: !prev[regionName] }));
+    setExpandedCrimeRegion(prev => (prev === regionName ? null : regionName));
   };
   const toggleDayDropdown = (dayName) => {
     setExpandedDays(prev => ({ ...prev, [dayName]: !prev[dayName] }));
@@ -746,43 +751,43 @@ const AnalyticsDashboard = ({
   };
 
   return (
-    <div className="p-3 max-w-[1600px] mx-auto space-y-3 font-sans min-h-screen pb-24" style={{ backgroundColor: '#f4eee2' }}>
+    <div className="p-2 max-w-[1600px] mx-auto space-y-2 font-sans min-h-screen pb-16" style={{ backgroundColor: '#f4eee2' }}>
         
       {/* Top Header Card */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-4 py-2.5 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-3 py-2 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
         <div>
-          <h1 className="text-lg font-extrabold text-[#3a3225] tracking-tight">KMP Relational Operations & Intelligence Dashboard</h1>
-          <p className="text-[11px] text-[#736450] font-medium">Monthly aggregates, crime categories, suspect legal statuses, open-ended recoveries, fire incidents, daily detentions, and accident analytics.</p>
+          <h1 className="text-base font-extrabold text-[#3a3225] tracking-tight">KMP Relational Operations & Intelligence Dashboard</h1>
+          <p className="text-[10px] text-[#736450] font-medium">Monthly aggregates, crime categories, suspect legal statuses, open-ended recoveries, fire incidents, daily detentions, and accident analytics.</p>
         </div>
-        <button onClick={handleExportExcel} className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-xs transition flex items-center space-x-1.5 cursor-pointer shrink-0">
-          <Download size={14} className="mr-1" />
+        <button onClick={handleExportExcel} className="bg-[#596E47] hover:bg-[#4A5D4E] text-white px-2.5 py-1 rounded-lg font-bold text-[10px] shadow-xs transition flex items-center space-x-1 cursor-pointer shrink-0">
+          <Download size={13} className="mr-1" />
           <span>Download Relational Report (ZIP)</span>
         </button>
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-2 px-3 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-800 font-bold">
-          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-amber-600" /> Fetching live analytics ...
+        <div className="flex items-center justify-center py-1.5 px-3 bg-amber-50 rounded-lg border border-amber-200">
+          <Loader2 className="w-4 h-4 animate-spin text-amber-600" />
         </div>
       )}
 
       {/* Tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-9 gap-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-9 gap-1">
         {[
-          { id: 'SUCCESS', label: 'Success Stories' },
-          { id: 'CRIME', label: 'Crime Categories' },
-          { id: 'EXHIBITS', label: 'Exhibits' },
-          { id: 'DETENTIONS', label: 'Detentions' },
-          { id: 'ACCIDENTS', label: 'Accidents' },
-          { id: 'FIRES', label: 'Fire Incidents' },
-          { id: 'SUMMARY', label: 'Summary Table' },
-          { id: 'OPERATIONS', label: 'Disruptive Ops' },
-          { id: 'MANPOWER_DEEP', label: 'Manpower Analysis' }
+          { id: 'SUCCESS', label: '🌟 Success Stories' },
+          { id: 'CRIME', label: '📊 Crime Categories' },
+          { id: 'EXHIBITS', label: '🚚 Exhibits' },
+          { id: 'DETENTIONS', label: '🔒 Detentions' },
+          { id: 'ACCIDENTS', label: '🚓 Accidents' },
+          { id: 'FIRES', label: '🔥 Fire Incidents' },
+          { id: 'SUMMARY', label: '📋 Summary Table' },
+          { id: 'OPERATIONS', label: '⚡ Disruptive Ops' },
+          { id: 'MANPOWER_DEEP', label: '🛡️ Manpower Analysis' }
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveDomain(tab.id)}
-            className={`px-2.5 py-2 rounded-lg font-bold text-[11px] transition border text-center shadow-xs cursor-pointer truncate ${
+            className={`px-2 py-1.5 rounded-lg font-bold text-[10px] transition border text-center shadow-xs cursor-pointer truncate ${
               activeDomain === tab.id ? 'bg-[#3a3225] text-[#f4eee2] border-[#3a3225]' : 'bg-[#fbf8f3] text-[#594d3c] border-[#e2d6c3] hover:bg-[#f1ebd9]'
             }`}
           >
@@ -792,23 +797,23 @@ const AnalyticsDashboard = ({
       </div>
 
       {/* Filter Toolbar */}
-      <div className="bg-[#fbf8f3] px-3 py-2 rounded-lg shadow-xs border border-[#e2d6c3] flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-bold text-[#736450] uppercase flex items-center">
-            <Filter size={12} className="mr-1 text-[#596E47]" /> Filters:
+      <div className="bg-[#fbf8f3] px-3 py-1.5 rounded-lg shadow-xs border border-[#e2d6c3] flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold text-[#736450] uppercase flex items-center">
+            <Filter size={11} className="mr-1 text-[#596E47]" /> Filters:
           </span>
 
-          <select value={selectedRegion} onChange={(e) => { if (canViewGlobalLevel) { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); } }} disabled={!canViewGlobalLevel} className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
+          <select value={selectedRegion} onChange={(e) => { if (canViewGlobalLevel) { setSelectedRegion(e.target.value); setSelectedStation('ALL STATIONS'); } }} disabled={!canViewGlobalLevel} className="border border-[#e2d6c3] rounded-md px-2 py-0.5 text-[10px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
             <option value="ALL REGIONS">ALL REGIONS</option>
             {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
           </select>
 
-          <select value={selectedStation} onChange={(e) => setSelectedStation(e.target.value)} className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
+          <select value={selectedStation} onChange={(e) => setSelectedStation(e.target.value)} className="border border-[#e2d6c3] rounded-md px-2 py-0.5 text-[10px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
             <option value="ALL STATIONS">ALL STATIONS / DIVISIONS</option>
             {REGIONAL_HIERARCHY[selectedRegion]?.map(stn => <option key={stn} value={stn}>{stn}</option>)}
           </select>
 
-          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
+          <select value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="border border-[#e2d6c3] rounded-md px-2 py-0.5 text-[10px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
             <option value="ALL">All Months</option>
             <option value="2026-10">October 2026</option>
             <option value="2026-09">September 2026</option>
@@ -816,7 +821,7 @@ const AnalyticsDashboard = ({
             <option value="2026-07">July 2026</option>
           </select>
 
-          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border border-[#e2d6c3] rounded-md px-2 py-1 text-[11px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="border border-[#e2d6c3] rounded-md px-2 py-0.5 text-[10px] font-bold text-[#3a3225] bg-white outline-none cursor-pointer">
             <option value="ALL">All Time Range</option>
             <option value="1DAY">Last 1 Day</option>
             <option value="7DAYS">Last 7 Days (1 Week)</option>
@@ -826,60 +831,60 @@ const AnalyticsDashboard = ({
           </select>
         </div>
 
-        <span className="text-[11px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
+        <span className="text-[10px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
           Total Entries: {activeDomain === 'SUCCESS' ? parsedSuccessStories.length : activeDomain === 'CRIME' ? crimeCategoryData.length : activeDomain === 'EXHIBITS' ? exhibitGroupedData.length : activeDomain === 'FIRES' ? fireIntelligence.fireList.length : timeFilteredDataset.length}
         </span>
       </div>
 
       {/* SUCCESS STORIES TAB */}
       {activeDomain === 'SUCCESS' && (
-        <div className="space-y-3 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Award className="mr-2 text-[#C5A880] w-4 h-4" /> Success Stories & Operational Breakthrough Summaries
+        <div className="space-y-2 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Award className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Success Stories & Operational Breakthrough Summaries
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Automatically extracting arrest numbers, classified breakthroughs, open-ended property recoveries, and suspect legal status directly from story narratives.
             </p>
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <div className="overflow-x-auto w-full">
+            <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
               <table className="min-w-full divide-y divide-[#e2d6c3]">
-                <thead className="bg-[#efece6]">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Region</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Suspects Arrested</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Classified Breakthrough Summary</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Recovered Properties & Quantities</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Suspect Legal Status</th>
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Station / Region</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Suspects Arrested</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Classified Breakthrough Summary</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Recovered Properties & Quantities</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Suspect Legal Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                   {parsedSuccessStories.length > 0 ? (
                     parsedSuccessStories.map((st, idx) => (
                       <tr key={idx} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-3 py-2 text-[11px] font-bold text-[#3a3225]">
-                          {st.station}<br/><span className="text-[10px] text-[#736450]">{st.region}</span>
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">
+                          {st.station}<br/><span className="text-[9px] text-[#736450] font-medium">{st.region}</span>
                         </td>
-                        <td className="px-3 py-2 text-center font-bold text-[#596E47] text-[11px]">{st.parsedSuspects}</td>
-                        <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase">
+                        <td className="px-3 py-2 text-center font-bold text-[#596E47] text-[10px] border-r border-[#e2d6c3]">{st.parsedSuspects}</td>
+                        <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase border-r border-[#e2d6c3]">
                           {st.parsedClassification}
                         </td>
-                        <td className="px-3 py-2 text-[11px] text-[#594d3c] font-bold">
+                        <td className="px-3 py-2 text-[10px] text-[#594d3c] font-bold border-r border-[#e2d6c3]">
                           {st.parsedRecoveries.split('||').map((item, i) => (
-                            <div key={i}>{item.trim()}</div>
+                            <div key={i} className="bg-white/60 px-2 py-0.5 my-0.5 rounded border border-[#e2d6c3] shadow-2xs">{item.trim()}</div>
                           ))}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-[#3a3225] text-[#f4eee2] uppercase">
+                          <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-[#3a3225] text-[#f4eee2] uppercase tracking-wide shadow-xs">
                             {st.parsedLegalStatus}
                           </span>
                         </td>
                       </tr>
                     ))
                   ) : (
-                    <tr><td colSpan="5" className="text-center py-6 text-[11px] text-[#736450]">No success stories found matching your filter criteria.</td></tr>
+                    <tr><td colSpan="5" className="text-center py-6 text-[10px] text-[#736450]">No success stories found matching your filter criteria.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -890,43 +895,43 @@ const AnalyticsDashboard = ({
 
       {/* CRIME CATEGORIES TAB */}
       {activeDomain === 'CRIME' && (
-        <div className="space-y-3 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <BarChart3 className="mr-2 text-[#C5A880] w-4 h-4" /> Crime Categories & Aggregated Incident Analytics
+        <div className="space-y-2 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <BarChart3 className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Crime Categories & Aggregated Incident Analytics
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Granular breakdown of offences dynamically tallied by Region and Offence Category.
             </p>
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-             <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
-                <h3 className="text-xs font-black text-[#3a3225] uppercase">Aggregated Regional Crime Volumes</h3>
+             <div className="bg-[#efece6] px-3 py-1.5 border-b border-[#d3c2a8] flex items-center justify-between">
+                <h3 className="text-[11px] font-black text-[#3a3225] uppercase">Aggregated Regional Crime Volumes</h3>
              </div>
-             <div className="overflow-x-auto w-full custom-scrollbar">
+             <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
                <table className="min-w-full divide-y divide-[#e2d6c3]">
-                  <thead className="bg-[#efece6]">
-                     <tr>
-                       <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase sticky left-0 bg-[#efece6] z-10 w-64">Command Region</th>
-                       <th className="px-3 py-2 text-center text-[11px] font-bold text-[#3a3225] uppercase">Total Crimes Recorded</th>
+                  <thead className="sticky top-0 z-20">
+                     <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+                       <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide sticky left-0 bg-[#f4eee2] z-10 w-64 border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Command Region</th>
+                       <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Total Crimes Recorded</th>
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2d6c3]">
                      {crimeCategoryData.map((reg) => {
-                        const isExpanded = !!expandedCrimeRegions[reg.region];
+                        const isExpanded = (expandedCrimeRegion === reg.region);
                         return (
                           <React.Fragment key={reg.region}>
                             <tr onClick={() => toggleCrimeRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8]">
-                               <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50">
-                                  <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                               <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 border-r border-[#d3c2a8]">
+                                  <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
                                   <span>{reg.region}</span>
                                </td>
-                               <td className="px-3 py-2 text-[11px] text-center font-black text-amber-800">{reg.totalCrimes}</td>
+                               <td className="px-3 py-2 text-[10px] text-center font-black text-amber-800">{reg.totalCrimes}</td>
                             </tr>
                             {isExpanded && reg.categoryList.map((cat, cIdx) => (
                                <tr key={`cat-${cIdx}`} className="bg-white">
-                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white">— {cat.name}</td>
+                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white border-r border-[#d3c2a8]">— {cat.name}</td>
                                   <td className="px-3 py-1.5 text-[10px] text-center font-bold text-amber-700">{cat.count}</td>
                                </tr>
                             ))}
@@ -934,7 +939,7 @@ const AnalyticsDashboard = ({
                         );
                      })}
                      {crimeCategoryData.length === 0 && (
-                        <tr><td colSpan="2" className="text-center py-6 text-[11px] text-[#736450]">No crimes logged for the selected period.</td></tr>
+                        <tr><td colSpan="2" className="text-center py-6 text-[10px] text-[#736450]">No crimes logged for the selected period.</td></tr>
                      )}
                   </tbody>
                </table>
@@ -945,12 +950,12 @@ const AnalyticsDashboard = ({
 
       {/* DETENTIONS ANALYSIS TAB */}
       {activeDomain === 'DETENTIONS' && (
-        <div className="space-y-4 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Lock className="mr-2 text-[#C5A880] w-4 h-4" /> Daily Detention Progression (Monday to Sunday Closure)
+        <div className="space-y-3 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Lock className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Daily Detention Progression (Monday to Sunday Closure)
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Tracking daily cell populations from Monday through Sunday closure with granular demographic breakdowns.
             </p>
           </div>
@@ -960,32 +965,32 @@ const AnalyticsDashboard = ({
               const isDayOpen = !!expandedDays[dayObj.day];
               return (
                 <div key={dayObj.day} className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-                  <div onClick={() => toggleDayDropdown(dayObj.day)} className="px-4 py-2.5 bg-[#efece6] hover:bg-[#e9eedf] flex justify-between items-center cursor-pointer font-bold text-xs transition-colors">
+                  <div onClick={() => toggleDayDropdown(dayObj.day)} className="px-3 py-2 bg-[#efece6] hover:bg-[#e9eedf] flex justify-between items-center cursor-pointer font-bold text-[11px] transition-colors">
                     <div className="flex items-center space-x-2">
-                      <span className="text-[#596E47]">{isDayOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                      <span className="text-[#596E47]">{isDayOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
                       <span className="text-[#3a3225] uppercase">{dayObj.day}</span>
                     </div>
-                    <div className="flex items-center space-x-4 text-xs font-black text-[#596E47]">
+                    <div className="flex items-center space-x-4 font-black text-[#596E47]">
                       <span>Total Suspects: {dayObj.closing}</span>
                     </div>
                   </div>
                   {isDayOpen && (
-                    <div className="p-4 bg-white grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs border-t border-[#e2d6c3] animate-in slide-in-from-top-2">
-                      <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                        <span className="font-bold text-blue-900 block mb-1">Male Adults</span>
-                        <strong className="text-base text-blue-950">{dayObj.maleAdult}</strong>
+                    <div className="p-3 bg-white grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] border-t border-[#e2d6c3] animate-in slide-in-from-top-2">
+                      <div className="bg-blue-50 p-2.5 rounded-lg border border-blue-200">
+                        <span className="font-bold text-blue-900 block mb-0.5">Male Adults</span>
+                        <strong className="text-sm text-blue-950">{dayObj.maleAdult}</strong>
                       </div>
-                      <div className="bg-blue-100 p-3 rounded-lg border border-blue-300">
-                        <span className="font-bold text-blue-900 block mb-1">Male Juveniles (Minors)</span>
-                        <strong className="text-base text-blue-950">{dayObj.maleJuv}</strong>
+                      <div className="bg-blue-100 p-2.5 rounded-lg border border-blue-300">
+                        <span className="font-bold text-blue-900 block mb-0.5">Male Juveniles</span>
+                        <strong className="text-sm text-blue-950">{dayObj.maleJuv}</strong>
                       </div>
-                      <div className="bg-pink-50 p-3 rounded-lg border border-pink-200">
-                        <span className="font-bold text-pink-900 block mb-1">Female Adults</span>
-                        <strong className="text-base text-pink-950">{dayObj.femaleAdult}</strong>
+                      <div className="bg-pink-50 p-2.5 rounded-lg border border-pink-200">
+                        <span className="font-bold text-pink-900 block mb-0.5">Female Adults</span>
+                        <strong className="text-sm text-pink-950">{dayObj.femaleAdult}</strong>
                       </div>
-                      <div className="bg-pink-100 p-3 rounded-lg border border-pink-300">
-                        <span className="font-bold text-pink-900 block mb-1">Female Juveniles (Minors)</span>
-                        <strong className="text-base text-pink-950">{dayObj.femaleJuv}</strong>
+                      <div className="bg-pink-100 p-2.5 rounded-lg border border-pink-300">
+                        <span className="font-bold text-pink-900 block mb-0.5">Female Juveniles</span>
+                        <strong className="text-sm text-pink-950">{dayObj.femaleJuv}</strong>
                       </div>
                     </div>
                   )}
@@ -998,26 +1003,26 @@ const AnalyticsDashboard = ({
 
       {/* ACCIDENTS ANALYSIS TAB */}
       {activeDomain === 'ACCIDENTS' && (
-        <div className="space-y-4 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Car className="mr-2 text-[#C5A880] w-4 h-4" /> Traffic & Accidents Time-Series Analytics
+        <div className="space-y-3 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Car className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Traffic & Accidents Time-Series Analytics
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Weekly severity progression comparing minor, serious, fatal crashes, and human casualties.
             </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-4 h-[400px]">
-             <h3 className="text-xs font-black text-[#3a3225] uppercase mb-3">Weekly Accident Crash Severity & Casualties</h3>
+          <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[380px]">
+             <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Weekly Accident Crash Severity & Casualties</h3>
              {accidentsTimeSeriesData.weekly.length > 0 ? (
                <ResponsiveContainer width="100%" height="88%">
                   <BarChart data={accidentsTimeSeriesData.weekly} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2d6c3" />
                     <XAxis dataKey="period" tick={{fontSize: 10, fontWeight: 'bold'}} />
                     <YAxis tick={{fontSize: 10}} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2d6c3', fontSize: '11px', fontWeight: 'bold' }} />
-                    <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2d6c3', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
                     <Bar dataKey="minor" name="Minor Crashes" fill="#2563EB" stackId="a" />
                     <Bar dataKey="serious" name="Serious Crashes" fill="#D97706" stackId="a" />
                     <Bar dataKey="fatal" name="Fatal Crashes" fill="#991B1B" stackId="a" radius={[4, 4, 0, 0]} />
@@ -1025,7 +1030,7 @@ const AnalyticsDashboard = ({
                   </BarChart>
                </ResponsiveContainer>
              ) : (
-               <div className="w-full h-full flex items-center justify-center text-[11px] text-[#736450] font-bold">No accident statistics available for the selected timeframe.</div>
+               <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450] font-bold">No accident statistics available for the selected timeframe.</div>
              )}
           </div>
         </div>
@@ -1033,58 +1038,58 @@ const AnalyticsDashboard = ({
 
       {/* FIRE INCIDENTS ANALYSIS TAB */}
       {activeDomain === 'FIRES' && (
-        <div className="space-y-4 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Flame className="mr-2 text-amber-500 w-4 h-4" /> Fire Outbreaks & Property Casualty Intelligence Audit
+        <div className="space-y-3 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Flame className="mr-2 text-amber-500 w-3.5 h-3.5" /> Fire Outbreaks & Property Casualty Intelligence Audit
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Classifying structures (schools, churches, residential houses, commercial/furniture shops, motor vehicles, vessels) and tracking explicit deaths vs. injuries.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-             <div className="bg-amber-900 text-white p-4 rounded-xl shadow-sm border border-amber-950 flex flex-col justify-between">
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-200">Total Fire Incidents</span>
-                <div className="text-3xl font-black mt-2">{fireIntelligence.totalFires}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+             <div className="bg-amber-900 text-white p-3 rounded-xl shadow-sm border border-amber-950 flex flex-col justify-between">
+                <span className="text-[9px] font-extrabold uppercase tracking-widest text-amber-200">Total Fire Incidents</span>
+                <div className="text-2xl font-black mt-1">{fireIntelligence.totalFires}</div>
              </div>
-             <div className="bg-red-900 text-white p-4 rounded-xl shadow-sm border border-red-950 flex flex-col justify-between">
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-red-200">Total Fire Deaths</span>
-                <div className="text-3xl font-black mt-2">{fireIntelligence.totalDeaths}</div>
+             <div className="bg-red-900 text-white p-3 rounded-xl shadow-sm border border-red-950 flex flex-col justify-between">
+                <span className="text-[9px] font-extrabold uppercase tracking-widest text-red-200">Total Fire Deaths</span>
+                <div className="text-2xl font-black mt-1">{fireIntelligence.totalDeaths}</div>
              </div>
-             <div className="bg-orange-800 text-white p-4 rounded-xl shadow-sm border border-orange-950 flex flex-col justify-between">
-                <span className="text-[10px] font-extrabold uppercase tracking-widest text-orange-200">Total Fire Injuries</span>
-                <div className="text-3xl font-black mt-2">{fireIntelligence.totalInjuries}</div>
+             <div className="bg-orange-800 text-white p-3 rounded-xl shadow-sm border border-orange-950 flex flex-col justify-between">
+                <span className="text-[9px] font-extrabold uppercase tracking-widest text-orange-200">Total Fire Injuries</span>
+                <div className="text-2xl font-black mt-1">{fireIntelligence.totalInjuries}</div>
              </div>
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <div className="overflow-x-auto w-full">
+            <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
               <table className="min-w-full divide-y divide-[#e2d6c3]">
-                <thead className="bg-[#efece6]">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Station / Region</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Property / Structure Type</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Deaths</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Injuries</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Incident Narrative Summary</th>
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Station / Region</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Property / Structure Type</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Deaths</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Injuries</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Incident Narrative Summary</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                   {fireIntelligence.fireList.length > 0 ? (
                     fireIntelligence.fireList.map((f, idx) => (
                       <tr key={idx} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-3 py-2 text-[11px] font-bold text-[#3a3225]">
-                          {f.station}<br/><span className="text-[10px] text-[#736450]">{f.region}</span>
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">
+                          {f.station}<br/><span className="text-[9px] text-[#736450]">{f.region}</span>
                         </td>
-                        <td className="px-3 py-2 text-[11px] font-extrabold text-amber-800 uppercase">{f.classification}</td>
-                        <td className="px-3 py-2 text-center font-black text-red-700 text-[11px]">{f.deaths}</td>
-                        <td className="px-3 py-2 text-center font-black text-amber-600 text-[11px]">{f.injuries}</td>
-                        <td className="px-3 py-2 text-[11px] text-[#3a3225]">{f.summary}</td>
+                        <td className="px-3 py-2 text-[10px] font-extrabold text-amber-800 uppercase border-r border-[#e2d6c3]">{f.classification}</td>
+                        <td className="px-3 py-2 text-center font-black text-red-700 text-[10px] border-r border-[#e2d6c3]">{f.deaths}</td>
+                        <td className="px-3 py-2 text-center font-black text-amber-600 text-[10px] border-r border-[#e2d6c3]">{f.injuries}</td>
+                        <td className="px-3 py-2 text-[10px] text-[#3a3225]">{f.summary}</td>
                       </tr>
                     ))
                   ) : (
-                    <tr><td colSpan="5" className="text-center py-6 text-[11px] text-[#736450]">No fire or arson incidents logged matching your filter.</td></tr>
+                    <tr><td colSpan="5" className="text-center py-6 text-[10px] text-[#736450]">No fire or arson incidents logged matching your filter.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1095,31 +1100,31 @@ const AnalyticsDashboard = ({
 
       {/* DISRUPTIVE OPS TAB */}
       {activeDomain === 'OPERATIONS' && (
-        <div className="space-y-4 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Zap className="mr-2 text-[#C5A880] w-4 h-4" /> Comparative Disruptive Operations Matrix
+        <div className="space-y-3 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Zap className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Comparative Disruptive Operations Matrix
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Visualizing Total Crimes Reported against the Total Number of Suspects Arrested via Disruptive Operations.
             </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-4 h-[400px]">
+          <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[380px]">
              {opsChartData.length > 0 ? (
                <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={opsChartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2d6c3" />
                     <XAxis dataKey="name" tick={{fontSize: 10, fontWeight: 'bold'}} interval={0} />
                     <YAxis tick={{fontSize: 10}} />
-                    <Tooltip cursor={{fill: '#fbf8f3'}} contentStyle={{ borderRadius: '8px', border: '1px solid #e2d6c3', fontSize: '11px', fontWeight: 'bold' }} />
-                    <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                    <Tooltip cursor={{fill: '#fbf8f3'}} contentStyle={{ borderRadius: '8px', border: '1px solid #e2d6c3', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
                     <Bar dataKey="Crimes" name="Total Crimes Reported" fill="#A97142" radius={[4, 4, 0, 0]} barSize={40} />
                     <Bar dataKey="Arrests" name="Arrests from Disruptive Ops" fill="#596E47" radius={[4, 4, 0, 0]} barSize={40} />
                   </BarChart>
                </ResponsiveContainer>
              ) : (
-               <div className="w-full h-full flex items-center justify-center text-[11px] text-[#736450] font-bold">No comparative operational data available.</div>
+               <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450] font-bold">No comparative operational data available.</div>
              )}
           </div>
         </div>
@@ -1127,41 +1132,41 @@ const AnalyticsDashboard = ({
 
       {/* EXHIBITS TAB */}
       {activeDomain === 'EXHIBITS' && (
-        <div className="space-y-3 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Truck className="mr-2 text-[#C5A880] w-4 h-4" /> Impounded Exhibits & Asset Recovery Analytics
+        <div className="space-y-3 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Truck className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Impounded Exhibits & Asset Recovery Analytics
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Grouped, named, and summed by exhibit category, specific description, station, division, region, and status.
             </p>
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <div className="overflow-x-auto w-full">
+            <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
               <table className="min-w-full divide-y divide-[#e2d6c3]">
-                <thead className="bg-[#efece6]">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Exhibit Category</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Description (Colour/Features)</th>
-                    <th className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase">Region / Station</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Status</th>
-                    <th className="px-3 py-2 text-center text-[11px] font-bold text-[#594d3c] uppercase">Total Count</th>
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Exhibit Category</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Description (Colour/Features)</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Region / Station</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Status</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Total Count</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                   {exhibitGroupedData.length > 0 ? (
                     exhibitGroupedData.map((row, idx) => (
                       <tr key={idx} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-3 py-2 text-[11px] font-bold text-[#3a3225] uppercase">{row.category}</td>
-                        <td className="px-3 py-2 text-[10px] font-bold text-[#596E47] uppercase">{row.desc}</td>
-                        <td className="px-3 py-2 text-[10px] font-semibold text-[#736450] uppercase">{row.region}<br/>{row.station}</td>
-                        <td className="px-3 py-2 text-center text-[10px] font-bold uppercase"><span className="px-2 py-0.5 rounded bg-teal-100 text-teal-900">{row.status}</span></td>
-                        <td className="px-3 py-2 text-center text-[11px] font-black text-teal-800">{row.total}</td>
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] uppercase border-r border-[#e2d6c3]">{row.category}</td>
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#596E47] uppercase border-r border-[#e2d6c3]">{row.desc}</td>
+                        <td className="px-3 py-2 text-[10px] font-semibold text-[#736450] uppercase border-r border-[#e2d6c3]">{row.region}<br/>{row.station}</td>
+                        <td className="px-3 py-2 text-center text-[10px] font-bold uppercase border-r border-[#e2d6c3]"><span className="px-2 py-0.5 rounded bg-teal-100 text-teal-900">{row.status}</span></td>
+                        <td className="px-3 py-2 text-center text-[10px] font-black text-teal-800">{row.total}</td>
                       </tr>
                     ))
                   ) : (
-                    <tr><td colSpan="5" className="text-center py-6 text-[11px] text-[#736450]">No exhibits recorded for this filter.</td></tr>
+                    <tr><td colSpan="5" className="text-center py-6 text-[10px] text-[#736450]">No exhibits recorded for this filter.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1172,88 +1177,90 @@ const AnalyticsDashboard = ({
 
       {/* SUMMARY TABLE TAB */}
       {activeDomain === 'SUMMARY' && (
-        <div className="space-y-3 pb-24">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <BarChart3 className="mr-2 text-[#C5A880] w-4 h-4" /> Master Summary Table (Aggregated Metrics)
+        <div className="space-y-3 pb-16">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <BarChart3 className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Master Summary Table (Aggregated Metrics)
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Summarizing all operational modules over the selected timeframe (1 day to 1 year).
             </p>
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden w-full max-w-full">
-            <table className="min-w-full divide-y divide-[#e2d6c3]">
-              <thead className="bg-[#efece6]">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-bold text-[#594d3c] uppercase">Operational Metric Attribute</th>
-                  <th className="px-6 py-3 text-right text-xs font-bold text-[#594d3c] uppercase">Aggregate Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#e2d6c3]">
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Disruptive Operations Registered</td><td className="px-6 py-3 text-right font-black text-[#596E47] text-sm">{summaryAggregates.disruptiveOps}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Force-Wide Manpower (Nominal Roll)</td><td className="px-6 py-3 text-right font-black text-[#3a3225] text-sm">{summaryAggregates.manpowerTotal}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Success Occasions / Breakthroughs</td><td className="px-6 py-3 text-right font-black text-amber-800 text-sm">{summaryAggregates.successOccasions}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Impounded Exhibits Tracked</td><td className="px-6 py-3 text-right font-black text-teal-800 text-sm">{summaryAggregates.totalExhibits}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Detention Logs Tracked</td><td className="px-6 py-3 text-right font-black text-blue-800 text-sm">{summaryAggregates.totalDetentions}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Traffic Accidents Recorded</td><td className="px-6 py-3 text-right font-black text-red-800 text-sm">{summaryAggregates.totalAccidents}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Fire & Arson Outbreaks Tracked</td><td className="px-6 py-3 text-right font-black text-amber-700 text-sm">{summaryAggregates.totalFires}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Suspects Arrested (Ops)</td><td className="px-6 py-3 text-right font-black text-[#596E47] text-sm">{summaryAggregates.totalArrests}</td></tr>
-                <tr className="hover:bg-[#e9eedf]/30"><td className="px-6 py-3 text-sm font-bold text-[#3a3225]">Total Crime Incidents Recorded</td><td className="px-6 py-3 text-right font-black text-[#3a3225] text-sm">{summaryAggregates.totalCrimes}</td></tr>
-              </tbody>
-            </table>
+            <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
+              <table className="min-w-full divide-y divide-[#e2d6c3]">
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+                    <th className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Operational Metric Attribute</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Aggregate Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#e2d6c3]">
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Disruptive Operations Registered</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-[11px]">{summaryAggregates.disruptiveOps}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Force-Wide Manpower (Nominal Roll)</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-[11px]">{summaryAggregates.manpowerTotal}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Success Occasions / Breakthroughs</td><td className="px-4 py-2 text-right font-black text-amber-800 text-[11px]">{summaryAggregates.successOccasions}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Impounded Exhibits Tracked</td><td className="px-4 py-2 text-right font-black text-teal-800 text-[11px]">{summaryAggregates.totalExhibits}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Detention Logs Tracked</td><td className="px-4 py-2 text-right font-black text-blue-800 text-[11px]">{summaryAggregates.totalDetentions}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Traffic Accidents Recorded</td><td className="px-4 py-2 text-right font-black text-red-800 text-[11px]">{summaryAggregates.totalAccidents}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Fire & Arson Outbreaks Tracked</td><td className="px-4 py-2 text-right font-black text-amber-700 text-[11px]">{summaryAggregates.totalFires}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Suspects Arrested (Ops)</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-[11px]">{summaryAggregates.totalArrests}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Crime Incidents Recorded</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-[11px]">{summaryAggregates.totalCrimes}</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
       {/* MANPOWER ANALYSIS TAB */}
       {activeDomain === 'MANPOWER_DEEP' && (
-        <div className="space-y-6 pb-12">
-          <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
-            <h2 className="text-sm font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Users className="mr-2 text-[#C5A880] w-4 h-4" /> Multi-Layered Manpower Matrix Analysis
+        <div className="space-y-3 pb-8">
+          <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
+            <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
+              <Users className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Multi-Layered Manpower Matrix Analysis
             </h2>
-            <p className="text-[11px] text-[#b8ab97] mt-0.5 leading-tight">
+            <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
               Detailed structural breakdown of personnel force distribution by functional Units/Directorates and categorized Operational Casualties. Click a region to expand details.
             </p>
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-             <div className="bg-[#efece6] px-4 py-2 border-b border-[#d3c2a8] flex items-center justify-between">
-                <h3 className="text-xs font-black text-[#3a3225] uppercase">General Summary (Deployable Personnel vs Rank Distribution)</h3>
+             <div className="bg-[#efece6] px-3 py-1.5 border-b border-[#d3c2a8] flex items-center justify-between">
+                <h3 className="text-[11px] font-black text-[#3a3225] uppercase">General Summary (Deployable Personnel vs Rank Distribution)</h3>
              </div>
-             <div className="overflow-x-auto w-full custom-scrollbar">
+             <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
                <table className="min-w-full divide-y divide-[#e2d6c3]">
-                  <thead className="bg-[#efece6]">
-                     <tr>
-                       <th rowSpan={2} className="px-3 py-2 text-left text-[11px] font-bold text-[#594d3c] uppercase sticky left-0 bg-[#efece6] z-10 w-48 border-r border-[#d3c2a8]">Command Region / Station</th>
-                       <th rowSpan={2} className="px-3 py-2 text-center text-[10px] font-black text-[#3a3225] uppercase border-r border-[#d3c2a8]">Total Personnel</th>
-                       <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-[#596E47] uppercase border-r border-[#d3c2a8]">Active Deployable</th>
-                       <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-red-700 uppercase border-r border-[#d3c2a8]">Inactive (Sick/Leave)</th>
+                  <thead className="sticky top-0 z-20">
+                     <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b border-[#d3c2a8]">
+                       <th rowSpan={2} className="px-3 py-2 text-left text-[10px] uppercase tracking-wide sticky left-0 bg-[#f4eee2] z-10 w-48 border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Command Region / Station</th>
+                       <th rowSpan={2} className="px-3 py-2 text-center text-[10px] font-black uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Total Personnel</th>
+                       <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-[#596E47] uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Active Deployable</th>
+                       <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-red-700 uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Inactive (Sick/Leave)</th>
                        {manpowerAnalysis.allRanks.map(rank => (
-                         <th key={rank} colSpan={2} className="px-2 py-2 text-center text-[9px] font-extrabold text-[#594d3c] uppercase border-r border-[#d3c2a8]">{rank}</th>
+                         <th key={rank} colSpan={2} className="px-2 py-1.5 text-center text-[9px] font-extrabold uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">{rank}</th>
                        ))}
                      </tr>
-                     <tr className="bg-white">
+                     <tr className="bg-gradient-to-b from-[#e6dfd1] to-[#ded6c8]">
                         {manpowerAnalysis.allRanks.map(rank => (
                            <React.Fragment key={`${rank}-gender`}>
-                             <th className="px-1 py-1 text-center text-[8px] font-bold text-blue-700 border-r border-[#d3c2a8]">M</th>
-                             <th className="px-1 py-1 text-center text-[8px] font-bold text-pink-700 border-r border-[#d3c2a8]">F</th>
+                             <th className="px-1 py-1 text-center text-[8px] font-bold text-blue-800 border-r border-[#d3c2a8]">M</th>
+                             <th className="px-1 py-1 text-center text-[8px] font-bold text-pink-800 border-r border-[#d3c2a8]">F</th>
                            </React.Fragment>
                         ))}
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2d6c3]">
                      {manpowerAnalysis.rows.map(reg => {
-                        const isExpanded = !!expandedManpowerRegions[reg.region];
+                        const isExpanded = (expandedManpowerRegion === reg.region);
                         return (
                           <React.Fragment key={reg.region}>
                             <tr onClick={() => toggleManpowerRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8]">
-                               <td className="px-3 py-2 text-[11px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 border-r border-[#d3c2a8]">
-                                  <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+                               <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 border-r border-[#d3c2a8]">
+                                  <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
                                   <span>{reg.region}</span>
                                </td>
-                               <td className="px-3 py-2 text-[11px] text-center font-black text-[#3a3225] border-r border-[#d3c2a8]">{reg.totalDeployable}</td>
+                               <td className="px-3 py-2 text-[10px] text-center font-black text-[#3a3225] border-r border-[#d3c2a8]">{reg.totalDeployable}</td>
                                <td colSpan={2 + (manpowerAnalysis.allRanks.length * 2)} className="px-3 py-2 text-[10px] text-[#736450] italic">Expand to view station distribution...</td>
                             </tr>
                             {isExpanded && reg.stationList.map((stn, sIdx) => (
@@ -1278,36 +1285,36 @@ const AnalyticsDashboard = ({
              </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-4 flex flex-col items-center">
-                <h3 className="text-xs font-black text-[#3a3225] uppercase border-b border-[#e2d6c3] w-full pb-2 mb-2 flex items-center"><Scale className="w-4 h-4 mr-1.5 text-[#A97142]" /> Gender Distribution Analysis</h3>
-                <div className="h-[250px] w-full">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+             <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 flex flex-col items-center">
+                <h3 className="text-[11px] font-black text-[#3a3225] uppercase border-b border-[#e2d6c3] w-full pb-1.5 mb-2 flex items-center"><Scale className="w-3.5 h-3.5 mr-1.5 text-[#A97142]" /> Gender Distribution Analysis</h3>
+                <div className="h-[220px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={manpowerAnalysis.pieGenderData} cx="50%" cy="50%" labelLine={false} label={renderCustomizedLabel} outerRadius={80} fill="#8884d8" dataKey="value">
+                      <Pie data={manpowerAnalysis.pieGenderData} cx="50%" cy="50%" labelLine={false} label={renderCustomizedLabel} outerRadius={75} fill="#8884d8" dataKey="value">
                         {manpowerAnalysis.pieGenderData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' }} />
-                      <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                      <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                      <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
              </div>
              
-             <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-4 flex flex-col items-center">
-                <h3 className="text-xs font-black text-[#3a3225] uppercase border-b border-[#e2d6c3] w-full pb-2 mb-2 flex items-center"><PieChartIcon className="w-4 h-4 mr-1.5 text-[#596E47]" /> Force Deployability Index</h3>
-                <div className="h-[250px] w-full">
+             <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 flex flex-col items-center">
+                <h3 className="text-[11px] font-black text-[#3a3225] uppercase border-b border-[#e2d6c3] w-full pb-1.5 mb-2 flex items-center"><PieChartIcon className="w-3.5 h-3.5 mr-1.5 text-[#596E47]" /> Force Deployability Index</h3>
+                <div className="h-[220px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={manpowerAnalysis.pieDeployData} cx="50%" cy="50%" labelLine={false} label={renderCustomizedLabel} outerRadius={80} fill="#8884d8" dataKey="value">
+                      <Pie data={manpowerAnalysis.pieDeployData} cx="50%" cy="50%" labelLine={false} label={renderCustomizedLabel} outerRadius={75} fill="#8884d8" dataKey="value">
                         {manpowerAnalysis.pieDeployData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={PIE_STATUS_COLORS[index % PIE_STATUS_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '11px', fontWeight: 'bold' }} />
-                      <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                      <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                      <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
