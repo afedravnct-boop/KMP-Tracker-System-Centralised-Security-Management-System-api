@@ -22,6 +22,85 @@ import {
 } from 'lucide-react';
 import { authFetch } from './api';
 
+// ====================================================================
+// EMBEDDED KNOWN ERROR DICTIONARY (KMP-CSDMS SIGNATURE DATABASE)
+// ====================================================================
+const KNOWN_SYSTEM_ERRORS = [
+  {
+    pattern: "models/gemini.*is not found|404 NOT FOUND.*generateContent",
+    category: "Gemini Model Deprecation / API Version Mismatch",
+    module: "routers/ai_router.py",
+    source: "Google API model rotation or free-tier restriction affecting older model endpoints (e.g., gemini-1.5-flash).",
+    fix: "Update candidate_models array in ai_router.py to target active free-tier models ('gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash')."
+  },
+  {
+    pattern: "Render waking up|503 Service Unavailable|gateway timeout|upstream request timeout",
+    category: "Render Free-Tier Cold Start Delay",
+    module: "Infrastructure / Render Hosting",
+    source: "Render free-tier server instance spinning down due to inactivity, causing initial request latency or temporary gateway timeout.",
+    fix: "Implement client-side auto-retry logic with a brief delay or utilize a keep-alive heartbeat ping."
+  },
+  {
+    pattern: "NeonDB|psycopg2\\.OperationalError|connection closed|server closed the connection unexpectedly|pool exhausted",
+    category: "NeonDB Database Disconnection / Pool Drop",
+    module: "app/database.py",
+    source: "NeonDB serverless instance dropping idle socket connections or connection pool exhaustion under concurrent load.",
+    fix: "Ensure SQLAlchemy engine is configured with pool_pre_ping=True and verify connection string parameters."
+  },
+  {
+    pattern: "AWS_ACCESS_KEY_ID|botocore\\.exceptions|NoSuchBucket|S3 Upload failed|AccessDenied.*S3",
+    category: "AWS S3 Cloud Storage Failure",
+    module: "routers/auth.py / upload endpoints",
+    source: "Missing, expired, or misconfigured AWS credentials/bucket policies preventing profile photo or document uploads to S3.",
+    fix: "Verify AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_BUCKET_NAME environment variables on Render, and check local fallback path logic."
+  },
+  {
+    pattern: "HTTP_402|Payment Required|Quota exceeded|Resource exhausted",
+    category: "API Quota / Rate Limit Exceeded",
+    module: "routers/ai_router.py / External APIs",
+    source: "Google AI Studio free-tier request rate limit or daily token quota exhausted.",
+    fix: "Implement model fallback chains or wait for quota window reset; consider upgrading tier if production volume spikes."
+  },
+  {
+    pattern: "Network connectivity interrupted|Failed to fetch|ERR_CONNECTION_REFUSED|NET_DROP",
+    category: "Client-Server Network Connection Drop",
+    module: "src/api.js / Frontend Login",
+    source: "Intermittent local mobile/broadband network drops or CORS/gateway routing blockage between Vercel frontend and Render backend.",
+    fix: "Check VITE_API_URL environment variable on Vercel, verify backend health check endpoint, and utilize the local storage telemetry buffer for offline resilience."
+  },
+  {
+    pattern: "500 Internal Server Error",
+    category: "Unhandled Backend Exception",
+    module: "FastAPI Routers / SQLAlchemy",
+    source: "An unhandled Python exception, missing database migration column, or null-pointer reference occurred during a request lifecycle.",
+    fix: "Inspect the backend terminal/Render logs or check the Admin Communications table where the automated crash report dispatched the AI Root-Cause Analysis."
+  },
+  {
+    pattern: "Cannot read properties of undefined.*fnum|TypeError.*reading",
+    category: "Frontend State Hydration Fault",
+    module: "src/Login.jsx / Dashboard Components",
+    source: "React component attempting to render user attributes before session state or props have fully resolved.",
+    fix: "Apply strict optional chaining (?.) and default null-state checks across component prop bindings."
+  },
+  {
+    pattern: "Signature verification failed|JWTError|Could not validate credentials",
+    category: "Expired or Corrupted Session Token",
+    module: "app/core/security.py / auth.py",
+    source: "Token expiration due to inactivity or server secret key invalidation following a deployment restart.",
+    fix: "Trigger clearAuthSession() on the client and redirect user securely to the login portal."
+  }
+];
+
+const matchKnownError = (logText) => {
+  for (const errorDef of KNOWN_SYSTEM_ERRORS) {
+    const regex = new RegExp(errorDef.pattern, "i");
+    if (regex.test(logText)) {
+      return { matched: true, dictionary_match: errorDef };
+    }
+  }
+  return { matched: false };
+};
+
 const AICommandConsole = ({ currentUser, onBack }) => {
   const officerFnum = currentUser?.fnum || 'N/A';
   const officerRank = currentUser?.rank || 'OFFICER';
@@ -96,25 +175,15 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     };
     window.addEventListener('error', handleWindowError);
 
-    const originalFetch = window.fetch;
-    window.fetch = async (...args) => {
-      try {
-        const response = await originalFetch(...args);
-        if (!response.ok) {
-          capturedLogsRef.current.network.push(`[HTTP_${response.status}] Failed request to ${args[0]}`);
-          if (capturedLogsRef.current.network.length > 25) capturedLogsRef.current.network.shift();
-        }
-        return response;
-      } catch (err) {
-        capturedLogsRef.current.network.push(`[NET_DROP] ${args[0]} - ${err.message}`);
-        throw err;
-      }
-    };
+    // Read from global telemetry store initialized in api.js
+    const globalBuffer = window.__kmp_global_telemetry || { console: [], network: [] };
+    if (globalBuffer.network.length > 0) {
+      capturedLogsRef.current.network = [...globalBuffer.network];
+    }
 
     return () => {
       console.error = originalConsoleError;
       window.removeEventListener('error', handleWindowError);
-      window.fetch = originalFetch;
     };
   }, []);
 
@@ -151,25 +220,47 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
 
   // 🟢 Open Modal and Auto-Populate with Live Captured Telemetry
   const openVerificationModal = () => {
+    const globalBuffer = window.__kmp_global_telemetry || { console: [], network: [] };
     const allCaptured = [
       ...capturedLogsRef.current.console,
+      ...globalBuffer.network,
       ...capturedLogsRef.current.network
     ];
 
     if (allCaptured.length > 0) {
       setVerifyLogs(allCaptured.join('\n'));
     } else {
-      setVerifyLogs("No recent console errors or failed network requests captured in current session buffer.");
+      setVerifyLogs("No recent console errors or failed network requests captured in global session buffer.");
     }
     setVerificationResult(null);
     setShowVerificationModal(true);
   };
 
+  // 🟢 Instant Client-Side Dictionary Check with Backend AI Fallback
   const handleVerifyGlitchDiagnosis = async (e) => {
     e.preventDefault();
     setIsVerifying(true);
     setVerificationResult(null);
 
+    const combinedLogText = `${verifyLogs} ${verifyCategory} ${verifyPage} ${verifyElement}`;
+
+    // Step 1: Instant Client-Side Dictionary Match
+    const localMatch = matchKnownError(combinedLogText);
+    if (localMatch.matched) {
+      const matchData = localMatch.dictionary_match;
+      const report = (
+        `🔍 **DIAGNOSTIC AUDIT REPORT (Local Known Error Match)**\n\n` +
+        `• **Category:** ${matchData.category}\n` +
+        `• **Affected Module:** ${matchData.module}\n` +
+        `• **Root Cause:** ${matchData.source}\n` +
+        `• **Required Implementation Fix:** ${matchData.fix}\n`
+      );
+      setVerificationResult(report);
+      setIsVerifying(false);
+      return;
+    }
+
+    // Step 2: Fallback to Backend AI if unknown
     try {
       const response = await authFetch('/api/v1/ai/verify-diagnosis', {
         method: 'POST',
@@ -179,8 +270,8 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
           page_name: verifyPage,
           element_point: verifyElement,
           description: "Audited telemetry analysis requested via High Command console with live buffer feed.",
-          console_logs: capturedLogsRef.current.console.length > 0 ? capturedLogsRef.current.console : [verifyLogs],
-          network_errors: capturedLogsRef.current.network.length > 0 ? capturedLogsRef.current.network : ["500 Internal Server Error"]
+          console_logs: [verifyLogs],
+          network_errors: window.__kmp_global_telemetry?.network || ["500 Internal Server Error"]
         })
       });
 
@@ -282,7 +373,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
           <div className="bg-[#0f172a] rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border-2 border-amber-500/50">
             <div className="bg-[#020617] text-white px-6 py-4 flex justify-between items-center border-b border-slate-700">
                <h3 className="font-extrabold flex items-center text-sm text-amber-400">
-                 <Wrench size={18} className="mr-2"/> AI Technical Glitch Diagnosis Auditor (Live Feed)
+                 <Wrench size={18} className="mr-2"/> AI Technical Glitch Diagnosis Auditor (Live Feed & Dictionary Match)
                </h3>
                <button onClick={() => setShowVerificationModal(false)} className="hover:bg-slate-800 p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
             </div>
@@ -356,7 +447,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
                   className="px-6 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-extrabold flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50 shadow-lg"
                 >
                   {isVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  Run AI Audit
+                  Run Audit / Match
                 </button>
               </div>
             </form>

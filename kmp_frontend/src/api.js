@@ -4,6 +4,9 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'https://kmp-ops-data.onrender.
 let inMemoryToken = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_authToken') : null;
 let inMemoryUserFNum = typeof window !== 'undefined' ? sessionStorage.getItem('kmp_currentUser_fnum') : null;
 
+// 🟢 Global Telemetry Buffer Store for Live Error Interception
+window.__kmp_global_telemetry = window.__kmp_global_telemetry || { console: [], network: [] };
+
 export const setAuthSession = (token, fnum) => {
   inMemoryToken = token;
   inMemoryUserFNum = fnum;
@@ -92,10 +95,22 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       headers,
       credentials: 'include'
     });
+
+    // 🟢 Automatically capture non-2xx API failures globally into telemetry buffer
+    if (response && !response.ok) {
+      const errorMsg = `[HTTP_${response.status}] Failed request to ${url}`;
+      window.__kmp_global_telemetry.network.push(errorMsg);
+      if (window.__kmp_global_telemetry.network.length > 30) {
+        window.__kmp_global_telemetry.network.shift();
+      }
+    }
   } catch (networkError) {
     if (networkError.name === 'AbortError') {
       return new Response(JSON.stringify({ detail: "Request aborted by user navigation" }), { status: 499 });
     }
+
+    const dropMsg = `[NET_DROP] ${url} - ${networkError.message}`;
+    window.__kmp_global_telemetry.network.push(dropMsg);
 
     console.warn("Network congestion or temporary blip intercepted. Holding execution:", networkError);
     if (retries > 0) {
