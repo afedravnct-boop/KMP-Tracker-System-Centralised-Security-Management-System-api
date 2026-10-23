@@ -170,7 +170,14 @@ async def verify_client_diagnosis(
         3. Recommended corrective actions for system administrators.
         """
 
-        candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+        # 🟢 Expanded fallback chain for API compatibility
+        candidate_models = [
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-flash-002',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
+            'gemini-1.0-pro'
+        ]
         response = None
         last_exception = None
 
@@ -249,7 +256,14 @@ async def process_public_tactical_query(
             f"VISITOR QUERY: {payload.prompt}"
         )
 
-        candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+        # 🟢 Expanded fallback chain for API compatibility
+        candidate_models = [
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-flash-002',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
+            'gemini-1.0-pro'
+        ]
         response = None
         used_model = None
         last_exception = None
@@ -460,6 +474,24 @@ async def process_tactical_query(
                 db.rollback()
                 diagnostic_errors.append(f"HR/Users Table: {str(e)}")
 
+            # 8. Command Compliance & Defaulters Ledger
+            try:
+                ComplianceModel = getattr(models, 'Daily_Compliance_Tracker', getattr(models, 'DailyComplianceTracker', None))
+                if ComplianceModel:
+                    q = db.query(ComplianceModel)
+                    if not is_top_admin and hasattr(ComplianceModel, 'station'): 
+                        q = q.filter(func.upper(ComplianceModel.station) == user_station_val)
+                    
+                    recs = q.limit(20).all()
+                    if recs:
+                        live_data_context += "- Compliance & Defaulters Ledger:\n"
+                        for r in recs:
+                            live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] Date: {getattr(r, 'date', 'N/A')} | Status: {getattr(r, 'status', 'UNKNOWN')} | Resolved By: {getattr(r, 'resolved_by', 'NONE')}\n"
+                        records_scanned += len(recs)
+            except Exception as e:
+                db.rollback()
+                diagnostic_errors.append(f"Compliance Table: {str(e)}")
+
         else:
             live_data_context = "🛑 System Note: Direct database querying for the AI is either globally disabled or restricted by your command clearance tier."
 
@@ -507,7 +539,14 @@ async def process_tactical_query(
                 )
             )
 
-        candidate_models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+        # 🟢 Expanded fallback chain for API compatibility
+        candidate_models = [
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-flash-002',
+            'gemini-1.5-flash',
+            'gemini-1.5-pro',
+            'gemini-1.0-pro'
+        ]
         response = None
         used_model = None
         last_exception = None
@@ -565,7 +604,7 @@ async def process_tactical_query(
                 "jurisdiction_tier": user_tier_scope,
                 "structured_records_count": records_scanned,
                 "ai_model_used": used_model,
-                "diagnostic_errors": diagnostic_errors  # 🟢 Errors exposed directly to the frontend here
+                "diagnostic_errors": diagnostic_errors  
             }
         }
 
