@@ -1,7 +1,7 @@
 // src/CrimeIncidentRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import {  
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -107,6 +107,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
    
   const [lockupData, setLockupData] = useState([]);
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
+  const [showAccidentsOnly, setShowAccidentsOnly] = useState(false); // 🟢 Added state for accidents toggle
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
@@ -274,6 +275,9 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       if (showAgriculturalOnly) {
         params.append('agri_only', 'true');
       }
+      if (showAccidentsOnly) { // 🟢 Append accidents_only param
+        params.append('accidents_only', 'true');
+      }
       if (debouncedSearch) {
         params.append('search', debouncedSearch);
       }
@@ -295,7 +299,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     } finally {
       setIsFetchingReports(false);
     }
-  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, dateFilter, debouncedSearch, setReports, canViewGlobalActive]);
+  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, showAccidentsOnly, dateFilter, debouncedSearch, setReports, canViewGlobalActive]);
 
   useEffect(() => {
     fetchFilteredDatabaseReports();
@@ -355,7 +359,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
 
       if (!canViewGlobalActive) {
         const belongsToRegion = reg === userRegClean ||  
-                              (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
+                            (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
         if (!belongsToRegion) return false;
       }
 
@@ -367,19 +371,16 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     });
   }, [finalFilteredReports, updateSearch, canViewGlobalActive, userRegClean]);
 
-  // 🟢 EXACT ISOLATION LOGIC REPLACEMENT HERE
   const metrics = useMemo(() => {
     const todayStr = getTodayString(); 
     const todaysLockupEntries = lockupData.filter(l => l.date === todayStr);
 
-    // 1. ISOLATED MASTER TOTAL (Top-Down Manual Entry)
     const masterLog = todaysLockupEntries.find(row => {
         const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
         return stn === 'HEADQUARTERS GENERAL TOTAL' || stn === 'KMP HEADQUARTERS';
     });
     const kmpGeneralTotal = masterLog ? Number(masterLog.suspects || 0) : 'Pending';
 
-    // 2. ISOLATED COMPUTED SUM (Bottom-Up Tally)
     let localJurisdictionTotal = 0;
     const computedEntries = todaysLockupEntries.filter(row => {
         const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
@@ -665,6 +666,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
       if (filterOffence && filterOffence !== 'ALL OFFENCES') params.append('offence', filterOffence);
       if (showAgriculturalOnly) params.append('agri_only', 'true');
+      if (showAccidentsOnly) params.append('accidents_only', 'true'); // 🟢 Pass accidents_only to export
       if (debouncedSearch) params.append('search', debouncedSearch);
       
       const { start, end } = getDateRangeParams(dateFilter);
@@ -927,6 +929,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                   <select name="category" value={formData.category} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
                     <option value="GENERAL CRIMES">GENERAL CRIMES</option>
                     <option value="AGRIC_CRIME">🌾 AGRICULTURAL CRIMES / LIVESTOCK & FARM SECURITY</option>
+                    <option value="ACCIDENT">🚗 TRAFFIC ACCIDENTS / CRASHES</option> {/* 🟢 Added Accident Category option */}
                   </select>
                 </div>
 
@@ -1088,6 +1091,20 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
              </button>
 
+             {/* 🟢 Added Accidents Only Filter Toggle Button */}
+             <button
+               type="button"
+               onClick={() => setShowAccidentsOnly(prev => !prev)}
+               className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+                 showAccidentsOnly 
+                   ? 'bg-red-700 text-white border-red-800 ring-2 ring-red-500/20' 
+                   : 'bg-white dark:bg-slate-800 text-red-800 dark:text-red-300 border-red-300 dark:border-slate-700 hover:bg-red-50 dark:hover:bg-slate-700'
+               }`}
+             >
+               <Car className="w-3.5 h-3.5 mr-1" />
+               {showAccidentsOnly ? 'Accidents: ON' : 'Filter Accidents'}
+             </button>
+
             <select 
               value={filterRegion} 
               onChange={(e) => { 
@@ -1108,7 +1125,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                 <option value={userRegClean}>{stripHtmlTags(userRegClean)}</option>
               )}
             </select>
-            
+              
             <select 
               value={filterStation} 
               onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
@@ -1165,6 +1182,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                   ) : finalFilteredReports.map((report, index) => {
                     const rRegion = getOfficialRegionForStation(report.station, report.region);
                     const isAgriMatch = (report.category || '').toUpperCase() === 'AGRIC_CRIME';
+                    const isAccidentMatch = ['ACCIDENT', 'ACCIDENTS', 'ACCIDENT_REPORT'].includes((report.category || '').toUpperCase()); // 🟢 Check accident tag
                     const statusClean = stripHtmlTags(report.status || '');
 
                     return (
@@ -1176,10 +1194,13 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[9px] text-gray-400 dark:text-slate-500">{stripHtmlTags(report.time)}</span></td>
                         <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-700 dark:text-slate-300 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">{rRegion}</span></td>
                         <td className="px-3.5 py-3 text-[11px] text-gray-700 dark:text-slate-300 align-top whitespace-normal break-words overflow-wrap-anywhere">
-                          <div className="flex items-center space-x-2 mb-0.5">
+                          <div className="flex items-center space-x-2 mb-0.5 flex-wrap gap-y-1">
                             {report.offence && <div className="font-extrabold text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(report.offence)}</div>}
                             {isAgriMatch && (
                               <span className="bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">🌾 AGRI-CRIME</span>
+                            )}
+                            {isAccidentMatch && ( // 🟢 Render Accident badge in the table
+                              <span className="bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-red-300 dark:border-red-800">🚗 ACCIDENT</span>
                             )}
                           </div>
                           <div className="ql-editor p-0 line-clamp-3 text-slate-600 dark:text-slate-300 [&_*]:!text-[11px] [&_*]:!bg-transparent whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: report.narrative }} />
@@ -1235,7 +1256,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                   <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
                   <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
                   <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
-               </div>
+                 </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
                 <div className="border-l-4 border-blue-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Database SN (ID)</div><div className="text-xs font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
                 <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Time & Date Logged</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
@@ -1260,7 +1281,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                   <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
                     <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
                   </div>
-                      
+                    
                   <div className="flex flex-col gap-4 w-full">
                     {selectedCase.suspectDetails.map((s, idx) => {
                       const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');

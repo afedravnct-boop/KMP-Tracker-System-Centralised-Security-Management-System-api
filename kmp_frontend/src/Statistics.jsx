@@ -153,8 +153,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const getDateRangeParams = (filterOption) => {
     if (filterOption === 'ALL TIME') return { start: null, end: null };
-    
-    // Use East Africa Time (EAT) anchor for accurate range evaluation
     const nowStr = new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" });
     const end = new Date(nowStr);
     const start = new Date(nowStr);
@@ -198,10 +196,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       const params = new URLSearchParams();
       if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
-      
-      const { start, end } = getDateRangeParams(dateFilter);
-      if (start) params.append('start_date', start);
-      if (end) params.append('end_date', end);
 
       if (statsDomain === 'DISRUPTIVE') {
           const res = await authFetch(`/api/v1/stats?${params.toString()}`);
@@ -216,7 +210,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     } catch (err) {
       console.error(`Failed to load ${statsDomain} ledger:`, err);
     }
-  }, [statsDomain, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
+  }, [statsDomain, filterRegion, filterStation, canViewGlobalLevel]);
 
   const fetchAgricSummaries = useCallback(async () => {
     if (!hasValidSession() || statsDomain !== 'AGRICULTURAL') return;
@@ -224,10 +218,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       const params = new URLSearchParams();
       if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
-      
-      const { start, end } = getDateRangeParams(dateFilter);
-      if (start) params.append('start_date', start);
-      if (end) params.append('end_date', end);
 
       const res = await authFetch(`/api/v1/agric-summary?${params.toString()}`);
       if (res.ok) {
@@ -236,19 +226,31 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     } catch (err) {
       console.error("Failed to load agricultural summary ledger:", err);
     }
-  }, [statsDomain, filterRegion, filterStation, dateFilter, canViewGlobalLevel]);
+  }, [statsDomain, filterRegion, filterStation, canViewGlobalLevel]);
 
   useEffect(() => {
     fetchDomainStats();
     fetchAgricSummaries();
   }, [fetchDomainStats, fetchAgricSummaries]);
 
+  // 🟢 Robust Client-Side Date Filter for the Ledger & Metrics Cards
   const currentDomainStats = useMemo(() => {
-      if (statsDomain === 'DISRUPTIVE') return disruptiveStats;
-      if (statsDomain === 'AGRICULTURAL') return agricStats;
-      if (statsDomain === 'ACCIDENTS') return accidentStats;
-      return [];
-  }, [statsDomain, disruptiveStats, agricStats, accidentStats]);
+      let raw = [];
+      if (statsDomain === 'DISRUPTIVE') raw = disruptiveStats;
+      else if (statsDomain === 'AGRICULTURAL') raw = agricStats;
+      else if (statsDomain === 'ACCIDENTS') raw = accidentStats;
+
+      if (dateFilter === 'ALL TIME') return raw;
+
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (!start || !end) return raw;
+
+      return raw.filter(item => {
+          const itemDateStr = String(item.date || item.created_at || '').split('T')[0];
+          if (!itemDateStr) return true;
+          return itemDateStr >= start && itemDateStr <= end;
+      });
+  }, [statsDomain, disruptiveStats, agricStats, accidentStats, dateFilter]);
 
   const handleExportDomainStats = async () => {
     if (!currentDomainStats.length) {

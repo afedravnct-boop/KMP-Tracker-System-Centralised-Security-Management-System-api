@@ -1,3 +1,4 @@
+# routers/crime_registry.py
 import os
 import uuid
 import re
@@ -219,7 +220,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
     return query.filter(text("1=0"))
 
 # ====================================================================
-# 1. RETRIEVE CRIME REPORTS (WITH RESTORED AGRI-CRIME FILTERING)
+# 1. RETRIEVE CRIME REPORTS (WITH RESTORED AGRI & ACCIDENT FILTERING)
 # ====================================================================
 @router.get("/reports")
 def get_reports(
@@ -229,6 +230,7 @@ def get_reports(
     start_date: Optional[str] = Query(default=None), 
     end_date: Optional[str] = Query(default=None), 
     agri_only: bool = Query(default=False), 
+    accidents_only: bool = Query(default=False),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=200, le=1000), 
     db: Session = Depends(get_db), 
@@ -245,7 +247,7 @@ def get_reports(
     if region and region.upper() not in ["ALL REGIONS", "ALL"]:
         if hasattr(CrimeModel, 'region'):
             query = query.filter(func.upper(CrimeModel.region) == region.upper())
-        
+            
     if station and station.upper() not in ["ALL STATIONS", "ALL"]:
         if hasattr(CrimeModel, 'station'):
             clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
@@ -266,6 +268,15 @@ def get_reports(
             or_(
                 func.upper(CrimeModel.category) == 'AGRIC_CRIME',
                 func.upper(CrimeModel.category) == 'AGRICULTURAL CRIMES'
+            )
+        )
+
+    if accidents_only and hasattr(CrimeModel, 'category'):
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'ACCIDENT',
+                func.upper(CrimeModel.category) == 'ACCIDENTS',
+                func.upper(CrimeModel.category) == 'ACCIDENT_REPORT'
             )
         )
         
@@ -386,6 +397,7 @@ def get_crime_analytics(
     end_date: Optional[str] = Query(default=None),
     agri_only: bool = Query(default=False),
     fire_only: bool = Query(default=False),
+    accidents_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -432,6 +444,15 @@ def get_crime_analytics(
             )
         )
 
+    if accidents_only and hasattr(CrimeModel, 'category'):
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'ACCIDENT',
+                func.upper(CrimeModel.category) == 'ACCIDENTS',
+                func.upper(CrimeModel.category) == 'ACCIDENT_REPORT'
+            )
+        )
+
     if start_date and hasattr(CrimeModel, 'date'):
         query = query.filter(CrimeModel.date >= start_date)
     
@@ -455,6 +476,7 @@ def export_reports_excel(
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     agri_only: bool = Query(default=False),
+    accidents_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -490,6 +512,15 @@ def export_reports_excel(
             or_(
                 func.upper(CrimeModel.category) == 'AGRIC_CRIME',
                 func.upper(CrimeModel.category) == 'AGRICULTURAL CRIMES'
+            )
+        )
+
+    if accidents_only and hasattr(CrimeModel, 'category'):
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'ACCIDENT',
+                func.upper(CrimeModel.category) == 'ACCIDENTS',
+                func.upper(CrimeModel.category) == 'ACCIDENT_REPORT'
             )
         )
         
