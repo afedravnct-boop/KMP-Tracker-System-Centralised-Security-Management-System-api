@@ -6,6 +6,7 @@ import traceback
 import asyncio
 import json
 import boto3
+import pytz
 from typing import Optional, List
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
@@ -17,6 +18,10 @@ from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile,
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from pydantic import BaseModel
+
+# 🟢 Google GenAI SDK imports for automated crash diagnosis
+from google import genai
+from google.genai import types
 
 from app.core import security
 from app import database, models, schemas
@@ -103,7 +108,6 @@ def validate_and_normalize_phone(phone_str: Optional[str]) -> Optional[str]:
     return clean_phone
 
 def get_eat_time():
-    import pytz
     eat_tz = pytz.timezone('Africa/Nairobi')
     return datetime.now(eat_tz).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -126,7 +130,7 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
 # AUTHENTICATION DEPENDENCY (WITH SESSION TIMEOUT AUDIT LOGGING)
 # ====================================================================
 def get_current_user(
-    request: Request,  # 🟢 Strict Request injection, completely removing *args and **kwargs
+    request: Request, 
     token: Optional[str] = Depends(oauth2_scheme), 
     db: Session = Depends(database.get_db),
     logs_db: Session = Depends(get_logs_db)
@@ -136,7 +140,6 @@ def get_current_user(
         detail="Could not validate credentials",
     )
     
-    # Fallback to extract token from request cookies or headers if oauth2_scheme missed it
     if not token and request:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
@@ -783,44 +786,81 @@ class PublicGlitchTelemetryPayload(BaseModel):
     glitch_category: Optional[str] = "PUBLIC_PORTAL_FAILURE"
     element_point: Optional[str] = "Sign-In Form"
     description: Optional[str] = "Unauthenticated fault report"
+    attempted_fnum: Optional[str] = "" # 🟢 Tracking attempted officer ID if available
 
 @router.post("/report-crash")
 @router.post("/api/v1/ai/report-crash")
 @router.post("/api/auth/report-crash")
-def report_public_client_crash(
+async def report_public_client_crash(
     payload: PublicGlitchTelemetryPayload,
     db: Session = Depends(database.get_db),
     logs_db: Session = Depends(get_logs_db)
 ):
     """
-    Publicly captures login/signup faults or unauthenticated crashes, logs them,
-    and dispatches a high-priority technical alert to Admin Communications.
+    Publicly captures login/signup faults, generates an autonomous AI diagnosis,
+    and dispatches a high-priority enriched technical alert to Admin Communications.
     """
     try:
         captured_logs = payload.console_logs or []
+        network_logs = payload.network_errors or []
         
+        # 🟢 1. Initialize Autonomous AI Diagnosis
+        ai_diagnosis = "Autonomous diagnosis unavailable (AI bypass or timeout)."
+        api_key = os.getenv("GEMINI_API_KEY")
+        
+        if api_key and (captured_logs or network_logs):
+            try:
+                client = genai.Client(api_key=api_key)
+                prompt = (
+                    f"Analyze this UI crash on page '{payload.current_page}'.\n"
+                    f"Console: {json.dumps(captured_logs)}\n"
+                    f"Network: {json.dumps(network_logs)}\n"
+                    f"User Description: {payload.description}\n\n"
+                    "Provide a concise, 2-paragraph root-cause diagnosis and a specific technical recommendation to fix it. Be direct."
+                )
+                
+                response = client.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction="You are a strict QA system debugger for law enforcement software."
+                    )
+                )
+                ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
+            except Exception as ai_err:
+                print(f"AI Auto-Diagnosis skipped: {ai_err}")
+
+        # 🟢 2. Construct the Enriched Alert Payload with AI Insights
         glitch_summary = (
             f"<p><strong>[PUBLIC PORTAL FAULT TELEMETRY]</strong></p>"
             f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
             f"<p><strong>Portal Page:</strong> {payload.current_page}</p>"
-            f"<p><strong>Element Point:</strong> {payload.element_point}</p>"
+            f"<p><strong>Attempted User ID:</strong> {payload.attempted_fnum or 'PUBLIC_VISITOR'}</p>"
             f"<p><strong>Description:</strong> {payload.description}</p>"
+            f"<hr/>"
+            f"<div style='background-color: #f8fafc; padding: 12px; border-left: 4px solid #3b82f6; margin: 15px 0;'>"
+            f"<h4 style='color: #1e40af; margin-top: 0;'>🤖 AI Root-Cause Analysis</h4>"
+            f"<p style='font-size: 14px; color: #334155;'>{ai_diagnosis}</p>"
+            f"</div>"
             f"<hr/><p><strong>Diagnostics Trace:</strong> {json.dumps(captured_logs)}</p>"
         )
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
 
+        # 🟢 3. Resolve User Identity for Admin Record
+        user_identity = payload.attempted_fnum.strip().upper() if payload.attempted_fnum else "PUBLIC_VISITOR"
+
         # Locate CommModel safely
         CommModel = getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))
         if CommModel:
             auto_dispatch = CommModel(
                 msg_ref=f"UPF/OPS/PUBLIC-FAULT/{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                sender_fnum="PUBLIC_VISITOR",
-                sender_name="Public Portal Safeguard (System Telemetry)",
+                sender_fnum=user_identity,
+                sender_name=f"Portal Safeguard ({user_identity})",
                 target_audience="ADMINS_ONLY",
                 message_type="TECHNICAL_GLITCH_ALERT",
-                subject=f"⚠️ SIGN-IN FAULT REPORTED: {payload.current_page}",
+                subject=f"⚠️ SIGN-IN FAULT DETECTED: {payload.current_page} [{user_identity}]",
                 message=glitch_summary,
                 created_at=uganda_now
             )
@@ -829,15 +869,14 @@ def report_public_client_crash(
 
         log_independent_activity(
             logs_db=logs_db,
-            fnum="PUBLIC_VISITOR",
+            fnum=user_identity,
             action="PUBLIC_PORTAL_FAULT",
             module="FRONTEND_TELEMETRY",
-            details=f"Fault on {payload.current_page}: {payload.description}"
+            details=f"Fault on {payload.current_page} by {user_identity}: {payload.description}"
         )
 
         return {"status": "success", "message": "Fault report securely transmitted to High Command IT Support."}
     except Exception as e:
         db.rollback()
         logs_db.rollback()
-        # Return success or soft failure so client doesn't break twice
         return {"status": "success", "message": "Fault telemetry logged."}

@@ -1,6 +1,6 @@
 // src/Login.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Lock, X, HelpCircle, AlertTriangle, Globe, Camera, Bug } from 'lucide-react';
+import { User, Lock, X, HelpCircle, AlertTriangle, Globe, Camera, Bug, Eye, EyeOff } from 'lucide-react';
 import { setAuthSession, authFetch } from './api';
 import SystemAssistant from './SystemAssistant';
 
@@ -58,10 +58,16 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [showPolicyModal, setShowPolicyModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   
+  // 🟢 Password Visibility State
+  const [showPassword, setShowPassword] = useState(false);
+  
   // 🟢 Glitch Reporter State & Secure Telemetry Buffer
   const [showGlitchModal, setShowGlitchModal] = useState(false);
   const [glitchDesc, setGlitchDesc] = useState('');
+  const [hasSystemGlitch, setHasSystemGlitch] = useState(false); // Controls button visibility
+  
   const capturedLogs = useRef({ console: [], network: [] });
+  const hasAutoReported = useRef(false); // Circuit breaker for auto-dispatch
 
   const logClientErrorLocally = (errorPayload) => {
     try {
@@ -81,19 +87,60 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       originalConsoleError.apply(console, args);
     };
 
+    // 🟢 Silent Auto-Dispatcher for Fatal Crashes
+    const autoTransmitCrash = async (errorMsg) => {
+      if (hasAutoReported.current) return; 
+      hasAutoReported.current = true;
+
+      const payload = {
+        console_logs: capturedLogs.current.console.slice(-15),
+        network_errors: capturedLogs.current.network.slice(-15),
+        current_page: `Login Portal (AUTO-DETECTED CRASH)`,
+        glitch_category: "FATAL_UI_CRASH",
+        element_point: "Window Error Listener",
+        description: `Auto-captured fatal crash: ${errorMsg}`
+      };
+
+      try {
+        await fetch(`${API_URL}/api/v1/ai/report-crash`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (e) {
+        logClientErrorLocally(payload);
+      }
+    };
+
     const handleWindowError = (e) => {
       capturedLogs.current.console.push(`[SYS_CRASH] ${e.message} at ${e.filename}:${e.lineno}`);
+      setHasSystemGlitch(true);
+      autoTransmitCrash(e.message);
     };
+
+    const handlePromiseRejection = (e) => {
+      const reason = e.reason?.message || String(e.reason);
+      capturedLogs.current.console.push(`[PROMISE_CRASH] ${reason}`);
+      setHasSystemGlitch(true);
+      autoTransmitCrash(reason);
+    };
+
     window.addEventListener('error', handleWindowError);
+    window.addEventListener('unhandledrejection', handlePromiseRejection);
 
     const originalFetch = window.fetch;
     window.fetch = async (...args) => {
       try {
         const response = await originalFetch(...args);
-        if (!response.ok) capturedLogs.current.network.push(`[HTTP_${response.status}] ${args[0]}`);
+        if (!response.ok) {
+          capturedLogs.current.network.push(`[HTTP_${response.status}] ${args[0]}`);
+          // Only reveal button for 500-level server crashes, ignoring 401/403
+          if (response.status >= 500) setHasSystemGlitch(true); 
+        }
         return response;
       } catch (error) {
         capturedLogs.current.network.push(`[NET_DROP] ${args[0]} - ${error.message}`);
+        setHasSystemGlitch(true); // Reveal the button for total network failures
         throw error;
       }
     };
@@ -101,6 +148,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     return () => {
       console.error = originalConsoleError;
       window.removeEventListener('error', handleWindowError);
+      window.removeEventListener('unhandledrejection', handlePromiseRejection);
       window.fetch = originalFetch;
     };
   }, []);
@@ -341,6 +389,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     }
     setShowGlitchModal(false);
     setGlitchDesc('');
+    setHasSystemGlitch(false); // Hide the button after successful manual transmission
   };
 
   return (
@@ -525,9 +574,29 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       </div>
                     </div>
                   </div>
+                  
+                  {/* 🟢 Signup Password Toggle */}
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
-                    <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="Min. 8 characters (letters & numbers)" />
+                    <div className="relative">
+                      <input 
+                        type={showPassword ? "text" : "password"} 
+                        name="password" 
+                        required 
+                        value={signupData.password} 
+                        onChange={handleSignupChange} 
+                        className="w-full p-2 pr-10 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
+                        placeholder="Min. 8 characters (letters & numbers)" 
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setShowPassword(!showPassword)} 
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors"
+                        title={showPassword ? "Hide Password" : "Show Password"}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                     <p className="text-[10px] text-slate-500 mt-1">Must be at least 8 characters long with a mix of letters and numbers.</p>
                   </div>
 
@@ -544,7 +613,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <button type="submit" disabled={!signupData.policy_accepted} className={`w-full font-bold py-3 rounded-lg transition-colors text-sm ${!signupData.policy_accepted ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 hover:bg-black text-white cursor-pointer'}`}>
                       Submit Registration Request
                     </button>
-                    <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium cursor-pointer">
+                    <button type="button" onClick={() => { setMode('login'); setShowPassword(false); }} className="text-sm text-blue-600 hover:underline font-medium cursor-pointer">
                       Cancel and return to Login
                     </button>
                   </div>
@@ -568,7 +637,25 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       <label htmlFor="login-password" className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                        <input id="login-password" name="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="••••••••" />
+                        {/* 🟢 Login Password Toggle */}
+                        <input 
+                          id="login-password" 
+                          name="password" 
+                          type={showPassword ? "text" : "password"} 
+                          required 
+                          value={password} 
+                          onChange={(e) => setPassword(e.target.value)} 
+                          className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" 
+                          placeholder="••••••••" 
+                        />
+                        <button 
+                          type="button" 
+                          onClick={() => setShowPassword(!showPassword)} 
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors"
+                          title={showPassword ? "Hide Password" : "Show Password"}
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
                       </div>
                     </div>
                   )}
@@ -577,11 +664,11 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
                   <div className="text-center mt-4 flex justify-between px-4">
-                    <button type="button" onClick={() => { setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0); }} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer">
+                    <button type="button" onClick={() => { setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0); setShowPassword(false); }} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer">
                       {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
                     </button>
                     {mode === 'login' && (
-                      <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline cursor-pointer">
+                      <button type="button" onClick={() => { setMode('signup'); setShowPassword(false); }} className="text-sm text-blue-600 font-bold hover:underline cursor-pointer">
                         Sign Up (Request Access)
                       </button>
                     )}
@@ -599,15 +686,18 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       <span>Help</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setShowGlitchModal(true)}
-                      className="text-red-700 hover:text-red-900 transition-colors cursor-pointer bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg border border-red-300 shadow-sm flex items-center gap-1.5 text-xs font-bold"
-                      title="Report Console/Network Errors"
-                    >
-                      <Bug size={16} />
-                      <span>Report Glitch</span>
-                    </button>
+                    {/* 🟢 Conditionally Revealed Glitch Reporter */}
+                    {hasSystemGlitch && (
+                      <button
+                        type="button"
+                        onClick={() => setShowGlitchModal(true)}
+                        className="text-red-700 hover:text-red-900 transition-colors cursor-pointer bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg border border-red-300 shadow-sm flex items-center gap-1.5 text-xs font-bold animate-in fade-in slide-in-from-bottom-2"
+                        title="Report Console/Network Errors"
+                      >
+                        <Bug size={16} className="animate-pulse" />
+                        <span>Report Glitch</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="text-center mt-6 space-y-1 relative z-10">
