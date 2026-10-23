@@ -190,7 +190,8 @@ def parse_success_story_backend(raw_narrative: str):
     }
 
 def calculate_timeseries_aggregates(records, date_field, value_fields):
-    weekly_map, monthly_map = {}, {}
+    weekly_map, monthly_map, annual_map = {}, {}, {}
+
     for r in records:
         d_str = getattr(r, date_field, None)
         if not d_str:
@@ -207,6 +208,7 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 
         week_key = f"{dt.year}-W{dt.strftime('%V')}"
         month_key = dt.strftime("%Y-%m (%B)")
+        annual_key = str(dt.year)
 
         def accumulate(target_dict, key):
             if key not in target_dict:
@@ -218,6 +220,7 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 
         accumulate(weekly_map, week_key)
         accumulate(monthly_map, month_key)
+        accumulate(annual_map, annual_key)
 
     def format_rows(sorted_keys, data_map):
         formatted_rows = []
@@ -243,12 +246,10 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 
     return {
         "weekly": format_rows(sorted(weekly_map.keys()), weekly_map),
-        "monthly": format_rows(sorted(monthly_map.keys()), monthly_map)
+        "monthly": format_rows(sorted(monthly_map.keys()), monthly_map),
+        "annual": format_rows(sorted(annual_map.keys()), annual_map)
     }
 
-# ==========================================
-# 🟢 COMPREHENSIVE BACKEND INTELLIGENCE ENDPOINT
-# ==========================================
 @router.get("/dashboard-intelligence")
 def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     """Offloads success stories parsing, fire intelligence, manpower matrix, crime categories, and detention calendar margin audits to backend."""
@@ -257,7 +258,6 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
 
-        # 1. Detentions Intelligence & Calendar Margins
         lockup_records = db.query(LockupModel).all() if LockupModel else []
         date_map = {}
         region_demo_map = {}
@@ -315,7 +315,6 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
                 "status": status_note
             })
 
-        # 2. Success Stories Parsed
         story_records = db.query(StoryModel).all() if StoryModel else []
         parsed_stories = []
         for st in story_records:
@@ -330,7 +329,6 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
                 "parsedClassification": parsed['classification']
             })
 
-        # 3. Fire Intelligence Parsed
         crime_records = db.query(CrimeModel).all() if CrimeModel else []
         fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
         fire_list = []
@@ -353,7 +351,6 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
                     "summary": strip_html_tags(narrative or offence or 'Fire incident logged.')
                 })
 
-        # 4. Crime Categories Aggregation
         crime_reg_map = {}
         for cr in crime_records:
             cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
@@ -679,9 +676,11 @@ def export_analytics_report(
         
         add_individual_sheet("Detention Analysis (Weekly)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
         add_individual_sheet("Detention Analysis (Monthly)", ["Time Period", "Entries Logged", "Total Suspects", "Monthly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["monthly"])
+        add_individual_sheet("Detention Analysis (Annual)", ["Time Period", "Entries Logged", "Total Suspects", "Annual Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["annual"])
 
         add_individual_sheet("Accidents Analysis (Weekly)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
         add_individual_sheet("Accidents Analysis (Monthly)", ["Time Period", "Entries Logged", "Minor Crashes", "Monthly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["monthly"])
+        add_individual_sheet("Accidents Analysis (Annual)", ["Time Period", "Entries Logged", "Minor Crashes", "Annual Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["annual"])
 
         add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
         add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
