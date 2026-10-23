@@ -521,23 +521,28 @@ def check_is_global_user(user) -> bool:
 # ==========================================
 @app.get("/api/v1/accidents")
 def get_accidents_records(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    """🟢 Dedicated Accidents Endpoint to resolve 404 errors."""
+    """🟢 Dedicated Accidents Endpoint querying the correct 'accidents_statistics' table."""
     try:
-        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
-        if CrimeModel:
-            query = db.query(CrimeModel).filter(
-                or_(
-                    func.upper(CrimeModel.offence).ilike('%ACCIDENT%'),
-                    func.upper(CrimeModel.category).ilike('%ACCIDENT%'),
-                    func.upper(CrimeModel.offence).ilike('%TRAFFIC%')
-                )
-            )
-            query = apply_opsec_scope(current_user, query, CrimeModel)
-            records = query.all()
-            return [serialize_model_row(r) for r in records]
-        return []
+        AccidentsModel = getattr(models, 'Accidents_Statistics', getattr(models, 'AccidentsStatistics', None))
+        
+        # Fallback dynamic lookup if exact model attribute name varies
+        if not AccidentsModel:
+            for name, cls in models.__dict__.items():
+                if isinstance(cls, type) and hasattr(cls, '__tablename__') and cls.__tablename__ == 'accidents_statistics':
+                    AccidentsModel = cls
+                    break
+
+        if not AccidentsModel:
+            return []
+
+        query = db.query(AccidentsModel)
+        query = apply_opsec_scope(current_user, query, AccidentsModel)
+        records = query.all()
+        
+        return [serialize_model_row(r) for r in records]
     except Exception as e:
-        print(f"Accidents fetch error: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 @app.get("/api/v1/analytics/export")
