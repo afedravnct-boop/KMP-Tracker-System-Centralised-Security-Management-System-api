@@ -17,7 +17,7 @@ from app.database import get_db, get_logs_db
 from app import models
 from routers.activity_logger import record_neon_activity
 
-router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports"])
+router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports & Intelligence"])
 
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
@@ -28,12 +28,11 @@ REGIONAL_HIERARCHY = {
 }
 
 def get_model_safe(*model_names):
-    """🟢 Safe helper to resolve database models across varying naming conventions and tablenames."""
+    """Safe helper to resolve database models across varying naming conventions and tablenames."""
     for name in model_names:
         if hasattr(models, name):
             return getattr(models, name)
             
-    # Fallback to inspecting tablenames directly
     target_slug = model_names[-1].lower()
     for attr_name, cls in models.__dict__.items():
         if isinstance(cls, type) and hasattr(cls, '__tablename__'):
@@ -51,9 +50,51 @@ def strip_html_tags(text_str: str) -> str:
     clean_text = re.sub(r'(?i)&#39;', "'", clean_text)
     return re.sub(r'\s+', ' ', clean_text).strip()
 
+def get_official_region_for_station(station_name: str, db_region: str) -> str:
+    clean_station = strip_html_tags(station_name or "").strip().upper()
+    clean_region = strip_html_tags(db_region or "").strip().upper()
+
+    if clean_station in ["KIRA DIVISION", "KIRA DIV", "KIRA"]:
+        clean_station = "KIRA DIV"
+
+    if clean_region in REGIONAL_HIERARCHY and clean_station in REGIONAL_HIERARCHY[clean_region]:
+        return clean_region
+
+    for reg_name, stations in REGIONAL_HIERARCHY.items():
+        if clean_station in stations:
+            return reg_name
+
+    return clean_region or "KMP GENERAL"
+
+def normalize_offence_category(raw_offence: str) -> str:
+    if not raw_offence:
+        return "UNSPECIFIED OFFENCE"
+    clean = str(raw_offence).strip().upper()
+    mapping = {
+        'DEATH SUDDEN': 'Sudden Death',
+        'DEATH_SUDDEN': 'Sudden Death',
+        'SUDDEN DEATH': 'Sudden Death',
+        'FIREOUTBREAK': 'Fire Outbreak',
+        'FIRE OUTBREAK': 'Fire Outbreak',
+        'BY DEATH DROWNING': 'Death by Drowning',
+        'DEATH DROWNING': 'Death by Drowning',
+        'AGGRAVATED ROBBERY': 'Aggravated Robbery',
+        'MURDER SUSPECTED': 'Suspected Murder',
+        'ATTEMPTED MURDER': 'Attempted Murder',
+        'DEFILEMENT / RAPE': 'Defilement / Rape'
+    }
+    if mapping.get(clean):
+        return mapping[clean]
+    if "FATAL" in clean and ("TRAFFIC" in clean or "ACCIDENT" in clean):
+        return "Traffic Accident (Fatal)"
+    if "MINOR" in clean and ("TRAFFIC" in clean or "ACCIDENT" in clean):
+        return "Traffic Accident (Minor)"
+    if "DEFILEMENT" in clean or "RAPE" in clean:
+        return "Defilement / Rape"
+    return clean.replace("_", " ").title()
+
 def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     text_blob = f"{offence_str or ''} {raw_narrative or ''}".lower()
-    
     classification = "RESIDENTIAL HOUSE"
     if any(k in text_blob for k in ["school", "college", "academy", "nursery", "student", "dormitory"]):
         classification = "SCHOOL"
@@ -68,11 +109,9 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     
     deaths = 0
     injuries = 0
-    
     death_match = re.search(r'(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)', text_blob)
     if death_match:
         deaths = int(death_match.group(1))
-        
     injury_match = re.search(r'(\d+)\s*(?:injured|injury|injuries|hurt|burn wounds|hospitalized|admitted)', text_blob)
     if injury_match:
         injuries = int(injury_match.group(1))
@@ -88,9 +127,9 @@ def parse_success_story_backend(raw_narrative: str):
     if not raw_narrative:
         return {
             "suspects": 0,
-            "recoveries": "None recorded",
+            "recoveries": "NONE RECORDED",
             "legalStatus": "UNDER INVESTIGATION",
-            "classification": "Operational breakthrough & suspect apprehension"
+            "classification": "OPERATIONAL BREAKTHROUGH"
         }
 
     headline_match = re.search(r'<strong>(.*?)<\/strong>', raw_narrative, re.IGNORECASE)
@@ -105,25 +144,12 @@ def parse_success_story_backend(raw_narrative: str):
     suspects_count = 0
     suspect_patterns = [
         re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)', lower_text),
-        re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?|detain(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text),
-        re.search(r'(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+suspect', lower_text)
+        re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?|detain(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text)
     ]
-    
-    word_to_num = {'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10}
     for m in suspect_patterns:
-        if m:
-            val = m.group(1) if m.lastindex and m.group(1) else m.group(0)
-            if val.isdigit():
-                suspects_count = int(val)
-                break
-            else:
-                for w, num in word_to_num.items():
-                    if w in val:
-                        suspects_count = num
-                        break
-        if suspects_count > 0:
+        if m and m.group(1):
+            suspects_count = int(m.group(1))
             break
-
     if suspects_count == 0 and ('suspect' in lower_text or 'arrest' in lower_text or 'apprehend' in lower_text):
         suspects_count = 1 
 
@@ -139,10 +165,9 @@ def parse_success_story_backend(raw_narrative: str):
 
     recoveries_list = []
     recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))', lower_text, re.IGNORECASE)
-    
     for count_val, item_val in recovery_matches:
         formatted_count = str(count_val).zfill(2)
-        recoveries_list.append(f"{formatted_count} | {item_val.strip()}")
+        recoveries_list.append(f"{formatted_count} | {item_val.strip().upper()}")
 
     if not recoveries_list:
         if 'motorcycle' in lower_text or 'boda' in lower_text: recoveries_list.append('01 | MOTORCYCLE RECOVERED')
@@ -164,12 +189,8 @@ def parse_success_story_backend(raw_narrative: str):
         "classification": formatted_classification
     }
 
-# ==========================================
-# TIME-SERIES ANALYTICAL ROLL-UP ENGINES
-# ==========================================
 def calculate_timeseries_aggregates(records, date_field, value_fields):
-    weekly_map, monthly_map, annual_map = {}, {}, {}
-
+    weekly_map, monthly_map = {}, {}
     for r in records:
         d_str = getattr(r, date_field, None)
         if not d_str:
@@ -186,7 +207,6 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 
         week_key = f"{dt.year}-W{dt.strftime('%V')}"
         month_key = dt.strftime("%Y-%m (%B)")
-        annual_key = str(dt.year)
 
         def accumulate(target_dict, key):
             if key not in target_dict:
@@ -198,19 +218,16 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 
         accumulate(weekly_map, week_key)
         accumulate(monthly_map, month_key)
-        accumulate(annual_map, annual_key)
 
-    def format_with_growth(sorted_keys, data_map):
+    def format_rows(sorted_keys, data_map):
         formatted_rows = []
         prev_totals = {vf: None for vf in value_fields}
-
         for k in sorted_keys:
             metrics = data_map[k]
             row = [k, metrics["_count"]]
             for vf in value_fields:
                 curr_val = metrics[vf]
                 row.append(curr_val)
-                
                 prev_val = prev_totals[vf]
                 if prev_val is not None and prev_val > 0:
                     pct_change = ((curr_val - prev_val) / prev_val) * 100
@@ -225,10 +242,154 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         return formatted_rows
 
     return {
-        "weekly": format_with_growth(sorted(weekly_map.keys()), weekly_map),
-        "monthly": format_with_growth(sorted(monthly_map.keys()), monthly_map),
-        "annual": format_with_growth(sorted(annual_map.keys()), annual_map)
+        "weekly": format_rows(sorted(weekly_map.keys()), weekly_map),
+        "monthly": format_rows(sorted(monthly_map.keys()), monthly_map)
     }
+
+# ==========================================
+# 🟢 COMPREHENSIVE BACKEND INTELLIGENCE ENDPOINT
+# ==========================================
+@router.get("/dashboard-intelligence")
+def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    """Offloads success stories parsing, fire intelligence, manpower matrix, crime categories, and detention calendar margin audits to backend."""
+    try:
+        LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
+        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
+        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
+
+        # 1. Detentions Intelligence & Calendar Margins
+        lockup_records = db.query(LockupModel).all() if LockupModel else []
+        date_map = {}
+        region_demo_map = {}
+        region_dur_map = {}
+        daily_totals = {}
+
+        for r in lockup_records:
+            d_str = str(getattr(r, 'date', getattr(r, 'created_at', ''))).split('T')[0]
+            if not d_str:
+                continue
+
+            stn = str(getattr(r, 'station', 'UNKNOWN')).upper()
+            reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
+            suspects = int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', 0)) or 0)
+            m_ad = int(getattr(r, 'male_count', getattr(r, 'male', 0)) or 0)
+            m_juv = int(getattr(r, 'male_juvenile_count', 0) or 0)
+            f_ad = int(getattr(r, 'female_count', getattr(r, 'female', 0)) or 0)
+            f_juv = int(getattr(r, 'female_juvenile_count', 0) or 0)
+            d3_over = int(getattr(r, 'detention_3days_over', 0) or 0)
+
+            if d_str not in date_map:
+                date_map[d_str] = {"total": 0, "stations": []}
+            date_map[d_str]["total"] += suspects
+            date_map[d_str]["stations"].append({
+                "station": stn, "region": reg, "suspects": suspects,
+                "mAd": m_ad, "mJuv": m_juv, "fAd": f_ad, "fJuv": f_juv, "d3Over": d3_over
+            })
+
+            daily_totals[d_str] = daily_totals.get(d_str, 0) + suspects
+
+            if reg not in region_demo_map:
+                region_demo_map[reg] = {"region": reg, "maleAdults": 0, "femaleAdults": 0, "maleJuveniles": 0, "femaleJuveniles": 0}
+            region_demo_map[reg]["maleAdults"] += m_ad
+            region_demo_map[reg]["femaleAdults"] += f_ad
+            region_demo_map[reg]["maleJuveniles"] += m_juv
+            region_demo_map[reg]["femaleJuveniles"] += f_juv
+
+            if reg not in region_dur_map:
+                region_dur_map[reg] = {"region": reg, "day1": 0, "day2": 0, "over3Days": 0}
+            region_dur_map[reg]["day1"] += int(getattr(r, 'detention_1day', 0) or 0)
+            region_dur_map[reg]["day2"] += int(getattr(r, 'detention_2days', 0) or 0)
+            region_dur_map[reg]["over3Days"] += d3_over
+
+        sorted_dates = sorted(date_map.keys())
+        daily_margins = []
+        for i, dt in enumerate(sorted_dates):
+            curr_total = daily_totals[dt]
+            prev_total = daily_totals[sorted_dates[i - 1]] if i > 0 else curr_total
+            margin = curr_total - prev_total
+            status_note = 'DECREASE (Check Bails/Remands/Releases)' if margin < 0 else ('INCREASE (New Admissions)' if margin > 0 else 'STABLE')
+            daily_margins.append({
+                "date": dt,
+                "total": curr_total,
+                "margin": margin,
+                "status": status_note
+            })
+
+        # 2. Success Stories Parsed
+        story_records = db.query(StoryModel).all() if StoryModel else []
+        parsed_stories = []
+        for st in story_records:
+            raw_narrative = getattr(st, 'narrative', getattr(st, 'title', ''))
+            parsed = parse_success_story_backend(raw_narrative)
+            parsed_stories.append({
+                "station": getattr(st, 'station', 'UNKNOWN'),
+                "region": getattr(st, 'region', 'KMP GENERAL'),
+                "parsedSuspects": getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or parsed['suspects'],
+                "parsedRecoveries": getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or parsed['recoveries'],
+                "parsedLegalStatus": getattr(st, 'legal_status', '') or parsed['legalStatus'],
+                "parsedClassification": parsed['classification']
+            })
+
+        # 3. Fire Intelligence Parsed
+        crime_records = db.query(CrimeModel).all() if CrimeModel else []
+        fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
+        fire_list = []
+        total_fire_deaths = 0
+        total_fire_injuries = 0
+        for cr in crime_records:
+            narrative = str(getattr(cr, 'narrative', '') or "")
+            offence = str(getattr(cr, 'offence', '') or "")
+            if any(kw in narrative.lower() or kw in offence.lower() for kw in fire_keywords):
+                parsed_fire = parse_fire_incident_advanced(narrative, offence)
+                total_fire_deaths += parsed_fire["deaths"]
+                total_fire_injuries += parsed_fire["injuries"]
+                fire_list.append({
+                    "station": getattr(cr, 'station', 'UNKNOWN'),
+                    "region": getattr(cr, 'region', 'KMP GENERAL'),
+                    "date": str(getattr(cr, 'date', 'N/A')),
+                    "classification": parsed_fire["classification"],
+                    "deaths": parsed_fire["deaths"],
+                    "injuries": parsed_fire["injuries"],
+                    "summary": strip_html_tags(narrative or offence or 'Fire incident logged.')
+                })
+
+        # 4. Crime Categories Aggregation
+        crime_reg_map = {}
+        for cr in crime_records:
+            cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
+            reg = get_official_region_for_station(getattr(cr, 'station', ''), getattr(cr, 'region', ''))
+            if reg not in crime_reg_map:
+                crime_reg_map[reg] = {"region": reg, "totalCrimes": 0, "categories": {}}
+            crime_reg_map[reg]["totalCrimes"] += 1
+            crime_reg_map[reg]["categories"][cat] = crime_reg_map[reg]["categories"].get(cat, 0) + 1
+
+        crime_category_data = []
+        for reg, obj in crime_reg_map.items():
+            cat_list = [{"name": c, "count": cnt} for c, cnt in sorted(obj["categories"].items(), key=lambda x: x[1], reverse=True)]
+            crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
+        crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
+
+        return {
+            "detentionCalendar": {
+                "dates": sorted_dates,
+                "dateMap": date_map,
+                "regionDemographics": list(region_demo_map.values()),
+                "regionDuration": list(region_dur_map.values()),
+                "dailyMargins": daily_margins
+            },
+            "successStoriesProcessed": parsed_stories,
+            "fireIntelligence": {
+                "totalFires": len(fire_list),
+                "totalDeaths": total_fire_deaths,
+                "totalInjuries": total_fire_injuries,
+                "fireList": fire_list
+            },
+            "crimeCategoryData": crime_category_data
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Dashboard intelligence computation failed: {str(e)}")
 
 @router.get("/export")
 def export_analytics_report(
@@ -518,11 +679,9 @@ def export_analytics_report(
         
         add_individual_sheet("Detention Analysis (Weekly)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
         add_individual_sheet("Detention Analysis (Monthly)", ["Time Period", "Entries Logged", "Total Suspects", "Monthly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["monthly"])
-        add_individual_sheet("Detention Analysis (Annual)", ["Time Period", "Entries Logged", "Total Suspects", "Annual Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["annual"])
 
         add_individual_sheet("Accidents Analysis (Weekly)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
         add_individual_sheet("Accidents Analysis (Monthly)", ["Time Period", "Entries Logged", "Minor Crashes", "Monthly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["monthly"])
-        add_individual_sheet("Accidents Analysis (Annual)", ["Time Period", "Entries Logged", "Minor Crashes", "Annual Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["annual"])
 
         add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
         add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)

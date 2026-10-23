@@ -22,155 +22,6 @@ const isLockupLog = (item) => {
          (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0);
 };
 
-const cleanDisplayNarrative = (text) => {
-  if (!text) return '';
-  let clean = String(text)
-    .replace(/<[^>]*>?/gm, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/g, "'");
-  return clean.replace(/\s+/g, ' ').trim();
-};
-
-const parseFireIncidentAdvanced = (rawNarrative, offenceStr) => {
-    const textBlob = `${offenceStr || ''} ${rawNarrative || ''}`.toLowerCase();
-    
-    let classification = "RESIDENTIAL HOUSE";
-    if (textBlob.includes("school") || textBlob.includes("college") || textBlob.includes("dormitory")) {
-        classification = "SCHOOL";
-    } else if (textBlob.includes("church") || textBlob.includes("mosque") || textBlob.includes("chapel")) {
-        classification = "CHURCH / RELIGIOUS CENTRE";
-    } else if (textBlob.includes("vehicle") || textBlob.includes("car") || textBlob.includes("lorry") || textBlob.includes("boda")) {
-        classification = "MOTOR VEHICLE";
-    } else if (textBlob.includes("boat") || textBlob.includes("vessel") || textBlob.includes("ship")) {
-        classification = "VESSEL";
-    } else if (textBlob.includes("furniture") || textBlob.includes("shop") || textBlob.includes("market") || textBlob.includes("store") || textBlob.includes("warehouse") || textBlob.includes("hardware") || textBlob.includes("commercial")) {
-        classification = "FURNITURE SHOP / COMMERCIAL PROPERTY";
-    }
-    
-    let deaths = 0;
-    let injuries = 0;
-    
-    const deathMatch = textBlob.match(/(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)/);
-    if (deathMatch) deaths = parseInt(deathMatch[1], 10);
-        
-    const injuryMatch = textBlob.match(/(\d+)\s*(?:injured|injury|injuries|hurt|burn wounds|hospitalized|admitted)/);
-    if (injuryMatch) injuries = parseInt(injuryMatch[1], 10);
-
-    return {
-        classification,
-        deaths,
-        injuries,
-        totalCasualties: deaths + injuries
-    };
-};
-
-const normalizeOffenceCategory = (rawOffence) => {
-  if (!rawOffence) return "UNSPECIFIED OFFENCE";
-  let clean = String(rawOffence).trim().toUpperCase();
-
-  const mapping = {
-    'DEATH SUDDEN': 'Sudden Death',
-    'DEATH_SUDDEN': 'Sudden Death',
-    'SUDDEN DEATH': 'Sudden Death',
-    'FIREOUTBREAK': 'Fire Outbreak',
-    'FIRE OUTBREAK': 'Fire Outbreak',
-    'BY DEATH DROWNING': 'Death by Drowning',
-    'DEATH DROWNING': 'Death by Drowning',
-    'AGGRAVATED ROBBERY': 'Aggravated Robbery',
-    'MURDER SUSPECTED': 'Suspected Murder',
-    'ATTEMPTED MURDER': 'Attempted Murder',
-    'DEFILEMENT / RAPE': 'Defilement / Rape'
-  };
-
-  if (mapping[clean]) {
-    return mapping[clean];
-  }
-
-  if (clean.includes("FATAL") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) return "Traffic Accident (Fatal)";
-  if (clean.includes("MINOR") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) return "Traffic Accident (Minor)";
-  if (clean.includes("DEFILEMENT") || clean.includes("RAPE")) return "Defilement / Rape";
-
-  return clean
-    .replace(/_/g, ' ')
-    .toLowerCase()
-    .replace(/\b\w/g, (l) => l.toUpperCase());
-};
-
-const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
-  if (!rawHtmlNarrative) {
-    return {
-      suspects: 0,
-      recoveries: "NONE RECORDED",
-      legalStatus: "UNDER INVESTIGATION",
-      classification: "OPERATIONAL BREAKTHROUGH"
-    };
-  }
-
-  const cleanText = cleanDisplayNarrative(rawHtmlNarrative);
-  const headlineMatch = rawHtmlNarrative.match(/<strong>(.*?)<\/strong>/i);
-  let classification = "ARREST & RECOVERY OPERATION";
-
-  if (headlineMatch && headlineMatch[1]) {
-     const cleanedHeadline = cleanDisplayNarrative(headlineMatch[1]);
-     if (cleanedHeadline.length > 3 && cleanedHeadline.length < 60) {
-         classification = cleanedHeadline.toUpperCase();
-     }
-  }
-
-  const lowerText = cleanText.toLowerCase();
-  
-  let suspectsCount = 0;
-  const suspectMatches = [
-    lowerText.match(/(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)/i),
-    lowerText.match(/(?:arrest(?:ed|ing)?|apprehend(?:ed)?|detain(?:ed)?)\s*(?:of)?\s*(\d+)/i)
-  ];
-  
-  for (const m of suspectMatches) {
-    if (m && m[1]) {
-      suspectsCount = parseInt(m[1], 10);
-      break;
-    }
-  }
-
-  if (suspectsCount === 0 && (lowerText.includes('suspect') || lowerText.includes('arrest') || lowerText.includes('apprehend'))) {
-    suspectsCount = 1; 
-  }
-
-  let legalStatus = 'UNDER INVESTIGATION';
-  if (lowerText.includes('remand') || lowerText.includes('remanded')) legalStatus = 'REMANDED';
-  else if (lowerText.includes('convict') || lowerText.includes('sentenced')) legalStatus = 'CONVICTED';
-  else if (lowerText.includes('acquit')) legalStatus = 'ACQUITTED';
-  else if (lowerText.includes('court') || lowerText.includes('trial') || lowerText.includes('magistrate') || lowerText.includes('arraign')) legalStatus = 'UNDERGOING COURT TRIAL';
-
-  const recoveriesList = [];
-  const recoveryRegex = /(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))/gi;
-  let match;
-  while ((match = recoveryRegex.exec(lowerText)) !== null) {
-    const formattedCount = String(match[1]).padStart(2, '0');
-    recoveriesList.push(`${formattedCount} | ${match[2].trim().toUpperCase()}`);
-  }
-
-  if (recoveriesList.length === 0) {
-    if (lowerText.includes('motorcycle') || lowerText.includes('boda')) recoveriesList.push('01 | MOTORCYCLE RECOVERED');
-    else if (lowerText.includes('vehicle') || lowerText.includes('car')) recoveriesList.push('01 | MOTOR VEHICLE RECOVERED');
-    else if (lowerText.includes('phone') || lowerText.includes('mobile')) recoveriesList.push('01 | MOBILE PHONE RECOVERED');
-    else if (lowerText.includes('cattle') || lowerText.includes('cow')) recoveriesList.push('01 | STOLEN CATTLE RECOVERED');
-    else if (lowerText.includes('money') || lowerText.includes('cash') || lowerText.includes('shillings')) recoveriesList.push('01 | CASH / FUNDS RECOVERED');
-    else if (lowerText.includes('gun') || lowerText.includes('pistol') || lowerText.includes('firearm')) recoveriesList.push('01 | FIREARM RECOVERED');
-    else if (lowerText.includes('uniform') || lowerText.includes('stores')) recoveriesList.push('01 | GOVERNMENT STORES');
-    else recoveriesList.push('NONE RECORDED');
-  }
-
-  return {
-    suspects: suspectsCount,
-    recoveries: recoveriesList.join(' || '),
-    legalStatus: legalStatus,
-    classification: classification.length > 55 ? classification.substring(0, 52) + '...' : classification
-  };
-};
-
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -243,40 +94,6 @@ const aggregateTimeSeries = (records, dateField, valueFields) => {
     };
 };
 
-const processDailyDetentionProgression = (records) => {
-    const daysOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const dailyMap = {
-        'Monday': { day: 'Monday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
-        'Tuesday': { day: 'Tuesday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
-        'Wednesday': { day: 'Wednesday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
-        'Thursday': { day: 'Thursday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
-        'Friday': { day: 'Friday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
-        'Saturday': { day: 'Saturday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 },
-        'Sunday': { day: 'Sunday', closing: 0, maleAdult: 0, maleJuv: 0, femaleAdult: 0, femaleJuv: 0 }
-    };
-
-    records.forEach(r => {
-        const dt = new Date(r.date || r.created_at);
-        if (isNaN(dt)) return;
-        const dayName = dt.toLocaleDateString('en-US', { weekday: 'long' });
-        if (dailyMap[dayName]) {
-            const suspects = Number(r.suspects || r.daily_lock_up || 0);
-            const mAd = Number(r.male_count || r.male || 0);
-            const mJuv = Number(r.male_juvenile_count || r.male_juvenile || 0);
-            const fAd = Number(r.female_count || r.female || 0);
-            const fJuv = Number(r.female_juvenile_count || r.female_juvenile || 0);
-
-            dailyMap[dayName].closing += suspects;
-            dailyMap[dayName].maleAdult += mAd;
-            dailyMap[dayName].maleJuv += mJuv;
-            dailyMap[dayName].femaleAdult += fAd;
-            dailyMap[dayName].femaleJuv += fJuv;
-        }
-    });
-
-    return daysOrder.map(d => dailyMap[d]);
-};
-
 const AnalyticsDashboard = ({ 
   nominalRolls = [], 
   nominal_rolls = [], 
@@ -291,26 +108,27 @@ const AnalyticsDashboard = ({
 }) => {
   const [fetchedRolls, setFetchedRolls] = useState([]);
   const [fetchedCrime, setFetchedCrime] = useState([]);
-  const [fetchedSuccess, setFetchedSuccess] = useState([]);
   const [fetchedOps, setFetchedOps] = useState([]);
   const [fetchedExhibits, setFetchedExhibits] = useState([]); 
-  const [fetchedLockup, setFetchedLockup] = useState([]);
   const [fetchedAccidents, setFetchedAccidents] = useState([]);
+
+  // 🟢 Offloaded backend intelligence states
+  const [backendDetentionCalendar, setBackendDetentionCalendar] = useState({ dates: [], dateMap: {}, regionDemographics: [], regionDuration: [], dailyMargins: [] });
+  const [backendSuccessStories, setBackendSuccessStories] = useState([]);
+  const [backendFireIntelligence, setBackendFireIntelligence] = useState({ totalFires: 0, totalDeaths: 0, totalInjuries: 0, fireList: [] });
+  const [backendCrimeCategories, setBackendCrimeCategories] = useState([]);
+
   const [loading, setLoading] = useState(false);
 
-  // 🟢 Exclusive Accordion State (Only one region expanded at a time)
   const [expandedManpowerRegion, setExpandedManpowerRegion] = useState(null);
   const [expandedCrimeRegion, setExpandedCrimeRegion] = useState(null);
-  const [expandedDays, setExpandedDays] = useState({});
+  const [selectedDetentionDate, setSelectedDetentionDate] = useState(null);
 
   const toggleManpowerRegion = (regionName) => {
     setExpandedManpowerRegion(prev => (prev === regionName ? null : regionName));
   };
   const toggleCrimeRegion = (regionName) => {
     setExpandedCrimeRegion(prev => (prev === regionName ? null : regionName));
-  };
-  const toggleDayDropdown = (dayName) => {
-    setExpandedDays(prev => ({ ...prev, [dayName]: !prev[dayName] }));
   };
 
   useEffect(() => {
@@ -320,32 +138,40 @@ const AnalyticsDashboard = ({
 
       setLoading(true);
       try {
-        const [rollRes, crimeRes, storyRes, statsRes, exhibitsRes, lockupRes, accidentsRes] = await Promise.all([
+        const [rollRes, crimeRes, statsRes, exhibitsRes, accidentsRes, intelRes] = await Promise.all([
           authFetch('/api/v1/nominal-roll').catch(() => null),
           authFetch('/api/v1/reports').catch(() => null),
-          authFetch('/api/v1/stories').catch(() => null),
           authFetch('/api/v1/stats').catch(() => null),
           authFetch('/api/v1/exhibits').catch(() => null),
-          authFetch('/api/v1/lockup-matrix').catch(() => null),
-          authFetch('/api/v1/accidents').catch(() => null)
+          authFetch('/api/v1/accidents').catch(() => null),
+          authFetch('/api/v1/analytics/dashboard-intelligence').catch(() => null)
         ]);
 
         const rollData = rollRes && rollRes.ok ? await rollRes.json() : [];
         const crimeData = crimeRes && crimeRes.ok ? await crimeRes.json() : [];
-        const storyData = storyRes && storyRes.ok ? await storyRes.json() : [];
         const statsData = statsRes && statsRes.ok ? await statsRes.json() : [];
         const exhibitsData = exhibitsRes && exhibitsRes.ok ? await exhibitsRes.json() : [];
-        const lockupData = lockupRes && lockupRes.ok ? await lockupRes.json() : [];
         const accidentsData = accidentsRes && accidentsRes.ok ? await accidentsRes.json() : [];
+        const intelData = intelRes && intelRes.ok ? await intelRes.json() : null;
 
         if (isMounted) {
           setFetchedRolls(Array.isArray(rollData) ? rollData : []);
           setFetchedCrime(Array.isArray(crimeData) ? crimeData : []);
-          setFetchedSuccess(Array.isArray(storyData) ? storyData : []);
           setFetchedOps(Array.isArray(statsData) ? statsData : []);
           setFetchedExhibits(Array.isArray(exhibitsData) ? exhibitsData : []);
-          setFetchedLockup(Array.isArray(lockupData) ? lockupData : []);
           setFetchedAccidents(Array.isArray(accidentsData) ? accidentsData : []);
+
+          if (intelData) {
+            if (intelData.detentionCalendar) {
+              setBackendDetentionCalendar(intelData.detentionCalendar);
+              if (intelData.detentionCalendar.dates?.length > 0) {
+                setSelectedDetentionDate(intelData.detentionCalendar.dates[0]);
+              }
+            }
+            if (intelData.successStoriesProcessed) setBackendSuccessStories(intelData.successStoriesProcessed);
+            if (intelData.fireIntelligence) setBackendFireIntelligence(intelData.fireIntelligence);
+            if (intelData.crimeCategoryData) setBackendCrimeCategories(intelData.crimeCategoryData);
+          }
         }
       } catch (err) {
         if (err.message !== 'UNAUTHORIZED') {
@@ -362,7 +188,6 @@ const AnalyticsDashboard = ({
 
   const resolvedNominalRolls = nominalRolls.length ? nominalRolls : (nominal_rolls.length ? nominal_rolls : fetchedRolls);
   const resolvedCrimeRegistry = crimeRegistry.length ? crimeRegistry : (reports.length ? reports : fetchedCrime);
-  const resolvedSuccessStories = successStories.length ? successStories : fetchedSuccess;
   const resolvedOperationalStats = operationalStats.length ? operationalStats : (stats.length ? stats : fetchedOps);
   const resolvedExhibits = impoundedExhibits.length ? impoundedExhibits : fetchedExhibits;
 
@@ -430,14 +255,14 @@ const AnalyticsDashboard = ({
     let baseData = [];
     if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
     else if (activeDomain === 'MANPOWER_DEEP') baseData = resolvedNominalRolls;
-    else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
+    else if (activeDomain === 'SUCCESS') baseData = successStories;
     else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
     else if (activeDomain === 'EXHIBITS') baseData = resolvedExhibits;
-    else if (activeDomain === 'DETENTIONS') baseData = fetchedLockup;
     else if (activeDomain === 'ACCIDENTS') baseData = fetchedAccidents;
     else if (activeDomain === 'FIRES') baseData = resolvedCrimeRegistry;
+    else baseData = resolvedCrimeRegistry;
 
-    baseData = baseData.filter(item => {
+    return baseData.filter(item => {
       let stn = stripHtmlTags(item.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
       const reg = getOfficialRegionForStation(stn, item.region);
@@ -447,113 +272,27 @@ const AnalyticsDashboard = ({
       }
 
       const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
-        
       const belongsToRegion = activeTargetRegion === 'ALL REGIONS' || 
                             reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
                             (item.region && item.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
                             (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
 
       if (!belongsToRegion) return false;
-
-      if (selectedStation !== 'ALL STATIONS') {
-        if (!isStationEquivalent(stn, selectedStation)) return false;
-      }
+      if (selectedStation !== 'ALL STATIONS' && !isStationEquivalent(stn, selectedStation)) return false;
       return true;
     });
-
-    if (activeDomain !== 'MANPOWER_DEEP' && activeDomain !== 'RELATIONAL') {
-      baseData = timeFilteredData(baseData);
-    }
-    return baseData;
-  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, fetchedLockup, fetchedAccidents, dateFilter, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
-
-  const parsedSuccessStories = useMemo(() => {
-    return timeFilteredDataset.map(st => {
-      const parsed = parseSuccessStoryNarrative(st.narrative || st.title);
-      return {
-        ...st,
-        parsedSuspects: st.suspects_arrested || st.suspects_arrested_count || parsed.suspects,
-        parsedRecoveries: st.suspected_stolen_properties_recovered || st.property_recovered || parsed.recoveries,
-        parsedLegalStatus: st.legal_status || parsed.legalStatus,
-        parsedClassification: parsed.classification
-      };
-    });
-  }, [timeFilteredDataset]);
-
-  const fireIntelligence = useMemo(() => {
-    const records = timeFilteredData(resolvedCrimeRegistry);
-    const fireKeywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"];
-    const fireList = [];
-    let totalDeaths = 0;
-    let totalInjuries = 0;
-
-    records.forEach(cr => {
-        const narrative = String(cr.narrative || "");
-        const offence = String(cr.offence || "");
-        if (fireKeywords.some(kw => narrative.toLowerCase().includes(kw) || offence.toLowerCase().includes(kw))) {
-            const parsed = parseFireIncidentAdvanced(narrative, offence);
-            totalDeaths += parsed.deaths;
-            totalInjuries += parsed.injuries;
-            fireList.push({
-                station: cr.station || 'UNKNOWN',
-                region: cr.region || 'KMP GENERAL',
-                date: cr.date || 'N/A',
-                classification: parsed.classification,
-                deaths: parsed.deaths,
-                injuries: parsed.injuries,
-                summary: cleanDisplayNarrative(narrative || offence || 'Fire incident logged.')
-            });
-        }
-    });
-
-    return { totalFires: fireList.length, totalDeaths, totalInjuries, fireList };
-  }, [resolvedCrimeRegistry, selectedMonth, dateFilter, selectedRegion, selectedStation]);
-
-  const detentionTimeSeriesData = useMemo(() => {
-      return aggregateTimeSeries(timeFilteredDataset, 'date', ['suspects', 'male_count', 'detention_3days_over']);
-  }, [timeFilteredDataset]);
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, successStories, resolvedOperationalStats, resolvedExhibits, fetchedAccidents, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
 
   const accidentsTimeSeriesData = useMemo(() => {
       return aggregateTimeSeries(timeFilteredDataset, 'date', ['minor', 'serious', 'fatal', 'victims', 'total']);
   }, [timeFilteredDataset]);
 
-  const lockupIntelligence = useMemo(() => {
-    const records = fetchedLockup; 
-    if (!Array.isArray(records) || records.length === 0) {
-        return { overstayed: 0, femaleTotal: 0, femaleAdults: 0, femaleJuveniles: 0, totalJuveniles: 0, stationMap: {} };
+  const selectedDayLockup = useMemo(() => {
+    if (!selectedDetentionDate || !backendDetentionCalendar.dateMap[selectedDetentionDate]) {
+      return { total: 0, stations: [] };
     }
-
-    let overstayed = 0;
-    let femaleAdults = 0;
-    let femaleJuveniles = 0;
-    let maleJuveniles = 0;
-    const stationMap = {};
-
-    records.forEach(r => {
-        const d3Plus = Number(r.detention_3days_over || 0);
-        const fAd = Number(r.female_count || r.female || 0);
-        const fJuv = Number(r.female_juvenile_count || r.female_juvenile || 0);
-        const mJuv = Number(r.male_juvenile_count || r.male_juvenile || 0);
-
-        if (d3Plus > 0) {
-            overstayed += d3Plus;
-            const stn = r.station || 'UNKNOWN STATION';
-            stationMap[stn] = (stationMap[stn] || 0) + d3Plus;
-        }
-        femaleAdults += fAd;
-        femaleJuveniles += fJuv;
-        maleJuveniles += mJuv;
-    });
-
-    return {
-        overstayed,
-        femaleAdults,
-        femaleJuveniles,
-        femaleTotal: femaleAdults + femaleJuveniles,
-        totalJuveniles: maleJuveniles + femaleJuveniles,
-        stationMap
-    };
-  }, [fetchedLockup]);
+    return backendDetentionCalendar.dateMap[selectedDetentionDate];
+  }, [selectedDetentionDate, backendDetentionCalendar]);
 
   const manpowerAnalysis = useMemo(() => {
     const rolls = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
@@ -624,32 +363,6 @@ const AnalyticsDashboard = ({
     };
   }, [resolvedNominalRolls, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
 
-  const crimeCategoryData = useMemo(() => {
-    const tf = timeFilteredData(resolvedCrimeRegistry).filter(r => !isLockupLog(r));
-    const regionalMap = {};
-
-    tf.forEach(r => {
-      const cat = normalizeOffenceCategory(r.crime_category || r.offence || 'GENERAL CRIME');
-      const reg = getOfficialRegionForStation(r.station, r.region);
-      const stn = (r.station || 'N/A').toUpperCase();
-
-      if (selectedCrimeCategory !== 'ALL' && cat !== selectedCrimeCategory) return;
-      if (canViewGlobalLevel && selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return;
-      if (selectedStation !== 'ALL STATIONS' && !isStationEquivalent(stn, selectedStation)) return;
-
-      if (!regionalMap[reg]) regionalMap[reg] = { region: reg, totalCrimes: 0, categories: {} };
-      
-      regionalMap[reg].totalCrimes += 1;
-      if (!regionalMap[reg].categories[cat]) regionalMap[reg].categories[cat] = 0;
-      regionalMap[reg].categories[cat] += 1;
-    });
-
-    return Object.values(regionalMap).map(regObj => ({
-      ...regObj,
-      categoryList: Object.entries(regObj.categories).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }))
-    })).sort((a, b) => b.totalCrimes - a.totalCrimes);
-  }, [resolvedCrimeRegistry, selectedCrimeCategory, selectedRegion, selectedStation, selectedMonth, dateFilter, canViewGlobalLevel]);
-
   const exhibitGroupedData = useMemo(() => {
     const tf = timeFilteredData(resolvedExhibits);
     const map = {};
@@ -680,11 +393,10 @@ const AnalyticsDashboard = ({
 
   const summaryAggregates = useMemo(() => {
     const ops = timeFilteredData(resolvedOperationalStats);
-    const ss = timeFilteredData(resolvedSuccessStories);
+    const ss = backendSuccessStories;
     const cr = timeFilteredData(resolvedCrimeRegistry).filter(r => !isLockupLog(r));
     const ex = timeFilteredData(resolvedExhibits);
     const nom = resolvedNominalRolls;
-    const lck = timeFilteredData(fetchedLockup);
     const acc = timeFilteredData(fetchedAccidents);
 
     return {
@@ -692,13 +404,13 @@ const AnalyticsDashboard = ({
       manpowerTotal: nom.length,
       successOccasions: ss.length,
       totalExhibits: ex.length,
-      totalDetentions: lck.length,
+      totalDetentions: Object.values(backendDetentionCalendar.dateMap || {}).reduce((acc, curr) => acc + curr.total, 0),
       totalAccidents: acc.length,
-      totalFires: fireIntelligence.totalFires,
+      totalFires: backendFireIntelligence.totalFires,
       totalArrests: ops.reduce((acc, curr) => acc + (Number(curr.arrests || curr.suspects || curr.arrested) || 0), 0),
       totalCrimes: cr.length
     };
-  }, [resolvedOperationalStats, resolvedSuccessStories, resolvedCrimeRegistry, resolvedExhibits, resolvedNominalRolls, fetchedLockup, fetchedAccidents, fireIntelligence, selectedMonth, dateFilter]);
+  }, [resolvedOperationalStats, backendSuccessStories, resolvedCrimeRegistry, resolvedExhibits, resolvedNominalRolls, backendDetentionCalendar, fetchedAccidents, backendFireIntelligence, selectedMonth, dateFilter]);
 
   const opsChartData = useMemo(() => {
     const regMap = {};
@@ -751,7 +463,7 @@ const AnalyticsDashboard = ({
   };
 
   return (
-    <div className="p-2 max-w-[1600px] mx-auto space-y-2 font-sans min-h-screen pb-16" style={{ backgroundColor: '#f4eee2' }}>
+    <div className="p-2 max-w-[1600px] mx-auto space-y-2 font-sans min-h-screen pb-16 overflow-x-hidden" style={{ backgroundColor: '#f4eee2' }}>
         
       {/* Top Header Card */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#fbf8f3] px-3 py-2 rounded-xl shadow-xs border border-[#e2d6c3] gap-2">
@@ -832,7 +544,7 @@ const AnalyticsDashboard = ({
         </div>
 
         <span className="text-[10px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
-          Total Entries: {activeDomain === 'SUCCESS' ? parsedSuccessStories.length : activeDomain === 'CRIME' ? crimeCategoryData.length : activeDomain === 'EXHIBITS' ? exhibitGroupedData.length : activeDomain === 'FIRES' ? fireIntelligence.fireList.length : timeFilteredDataset.length}
+          Total Entries: {activeDomain === 'SUCCESS' ? backendSuccessStories.length : activeDomain === 'CRIME' ? backendCrimeCategories.length : activeDomain === 'EXHIBITS' ? exhibitGroupedData.length : activeDomain === 'FIRES' ? backendFireIntelligence.fireList.length : timeFilteredDataset.length}
         </span>
       </div>
 
@@ -849,35 +561,35 @@ const AnalyticsDashboard = ({
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
-              <table className="min-w-full divide-y divide-[#e2d6c3]">
+            <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
+              <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Station / Region</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Suspects Arrested</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Classified Breakthrough Summary</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Recovered Properties & Quantities</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Suspect Legal Status</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '18%' }}>Station / Region</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '12%' }}>Suspects Arrested</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '28%' }}>Classified Breakthrough Summary</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '26%' }}>Recovered Properties & Quantities</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '16%' }}>Suspect Legal Status</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                  {parsedSuccessStories.length > 0 ? (
-                    parsedSuccessStories.map((st, idx) => (
-                      <tr key={idx} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">
+                  {backendSuccessStories.length > 0 ? (
+                    backendSuccessStories.map((st, idx) => (
+                      <tr key={idx} className="hover:bg-[#e9eedf]/30 align-top">
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">
                           {st.station}<br/><span className="text-[9px] text-[#736450] font-medium">{st.region}</span>
                         </td>
-                        <td className="px-3 py-2 text-center font-bold text-[#596E47] text-[10px] border-r border-[#e2d6c3]">{st.parsedSuspects}</td>
-                        <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase border-r border-[#e2d6c3]">
+                        <td className="px-3 py-2 text-center font-bold text-[#596E47] text-[10px] border-r border-[#e2d6c3] whitespace-normal break-words">{st.parsedSuspects}</td>
+                        <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase border-r border-[#e2d6c3] whitespace-normal break-words">
                           {st.parsedClassification}
                         </td>
-                        <td className="px-3 py-2 text-[10px] text-[#594d3c] font-bold border-r border-[#e2d6c3]">
+                        <td className="px-3 py-2 text-[10px] text-[#594d3c] font-bold border-r border-[#e2d6c3] whitespace-normal break-words">
                           {st.parsedRecoveries.split('||').map((item, i) => (
-                            <div key={i} className="bg-white/60 px-2 py-0.5 my-0.5 rounded border border-[#e2d6c3] shadow-2xs">{item.trim()}</div>
+                            <div key={i} className="bg-white/60 px-2 py-0.5 my-0.5 rounded border border-[#e2d6c3] shadow-2xs whitespace-normal break-words">{item.trim()}</div>
                           ))}
                         </td>
-                        <td className="px-3 py-2 text-center">
-                          <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-[#3a3225] text-[#f4eee2] uppercase tracking-wide shadow-xs">
+                        <td className="px-3 py-2 text-center whitespace-normal break-words">
+                          <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-[#3a3225] text-[#f4eee2] uppercase tracking-wide shadow-xs inline-block">
                             {st.parsedLegalStatus}
                           </span>
                         </td>
@@ -909,36 +621,36 @@ const AnalyticsDashboard = ({
              <div className="bg-[#efece6] px-3 py-1.5 border-b border-[#d3c2a8] flex items-center justify-between">
                 <h3 className="text-[11px] font-black text-[#3a3225] uppercase">Aggregated Regional Crime Volumes</h3>
              </div>
-             <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
-               <table className="min-w-full divide-y divide-[#e2d6c3]">
+             <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
+               <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                   <thead className="sticky top-0 z-20">
                      <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                       <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide sticky left-0 bg-[#f4eee2] z-10 w-64 border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Command Region</th>
-                       <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Total Crimes Recorded</th>
+                       <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '75%' }}>Command Region</th>
+                       <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '25%' }}>Total Crimes Recorded</th>
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2d6c3]">
-                     {crimeCategoryData.map((reg) => {
+                     {backendCrimeCategories.map((reg) => {
                         const isExpanded = (expandedCrimeRegion === reg.region);
                         return (
                           <React.Fragment key={reg.region}>
                             <tr onClick={() => toggleCrimeRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8]">
-                               <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 border-r border-[#d3c2a8]">
+                               <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 border-r border-[#e2d6c3] whitespace-normal break-words">
                                   <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
                                   <span>{reg.region}</span>
                                </td>
                                <td className="px-3 py-2 text-[10px] text-center font-black text-amber-800">{reg.totalCrimes}</td>
                             </tr>
                             {isExpanded && reg.categoryList.map((cat, cIdx) => (
-                               <tr key={`cat-${cIdx}`} className="bg-white">
-                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white border-r border-[#d3c2a8]">— {cat.name}</td>
+                               <tr key={`cat-${cIdx}`} className="bg-white align-top">
+                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase border-r border-[#e2d6c3] whitespace-normal break-words">— {cat.name}</td>
                                   <td className="px-3 py-1.5 text-[10px] text-center font-bold text-amber-700">{cat.count}</td>
                                </tr>
                             ))}
                           </React.Fragment>
                         );
                      })}
-                     {crimeCategoryData.length === 0 && (
+                     {backendCrimeCategories.length === 0 && (
                         <tr><td colSpan="2" className="text-center py-6 text-[10px] text-[#736450]">No crimes logged for the selected period.</td></tr>
                      )}
                   </tbody>
@@ -953,50 +665,157 @@ const AnalyticsDashboard = ({
         <div className="space-y-3 pb-8">
           <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Lock className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Daily Detention Progression (Monday to Sunday Closure)
+              <Lock className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Calendar Master Lock-Up & Margin Audit (Day-to-Day Delta)
             </h2>
             <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
-              Tracking daily cell populations from Monday through Sunday closure with granular demographic breakdowns.
+              Select any date from the calendar ribbon below to inspect master lock-ups, station breakdowns, demographic bar distributions, and population margin drops (bails/remands/releases).
             </p>
           </div>
 
-          <div className="space-y-2">
-            {processDailyDetentionProgression(timeFilteredDataset).map((dayObj) => {
-              const isDayOpen = !!expandedDays[dayObj.day];
-              return (
-                <div key={dayObj.day} className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-                  <div onClick={() => toggleDayDropdown(dayObj.day)} className="px-3 py-2 bg-[#efece6] hover:bg-[#e9eedf] flex justify-between items-center cursor-pointer font-bold text-[11px] transition-colors">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-[#596E47]">{isDayOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
-                      <span className="text-[#3a3225] uppercase">{dayObj.day}</span>
-                    </div>
-                    <div className="flex items-center space-x-4 font-black text-[#596E47]">
-                      <span>Total Suspects: {dayObj.closing}</span>
-                    </div>
-                  </div>
-                  {isDayOpen && (
-                    <div className="p-3 bg-white grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] border-t border-[#e2d6c3] animate-in slide-in-from-top-2">
-                      <div className="bg-blue-50 p-2.5 rounded-lg border border-blue-200">
-                        <span className="font-bold text-blue-900 block mb-0.5">Male Adults</span>
-                        <strong className="text-sm text-blue-950">{dayObj.maleAdult}</strong>
-                      </div>
-                      <div className="bg-blue-100 p-2.5 rounded-lg border border-blue-300">
-                        <span className="font-bold text-blue-900 block mb-0.5">Male Juveniles</span>
-                        <strong className="text-sm text-blue-950">{dayObj.maleJuv}</strong>
-                      </div>
-                      <div className="bg-pink-50 p-2.5 rounded-lg border border-pink-200">
-                        <span className="font-bold text-pink-900 block mb-0.5">Female Adults</span>
-                        <strong className="text-sm text-pink-950">{dayObj.femaleAdult}</strong>
-                      </div>
-                      <div className="bg-pink-100 p-2.5 rounded-lg border border-pink-300">
-                        <span className="font-bold text-pink-900 block mb-0.5">Female Juveniles</span>
-                        <strong className="text-sm text-pink-950">{dayObj.femaleJuv}</strong>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="bg-white p-3 rounded-xl shadow-xs border border-[#e2d6c3] space-y-2">
+            <h3 className="text-[11px] font-black text-[#3a3225] uppercase flex items-center">
+              <Calendar className="w-3.5 h-3.5 mr-1.5 text-[#596E47]" /> Select Date for Station Lock-Up Audit:
+            </h3>
+            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto custom-scrollbar p-1">
+              {backendDetentionCalendar.dates.length > 0 ? (
+                backendDetentionCalendar.dates.map(dateStr => {
+                  const isSelected = selectedDetentionDate === dateStr;
+                  const dayTotal = backendDetentionCalendar.dateMap[dateStr]?.total || 0;
+                  return (
+                    <button
+                      key={dateStr}
+                      onClick={() => setSelectedDetentionDate(dateStr)}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold transition border cursor-pointer flex flex-col items-center ${
+                        isSelected ? 'bg-[#596E47] text-white border-[#4A5D4E] shadow-sm' : 'bg-[#fbf8f3] text-[#3a3225] border-[#e2d6c3] hover:bg-[#efece6]'
+                      }`}
+                    >
+                      <span>{dateStr}</span>
+                      <span className={`text-[9px] ${isSelected ? 'text-emerald-100' : 'text-[#736450]'}`}>Total: {dayTotal}</span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="text-[10px] text-[#736450] py-2">No detention calendar records found in NeonDB.</div>
+              )}
+            </div>
+          </div>
+
+          {selectedDetentionDate && (
+            <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
+              <div className="bg-[#efece6] px-3 py-2 border-b border-[#d3c2a8] flex justify-between items-center">
+                <h3 className="text-[11px] font-black text-[#3a3225] uppercase">
+                  Station Lock-Up Breakdown for <span className="text-[#596E47]">{selectedDetentionDate}</span>
+                </h3>
+                <span className="text-[11px] font-black bg-[#3a3225] text-[#f4eee2] px-2.5 py-0.5 rounded">
+                  Master Total: {selectedDayLockup.total} Suspects
+                </span>
+              </div>
+              <div className="max-h-[300px] overflow-y-auto custom-scrollbar w-full">
+                <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
+                  <thead className="sticky top-0 z-20">
+                    <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+                      <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '28%' }}>Region / Station</th>
+                      <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '12%' }}>Total</th>
+                      <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '12%' }}>M. Adults</th>
+                      <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '12%' }}>M. Juv</th>
+                      <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '12%' }}>F. Adults</th>
+                      <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '12%' }}>F. Juv</th>
+                      <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide text-red-800" style={{ width: '12%' }}>3+ Days</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
+                    {selectedDayLockup.stations.length > 0 ? (
+                      selectedDayLockup.stations.map((stnRow, i) => (
+                        <tr key={i} className="hover:bg-[#e9eedf]/30 align-top">
+                          <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">
+                            {stnRow.station}<br/><span className="text-[9px] text-[#736450]">{stnRow.region}</span>
+                          </td>
+                          <td className="px-3 py-2 text-center text-[10px] font-black text-[#596E47] border-r border-[#e2d6c3]">{stnRow.suspects}</td>
+                          <td className="px-3 py-2 text-center text-[10px] font-semibold border-r border-[#e2d6c3]">{stnRow.mAd}</td>
+                          <td className="px-3 py-2 text-center text-[10px] font-semibold border-r border-[#e2d6c3]">{stnRow.mJuv}</td>
+                          <td className="px-3 py-2 text-center text-[10px] font-semibold border-r border-[#e2d6c3]">{stnRow.fAd}</td>
+                          <td className="px-3 py-2 text-center text-[10px] font-semibold border-r border-[#e2d6c3]">{stnRow.fJuv}</td>
+                          <td className="px-3 py-2 text-center text-[10px] font-black text-red-700 bg-red-50/50">{stnRow.d3Over}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan="7" className="text-center py-4 text-[10px] text-[#736450]">No station records for this date.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3">
+            <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Day-to-Day Population Margin & Increments/Decrements Audit</h3>
+            <div className="max-h-[220px] overflow-y-auto custom-scrollbar">
+              <table className="w-full table-fixed divide-y divide-[#e2d6c3] text-[10px]">
+                <thead className="bg-[#efece6] sticky top-0 z-20">
+                  <tr>
+                    <th className="px-3 py-1.5 text-left font-bold text-[#594d3c]" style={{ width: '20%' }}>Date</th>
+                    <th className="px-3 py-1.5 text-center font-bold text-[#3a3225]" style={{ width: '20%' }}>Total Lock-Up</th>
+                    <th className="px-3 py-1.5 text-center font-bold text-[#594d3c]" style={{ width: '20%' }}>Margin Delta</th>
+                    <th className="px-3 py-1.5 text-left font-bold text-[#594d3c]" style={{ width: '40%' }}>Operational Status / Audit Note</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#e2d6c3]">
+                  {backendDetentionCalendar.dailyMargins.map((m, idx) => (
+                    <tr key={idx} className="hover:bg-[#e9eedf]/30 align-top">
+                      <td className="px-3 py-1.5 font-bold text-[#3a3225] whitespace-normal break-words">{m.date}</td>
+                      <td className="px-3 py-1.5 text-center font-black text-blue-900">{m.total}</td>
+                      <td className={`px-3 py-1.5 text-center font-black ${m.margin < 0 ? 'text-red-700' : m.margin > 0 ? 'text-emerald-700' : 'text-slate-600'}`}>
+                        {m.margin > 0 ? `+${m.margin}` : m.margin}
+                      </td>
+                      <td className="px-3 py-1.5 font-semibold text-[#736450] whitespace-normal break-words">{m.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[340px]">
+              <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Suspect Demographics by Region (Y: Region, X: Suspects)</h3>
+              {backendDetentionCalendar.regionDemographics.length > 0 ? (
+                <ResponsiveContainer width="100%" height="90%">
+                  <BarChart layout="vertical" data={backendDetentionCalendar.regionDemographics} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2d6c3" />
+                    <XAxis type="number" tick={{fontSize: 9}} />
+                    <YAxis dataKey="region" type="category" tick={{fontSize: 9, fontWeight: 'bold'}} width={110} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                    <Bar dataKey="maleAdults" name="Male Adults" fill="#2563EB" stackId="a" />
+                    <Bar dataKey="femaleAdults" name="Female Adults" fill="#DB2777" stackId="a" />
+                    <Bar dataKey="maleJuveniles" name="Male Juveniles" fill="#3B82F6" stackId="a" />
+                    <Bar dataKey="femaleJuveniles" name="Female Juveniles" fill="#EC4899" stackId="a" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450]">No regional demographic data.</div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[340px]">
+              <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Detention Duration by Region (1 Day, 2 Days, 3+ Days)</h3>
+              {backendDetentionCalendar.regionDuration.length > 0 ? (
+                <ResponsiveContainer width="100%" height="90%">
+                  <BarChart layout="vertical" data={backendDetentionCalendar.regionDuration} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2d6c3" />
+                    <XAxis type="number" tick={{fontSize: 9}} />
+                    <YAxis dataKey="region" type="category" tick={{fontSize: 9, fontWeight: 'bold'}} width={110} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
+                    <Bar dataKey="day1" name="1 Day" fill="#10B981" stackId="a" />
+                    <Bar dataKey="day2" name="2 Days" fill="#F59E0B" stackId="a" />
+                    <Bar dataKey="over3Days" name="3 Days & Over (48hr Breach)" fill="#DC2626" stackId="a" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450]">No duration metrics available.</div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1051,41 +870,41 @@ const AnalyticsDashboard = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
              <div className="bg-amber-900 text-white p-3 rounded-xl shadow-sm border border-amber-950 flex flex-col justify-between">
                 <span className="text-[9px] font-extrabold uppercase tracking-widest text-amber-200">Total Fire Incidents</span>
-                <div className="text-2xl font-black mt-1">{fireIntelligence.totalFires}</div>
+                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalFires}</div>
              </div>
              <div className="bg-red-900 text-white p-3 rounded-xl shadow-sm border border-red-950 flex flex-col justify-between">
                 <span className="text-[9px] font-extrabold uppercase tracking-widest text-red-200">Total Fire Deaths</span>
-                <div className="text-2xl font-black mt-1">{fireIntelligence.totalDeaths}</div>
+                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalDeaths}</div>
              </div>
              <div className="bg-orange-800 text-white p-3 rounded-xl shadow-sm border border-orange-950 flex flex-col justify-between">
                 <span className="text-[9px] font-extrabold uppercase tracking-widest text-orange-200">Total Fire Injuries</span>
-                <div className="text-2xl font-black mt-1">{fireIntelligence.totalInjuries}</div>
+                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalInjuries}</div>
              </div>
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
-              <table className="min-w-full divide-y divide-[#e2d6c3]">
+            <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
+              <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Station / Region</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Property / Structure Type</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Deaths</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Injuries</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Incident Narrative Summary</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '18%' }}>Station / Region</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '22%' }}>Property / Structure Type</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '10%' }}>Deaths</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '10%' }}>Injuries</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '40%' }}>Incident Narrative Summary</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                  {fireIntelligence.fireList.length > 0 ? (
-                    fireIntelligence.fireList.map((f, idx) => (
-                      <tr key={idx} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">
+                  {backendFireIntelligence.fireList.length > 0 ? (
+                    backendFireIntelligence.fireList.map((f, idx) => (
+                      <tr key={idx} className="hover:bg-[#e9eedf]/30 align-top">
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">
                           {f.station}<br/><span className="text-[9px] text-[#736450]">{f.region}</span>
                         </td>
-                        <td className="px-3 py-2 text-[10px] font-extrabold text-amber-800 uppercase border-r border-[#e2d6c3]">{f.classification}</td>
-                        <td className="px-3 py-2 text-center font-black text-red-700 text-[10px] border-r border-[#e2d6c3]">{f.deaths}</td>
-                        <td className="px-3 py-2 text-center font-black text-amber-600 text-[10px] border-r border-[#e2d6c3]">{f.injuries}</td>
-                        <td className="px-3 py-2 text-[10px] text-[#3a3225]">{f.summary}</td>
+                        <td className="px-3 py-2 text-[10px] font-extrabold text-amber-800 uppercase border-r border-[#e2d6c3] whitespace-normal break-words">{f.classification}</td>
+                        <td className="px-3 py-2 text-center font-black text-red-700 text-[10px] border-r border-[#e2d6c3] whitespace-normal break-words">{f.deaths}</td>
+                        <td className="px-3 py-2 text-center font-black text-amber-600 text-[10px] border-r border-[#e2d6c3] whitespace-normal break-words">{f.injuries}</td>
+                        <td className="px-3 py-2 text-[10px] text-[#3a3225] whitespace-normal break-words">{f.summary}</td>
                       </tr>
                     ))
                   ) : (
@@ -1143,25 +962,25 @@ const AnalyticsDashboard = ({
           </div>
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
-            <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
-              <table className="min-w-full divide-y divide-[#e2d6c3]">
+            <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
+              <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Exhibit Category</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Description (Colour/Features)</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Region / Station</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Status</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Total Count</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '22%' }}>Exhibit Category</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '30%' }}>Description (Colour/Features)</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '22%' }}>Region / Station</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '14%' }}>Status</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '12%' }}>Total</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
                   {exhibitGroupedData.length > 0 ? (
                     exhibitGroupedData.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-[#e9eedf]/30">
-                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] uppercase border-r border-[#e2d6c3]">{row.category}</td>
-                        <td className="px-3 py-2 text-[10px] font-bold text-[#596E47] uppercase border-r border-[#e2d6c3]">{row.desc}</td>
-                        <td className="px-3 py-2 text-[10px] font-semibold text-[#736450] uppercase border-r border-[#e2d6c3]">{row.region}<br/>{row.station}</td>
-                        <td className="px-3 py-2 text-center text-[10px] font-bold uppercase border-r border-[#e2d6c3]"><span className="px-2 py-0.5 rounded bg-teal-100 text-teal-900">{row.status}</span></td>
+                      <tr key={idx} className="hover:bg-[#e9eedf]/30 align-top">
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] uppercase border-r border-[#e2d6c3] whitespace-normal break-words">{row.category}</td>
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#596E47] uppercase border-r border-[#e2d6c3] whitespace-normal break-words">{row.desc}</td>
+                        <td className="px-3 py-2 text-[10px] font-semibold text-[#736450] uppercase border-r border-[#e2d6c3] whitespace-normal break-words">{row.region}<br/>{row.station}</td>
+                        <td className="px-3 py-2 text-center text-[10px] font-bold uppercase border-r border-[#e2d6c3] whitespace-normal break-words"><span className="px-2 py-0.5 rounded bg-teal-100 text-teal-900 inline-block">{row.status}</span></td>
                         <td className="px-3 py-2 text-center text-[10px] font-black text-teal-800">{row.total}</td>
                       </tr>
                     ))
@@ -1189,23 +1008,23 @@ const AnalyticsDashboard = ({
 
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden w-full max-w-full">
             <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
-              <table className="min-w-full divide-y divide-[#e2d6c3]">
+              <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                    <th className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Operational Metric Attribute</th>
-                    <th className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Aggregate Total</th>
+                    <th className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '75%' }}>Operational Metric Attribute</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '25%' }}>Aggregate Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#e2d6c3]">
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Disruptive Operations Registered</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-[11px]">{summaryAggregates.disruptiveOps}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Force-Wide Manpower (Nominal Roll)</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-[11px]">{summaryAggregates.manpowerTotal}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Success Occasions / Breakthroughs</td><td className="px-4 py-2 text-right font-black text-amber-800 text-[11px]">{summaryAggregates.successOccasions}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Impounded Exhibits Tracked</td><td className="px-4 py-2 text-right font-black text-teal-800 text-[11px]">{summaryAggregates.totalExhibits}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Detention Logs Tracked</td><td className="px-4 py-2 text-right font-black text-blue-800 text-[11px]">{summaryAggregates.totalDetentions}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Traffic Accidents Recorded</td><td className="px-4 py-2 text-right font-black text-red-800 text-[11px]">{summaryAggregates.totalAccidents}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Fire & Arson Outbreaks Tracked</td><td className="px-4 py-2 text-right font-black text-amber-700 text-[11px]">{summaryAggregates.totalFires}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Suspects Arrested (Ops)</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-[11px]">{summaryAggregates.totalArrests}</td></tr>
-                  <tr className="hover:bg-[#e9eedf]/30"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3]">Total Crime Incidents Recorded</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-[11px]">{summaryAggregates.totalCrimes}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Disruptive Operations Registered</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-[11px]">{summaryAggregates.disruptiveOps}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Force-Wide Manpower (Nominal Roll)</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-[11px]">{summaryAggregates.manpowerTotal}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Success Occasions / Breakthroughs</td><td className="px-4 py-2 text-right font-black text-amber-800 text-[11px]">{summaryAggregates.successOccasions}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Impounded Exhibits Tracked</td><td className="px-4 py-2 text-right font-black text-teal-800 text-[11px]">{summaryAggregates.totalExhibits}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Detention Logs Tracked</td><td className="px-4 py-2 text-right font-black text-blue-800 text-[11px]">{summaryAggregates.totalDetentions}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Traffic Accidents Recorded</td><td className="px-4 py-2 text-right font-black text-red-800 text-[11px]">{summaryAggregates.totalAccidents}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Fire & Arson Outbreaks Tracked</td><td className="px-4 py-2 text-right font-black text-amber-700 text-[11px]">{summaryAggregates.totalFires}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Suspects Arrested (Ops)</td><td className="px-4 py-2 text-right font-black text-[#596E47] text-[11px]">{summaryAggregates.totalArrests}</td></tr>
+                  <tr className="hover:bg-[#e9eedf]/30 align-top"><td className="px-4 py-2 text-[11px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">Total Crime Incidents Recorded</td><td className="px-4 py-2 text-right font-black text-[#3a3225] text-[11px]">{summaryAggregates.totalCrimes}</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1229,7 +1048,7 @@ const AnalyticsDashboard = ({
              <div className="bg-[#efece6] px-3 py-1.5 border-b border-[#d3c2a8] flex items-center justify-between">
                 <h3 className="text-[11px] font-black text-[#3a3225] uppercase">General Summary (Deployable Personnel vs Rank Distribution)</h3>
              </div>
-             <div className="overflow-x-auto max-h-[520px] overflow-y-auto custom-scrollbar w-full">
+             <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
                <table className="min-w-full divide-y divide-[#e2d6c3]">
                   <thead className="sticky top-0 z-20">
                      <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b border-[#d3c2a8]">
@@ -1264,8 +1083,8 @@ const AnalyticsDashboard = ({
                                <td colSpan={2 + (manpowerAnalysis.allRanks.length * 2)} className="px-3 py-2 text-[10px] text-[#736450] italic">Expand to view station distribution...</td>
                             </tr>
                             {isExpanded && reg.stationList.map((stn, sIdx) => (
-                               <tr key={`dep-${sIdx}`} className="bg-white">
-                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white border-r border-[#d3c2a8]">— {stn.station}</td>
+                               <tr key={`dep-${sIdx}`} className="bg-white align-top">
+                                  <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase sticky left-0 bg-white border-r border-[#d3c2a8] whitespace-normal break-words">— {stn.station}</td>
                                   <td className="px-3 py-1.5 text-[10px] text-center font-bold text-[#3a3225] border-r border-[#d3c2a8]">{stn.totalDeployable}</td>
                                   <td className="px-3 py-1.5 text-[10px] text-center font-black text-[#596E47] border-r border-[#d3c2a8]">{stn.active}</td>
                                   <td className="px-3 py-1.5 text-[10px] text-center font-bold text-red-700 border-r border-[#d3c2a8]">{stn.inactive}</td>
