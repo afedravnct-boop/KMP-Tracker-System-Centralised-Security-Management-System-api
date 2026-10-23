@@ -172,11 +172,8 @@ async def verify_client_diagnosis(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
-            'gemini-1.5-flash-latest',
-            'gemini-1.5-flash-002',
             'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-1.0-pro'
+            'gemini-1.5-pro'
         ]
         response = None
         last_exception = None
@@ -258,11 +255,8 @@ async def process_public_tactical_query(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
-            'gemini-1.5-flash-latest',
-            'gemini-1.5-flash-002',
             'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-1.0-pro'
+            'gemini-1.5-pro'
         ]
         response = None
         used_model = None
@@ -541,11 +535,8 @@ async def process_tactical_query(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
-            'gemini-1.5-flash-latest',
-            'gemini-1.5-flash-002',
             'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-1.0-pro'
+            'gemini-1.5-pro'
         ]
         response = None
         used_model = None
