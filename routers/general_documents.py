@@ -29,6 +29,7 @@ from sqlalchemy import text
 from app import models
 from app.database import get_db, get_logs_db
 from routers.activity_logger import record_neon_activity
+from routers.auth import get_current_user  # 🟢 Properly imported at top level
 
 router = APIRouter(prefix="/api/v1", tags=["General Documents"])
 
@@ -52,18 +53,8 @@ def get_general_doc_model():
 def get_general_documents(
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
 ):
-    # 🟢 STEP 1: Completely isolate authentication so an invalid token never throws a 500
-    current_user = None
-    try:
-        from app.auth import get_current_user
-        current_user = get_current_user(request=request, db=db)
-    except Exception as auth_err:
-        print(f"Auth notice in general-docs: {auth_err}")
-        return []  # Safely return empty array instead of 500ing
-
-    # 🟢 STEP 2: Isolate database querying with explicit table check
     try:
         Model = get_general_doc_model()
         if not Model:
@@ -94,7 +85,7 @@ def get_general_documents(
                 print(f"Skipping malformed document row: {row_err}")
                 continue
 
-        # 🟢 STEP 3: Non-blocking activity logging
+        # Non-blocking activity logging
         if current_user:
             try:
                 record_neon_activity(
@@ -112,10 +103,9 @@ def get_general_documents(
 
     except Exception as db_err:
         import traceback
-        traceback.print_exc()  # Prints exact error trace to Render logs for diagnosis
-        return []  # Always return safe empty list to stop frontend 500 loops
+        traceback.print_exc()
+        return []
 
-# 🟢 Matches both upload endpoints
 @router.post("/general-documents/upload")
 @router.post("/general-docs/upload")
 async def upload_general_document(
@@ -125,11 +115,8 @@ async def upload_general_document(
     target_station: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
 ):
-    from app.auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     Model = get_general_doc_model()
     file_list = [f for f in [file, *(files or [])] if f is not None]
     if not file_list:
@@ -164,7 +151,6 @@ async def upload_general_document(
             db.add(new_doc)
             uploaded_count += 1
 
-            # 🟢 Record precise forensic REGISTER activity into NeonDB Activity Logs branch
             record_neon_activity(
                 logs_db=logs_db,
                 fnum=current_user.fnum,
@@ -184,7 +170,6 @@ async def upload_general_document(
         raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 
-# 🟢 DEDICATED GENERAL DOCUMENTS DOWNLOAD ROUTE
 @router.get("/general-documents/download/{doc_id}")
 @router.get("/general-docs/download/{doc_id}")
 def download_general_document(
@@ -192,11 +177,8 @@ def download_general_document(
     return_url: bool = False,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
 ):
-    from app.auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     Model = get_general_doc_model()
     doc_record = db.query(Model).filter(Model.id == doc_id).first()
 
@@ -230,7 +212,6 @@ def download_general_document(
         command_post = f"{current_user.station or 'KMP HEADQUARTERS'}, {current_user.region or 'KMP HEADQUARTERS'}"
         stamp_id = f"KMP-GEN-{officer_fnum}-{eat_time.strftime('%Y%m%d%H%M%S')}"
 
-        # 🟢 SECURE FORENSIC TOKEN (HMAC-SHA256)
         FORENSIC_SECRET = os.getenv("FORENSIC_SIGNING_SECRET", "super_secret_kmp_key_2026").encode('utf-8')
         
         compact_payload = {"f": officer_fnum, "s": stamp_id}
@@ -257,7 +238,6 @@ def download_general_document(
             core_props.comments = comments_str
             core_props.category = "RESTRICTED / LAW ENFORCEMENT RECORD"
 
-            # 🟢 INJECTING INTO THE HEADER
             section = word_doc.sections[0]
             header = section.header
             
@@ -267,71 +247,66 @@ def download_general_document(
             header_p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
             
             try:
-                # 🟢 SPLIT LOGIC FOR MS WORD VS GOOGLE DOCS VIEWER
                 if return_url:
-                    # SCENARIO 1: LIVE VIEWER (Read Button - Uses CSS Text Direction)
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
-                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
                             <v:rect id="LiveViewStamp" 
                                     style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
-                                <v:textbox inset="0,0,0,0">
-                                    <w:txbxContent>
-                                        <w:p>
-                                            <w:pPr>
-                                                <w:textDirection w:val="btLr"/>
-                                                <w:jc w:val="center"/>
-                                            </w:pPr>
-                                            <w:r>
-                                                <w:rPr>
-                                                    <w:color w:val="CC0000"/>
-                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                    <w:sz w:val="14"/>
-                                                    <w:b/>
-                                                </w:rPr>
-                                                <w:t>{vertical_stamp_text}</w:t>
-                                            </w:r>
-                                        </w:p>
-                                    </w:txbxContent>
-                                </v:textbox>
-                            </v:rect>
+                            <v:textbox style="mso-layout-flow-alt:bottom-to-top" inset="0,0,0,0">
+                                <w:txbxContent>
+                                    <w:p>
+                                        <w:pPr>
+                                            <w:textDirection w:val="btLr"/>
+                                            <w:jc w:val="center"/>
+                                        </w:pPr>
+                                        <w:r>
+                                            <w:rPr>
+                                                <w:color w:val="CC0000"/>
+                                                <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                <w:sz w:val="14"/>
+                                                <w:b/>
+                                            </w:rPr>
+                                            <w:t>{vertical_stamp_text}</w:t>
+                                        </w:r>
+                                    </w:p>
+                                </w:txbxContent>
+                            </v:textbox>
+                        </v:rect>
                         </w:pict>
                     </w:r>
                     '''
                 else:
-                    # SCENARIO 2: PHYSICAL DOWNLOAD (MS Word Desktop)
                     vml_xml = f'''
                     <w:r xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
                          xmlns:v="urn:schemas-microsoft-com:vml" 
                          xmlns:o="urn:schemas-microsoft-com:office:office">
                         <w:pict>
-                            <!-- Pinned at 40pt: safely clears the non-printable edge, centered in the margin -->
                             <v:rect id="DownloadStamp" 
                                     style="position:absolute;left:40pt;top:72pt;width:25pt;height:650pt;z-index:251657216;mso-position-horizontal-relative:page;mso-position-vertical-relative:page" 
                                     strokecolor="#CC0000" stroked="f" filled="f">
-                                <v:textbox style="mso-layout-flow-alt:bottom-to-top" inset="0,0,0,0">
-                                    <w:txbxContent>
-                                        <w:p>
-                                            <w:pPr>
-                                                <w:jc w:val="center"/>
-                                            </w:pPr>
-                                            <w:r>
-                                                <w:rPr>
-                                                    <w:color w:val="CC0000"/>
-                                                    <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
-                                                    <w:sz w:val="14"/>
-                                                    <w:b/>
-                                                </w:rPr>
-                                                <w:t>{vertical_stamp_text}</w:t>
-                                            </w:r>
-                                        </w:p>
-                                    </w:txbxContent>
-                                </v:textbox>
-                            </v:rect>
+                            <v:textbox style="mso-layout-flow-alt:bottom-to-top" inset="0,0,0,0">
+                                <w:txbxContent>
+                                    <w:p>
+                                        <w:pPr>
+                                            <w:jc w:val="center"/>
+                                        </w:pPr>
+                                        <w:r>
+                                            <w:rPr>
+                                                <w:color w:val="CC0000"/>
+                                                <w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>
+                                                <w:sz w:val="14"/>
+                                                <w:b/>
+                                            </w:rPr>
+                                            <w:t>{vertical_stamp_text}</w:t>
+                                        </w:r>
+                                    </w:p>
+                                </w:txbxContent>
+                            </v:textbox>
+                        </v:rect>
                         </w:pict>
                     </w:r>
                     '''
@@ -415,7 +390,6 @@ def download_general_document(
         output_stream.seek(0)
         final_bytes = output_stream.getvalue()
 
-        # 🟢 Record DOWNLOAD activity
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,

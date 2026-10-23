@@ -30,6 +30,7 @@ from sqlalchemy import text, or_
 from app import models
 from app.database import get_db, get_logs_db
 from routers.activity_logger import record_neon_activity
+from routers.auth import get_current_user  # 🟢 Imported properly at top level
 
 # Try safe import for embedding ingestion
 try:
@@ -69,11 +70,8 @@ def get_document_archive(
     search: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
 ):
-    from auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     try:
         ArchiveModel = get_doc_archive_model()
         query = db.query(ArchiveModel)
@@ -148,11 +146,8 @@ async def upload_word_report(
     target_station: Optional[str] = Form(None), 
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
 ):
-    from auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     ArchiveModel = get_doc_archive_model()
     file_list = [f for f in [file, *(files or [])] if f is not None]
     
@@ -253,11 +248,8 @@ def download_archive_file(
     return_url: bool = False,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
 ):
-    from auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     ArchiveModel = get_doc_archive_model()
     doc_record = db.query(ArchiveModel).filter(ArchiveModel.id == doc_id).first()
 
@@ -588,11 +580,8 @@ def delete_archive_file(
     doc_id: int, 
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    request: Request = None
+    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
 ):
-    from auth import get_current_user
-    current_user = get_current_user(request=request, db=db)
-
     if current_user.role not in ["SUPER_ADMIN", "ADMIN", "RPC"]:
         raise HTTPException(status_code=403, detail="Command clearance required to delete official records.")
         
