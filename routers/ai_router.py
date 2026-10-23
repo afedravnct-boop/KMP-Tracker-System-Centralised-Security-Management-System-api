@@ -149,7 +149,7 @@ async def verify_client_diagnosis(
         raise HTTPException(status_code=401, detail="GEMINI_API_KEY is missing from the server environment.")
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
         verification_prompt = f"""
         You are an expert system auditor and QA debugger for the Kampala Metropolitan Police (KMP) Data Management System.
         Verify the following technical glitch diagnosis submitted by officer {current_user.fnum} {current_user.rank} {current_user.name} against the provided raw telemetry logs.
@@ -172,9 +172,8 @@ async def verify_client_diagnosis(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash'
+            'gemini-1.5-flash',
+            'gemini-1.5-pro'
         ]
         response = None
         last_exception = None
@@ -223,7 +222,7 @@ async def process_public_tactical_query(
         raise HTTPException(status_code=401, detail="GEMINI_API_KEY is missing from the server environment.")
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
         
         system_rules = (
             "You are the public-facing Kampala Metropolitan Police (KMP) System Navigation and Support Assistant. "
@@ -256,9 +255,8 @@ async def process_public_tactical_query(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash'
+            'gemini-1.5-flash',
+            'gemini-1.5-pro'
         ]
         response = None
         used_model = None
@@ -312,7 +310,7 @@ async def process_tactical_query(
         raise HTTPException(status_code=401, detail="GEMINI_API_KEY is missing from the server environment.")
 
     try:
-        client = genai.Client(api_key=api_key)
+        client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
         
         user_role_upper = (current_user.role or "").upper()
         is_top_admin = user_role_upper in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]
@@ -537,9 +535,8 @@ async def process_tactical_query(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash'
+            'gemini-1.5-flash',
+            'gemini-1.5-pro'
         ]
         response = None
         used_model = None
