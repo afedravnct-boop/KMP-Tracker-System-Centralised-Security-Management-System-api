@@ -71,12 +71,52 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   const [verifyCategory, setVerifyCategory] = useState('System showing zeros where data should exist');
   const [verifyPage, setVerifyPage] = useState('Command Comms');
   const [verifyElement, setVerifyElement] = useState('Dispatch Button');
-  const [verifyLogs, setVerifyLogs] = useState('TypeError: Cannot read properties of undefined (reading \'fnum\')');
+  const [verifyLogs, setVerifyLogs] = useState('Initializing live console telemetry...');
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
 
+  // 🟢 Live Telemetry Buffer Ref
+  const capturedLogsRef = useRef({ console: [], network: [] });
+
   const chatEndRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // 🟢 Capture Real-Time Browser Console & Network Errors
+  useEffect(() => {
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      const safeLog = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+      capturedLogsRef.current.console.push(`[CONSOLE_ERR] ${safeLog}`);
+      if (capturedLogsRef.current.console.length > 25) capturedLogsRef.current.console.shift();
+      originalConsoleError.apply(console, args);
+    };
+
+    const handleWindowError = (e) => {
+      capturedLogsRef.current.console.push(`[SYS_CRASH] ${e.message} at ${e.filename}:${e.lineno}`);
+    };
+    window.addEventListener('error', handleWindowError);
+
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      try {
+        const response = await originalFetch(...args);
+        if (!response.ok) {
+          capturedLogsRef.current.network.push(`[HTTP_${response.status}] Failed request to ${args[0]}`);
+          if (capturedLogsRef.current.network.length > 25) capturedLogsRef.current.network.shift();
+        }
+        return response;
+      } catch (err) {
+        capturedLogsRef.current.network.push(`[NET_DROP] ${args[0]} - ${err.message}`);
+        throw err;
+      }
+    };
+
+    return () => {
+      console.error = originalConsoleError;
+      window.removeEventListener('error', handleWindowError);
+      window.fetch = originalFetch;
+    };
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -109,6 +149,22 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     }
   };
 
+  // 🟢 Open Modal and Auto-Populate with Live Captured Telemetry
+  const openVerificationModal = () => {
+    const allCaptured = [
+      ...capturedLogsRef.current.console,
+      ...capturedLogsRef.current.network
+    ];
+
+    if (allCaptured.length > 0) {
+      setVerifyLogs(allCaptured.join('\n'));
+    } else {
+      setVerifyLogs("No recent console errors or failed network requests captured in current session buffer.");
+    }
+    setVerificationResult(null);
+    setShowVerificationModal(true);
+  };
+
   const handleVerifyGlitchDiagnosis = async (e) => {
     e.preventDefault();
     setIsVerifying(true);
@@ -122,9 +178,9 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
           glitch_category: verifyCategory,
           page_name: verifyPage,
           element_point: verifyElement,
-          description: "Audited telemetry analysis requested via High Command console.",
-          console_logs: [verifyLogs],
-          network_errors: ["500 Internal Server Error at /api/v1/communications"]
+          description: "Audited telemetry analysis requested via High Command console with live buffer feed.",
+          console_logs: capturedLogsRef.current.console.length > 0 ? capturedLogsRef.current.console : [verifyLogs],
+          network_errors: capturedLogsRef.current.network.length > 0 ? capturedLogsRef.current.network : ["500 Internal Server Error"]
         })
       });
 
@@ -226,7 +282,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
           <div className="bg-[#0f172a] rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border-2 border-amber-500/50">
             <div className="bg-[#020617] text-white px-6 py-4 flex justify-between items-center border-b border-slate-700">
                <h3 className="font-extrabold flex items-center text-sm text-amber-400">
-                 <Wrench size={18} className="mr-2"/> AI Technical Glitch Diagnosis Auditor
+                 <Wrench size={18} className="mr-2"/> AI Technical Glitch Diagnosis Auditor (Live Feed)
                </h3>
                <button onClick={() => setShowVerificationModal(false)} className="hover:bg-slate-800 p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
             </div>
@@ -267,11 +323,11 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Simulated Console Error Log</label>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Auto-Fed Live Console & Network Error Log</label>
                 <textarea 
                   value={verifyLogs} 
                   onChange={(e) => setVerifyLogs(e.target.value)} 
-                  rows={3}
+                  rows={4}
                   className="w-full p-2.5 bg-[#020617] border border-slate-700 rounded-lg font-mono text-xs text-amber-300 outline-none focus:border-amber-500" 
                   required 
                 />
@@ -330,9 +386,9 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
         <div className="flex items-center space-x-2">
           {hasDiagnosticClearance && (
             <button
-              onClick={() => setShowVerificationModal(true)}
+              onClick={openVerificationModal}
               className="px-3 py-1.5 bg-amber-950 hover:bg-amber-900 border border-amber-600 text-amber-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
-              title="Audit Technical Glitch Diagnosis"
+              title="Audit Technical Glitch Diagnosis with Live Console Feed"
             >
               <Wrench className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Verify Glitch</span>
