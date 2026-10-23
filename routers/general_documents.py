@@ -29,7 +29,6 @@ from sqlalchemy import text
 from app import models
 from app.database import get_db, get_logs_db
 from routers.activity_logger import record_neon_activity
-from routers.auth import get_current_user  # 🟢 Properly imported at top level
 
 router = APIRouter(prefix="/api/v1", tags=["General Documents"])
 
@@ -53,8 +52,16 @@ def get_general_doc_model():
 def get_general_documents(
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
+    request: Request = None
 ):
+    current_user = None
+    try:
+        from auth import get_current_user
+        current_user = get_current_user(request=request, db=db)
+    except Exception as auth_err:
+        print(f"Auth notice in general-docs: {auth_err}")
+        return []
+
     try:
         Model = get_general_doc_model()
         if not Model:
@@ -85,7 +92,6 @@ def get_general_documents(
                 print(f"Skipping malformed document row: {row_err}")
                 continue
 
-        # Non-blocking activity logging
         if current_user:
             try:
                 record_neon_activity(
@@ -115,8 +121,11 @@ async def upload_general_document(
     target_station: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
+    request: Request = None
 ):
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     Model = get_general_doc_model()
     file_list = [f for f in [file, *(files or [])] if f is not None]
     if not file_list:
@@ -177,8 +186,11 @@ def download_general_document(
     return_url: bool = False,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)  # 🟢 Properly injected via Depends
+    request: Request = None
 ):
+    from auth import get_current_user
+    current_user = get_current_user(request=request, db=db)
+
     Model = get_general_doc_model()
     doc_record = db.query(Model).filter(Model.id == doc_id).first()
 
