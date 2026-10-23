@@ -19,7 +19,7 @@ from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 from pydantic import BaseModel
 
-# 🟢 Google GenAI SDK imports for automated crash diagnosis
+# Google GenAI SDK imports for automated crash diagnosis
 from google import genai
 from google.genai import types
 
@@ -775,7 +775,6 @@ def permanent_delete_user(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database deletion error: {str(e)}")
 
-
 # ====================================================================
 # 7. PUBLIC UNSAUTHENTICATED FAULT / CRASH TELEMETRY ENDPOINT
 # ====================================================================
@@ -786,7 +785,7 @@ class PublicGlitchTelemetryPayload(BaseModel):
     glitch_category: Optional[str] = "PUBLIC_PORTAL_FAILURE"
     element_point: Optional[str] = "Sign-In Form"
     description: Optional[str] = "Unauthenticated fault report"
-    attempted_fnum: Optional[str] = "" # 🟢 Tracking attempted officer ID if available
+    attempted_fnum: Optional[str] = ""
 
 @router.post("/report-crash")
 @router.post("/api/v1/ai/report-crash")
@@ -804,7 +803,6 @@ async def report_public_client_crash(
         captured_logs = payload.console_logs or []
         network_logs = payload.network_errors or []
         
-        # 🟢 1. Initialize Autonomous AI Diagnosis
         ai_diagnosis = "Autonomous diagnosis unavailable (AI bypass or timeout)."
         api_key = os.getenv("GEMINI_API_KEY")
         
@@ -820,7 +818,7 @@ async def report_public_client_crash(
                 )
                 
                 response = client.models.generate_content(
-                    model='gemini-1.5-flash',
+                    model='gemini-2.5-flash',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction="You are a strict QA system debugger for law enforcement software."
@@ -830,7 +828,6 @@ async def report_public_client_crash(
             except Exception as ai_err:
                 print(f"AI Auto-Diagnosis skipped: {ai_err}")
 
-        # 🟢 2. Construct the Enriched Alert Payload with AI Insights
         glitch_summary = (
             f"<p><strong>[PUBLIC PORTAL FAULT TELEMETRY]</strong></p>"
             f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
@@ -848,10 +845,8 @@ async def report_public_client_crash(
         eat_tz = pytz.timezone("Africa/Nairobi")
         uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
 
-        # 🟢 3. Resolve User Identity for Admin Record
         user_identity = payload.attempted_fnum.strip().upper() if payload.attempted_fnum else "PUBLIC_VISITOR"
 
-        # Locate CommModel safely
         CommModel = getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))
         if CommModel:
             auto_dispatch = CommModel(
