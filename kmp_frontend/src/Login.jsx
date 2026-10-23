@@ -1,6 +1,6 @@
 // src/Login.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Lock, X, HelpCircle, AlertTriangle, Globe, Camera } from 'lucide-react';
+import { User, Lock, X, HelpCircle, AlertTriangle, Globe, Camera, Bug } from 'lucide-react';
 import { setAuthSession, authFetch } from './api';
 import SystemAssistant from './SystemAssistant';
 
@@ -32,7 +32,6 @@ const POSITIONS = {
   ]
 };
 
-// 🟢 Dual-Equivalence Engine for Regional Headquarter matching
 export const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
   const b = stripHtmlTags(statB || '').trim().toUpperCase();
@@ -56,25 +55,56 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   const [password, setPassword] = useState('');
   const [authMessage, setAuthMessage] = useState(null);
   
-  // 🟢 Mandatory Policy Agreement State (Strictly for Signup)
   const [showPolicyModal, setShowPolicyModal] = useState(false);
-  
-  // 🟢 State for the Help / Support Guide
   const [showHelpModal, setShowHelpModal] = useState(false);
   
-  // 🟢 Local Storage Telemetry Buffer Helper for Offline Resilience
+  // 🟢 Glitch Reporter State & Secure Telemetry Buffer
+  const [showGlitchModal, setShowGlitchModal] = useState(false);
+  const [glitchDesc, setGlitchDesc] = useState('');
+  const capturedLogs = useRef({ console: [], network: [] });
+
   const logClientErrorLocally = (errorPayload) => {
     try {
       const existingQueue = JSON.parse(localStorage.getItem('kmp_pending_telemetry') || '[]');
       existingQueue.push(errorPayload);
       if (existingQueue.length > 20) existingQueue.shift();
       localStorage.setItem('kmp_pending_telemetry', JSON.stringify(existingQueue));
-    } catch (e) {
-      // Storage restricted or full
-    }
+    } catch (e) {}
   };
 
-  // Flush any pending offline telemetry once online / authorized
+  // 🟢 Secure Automated Diagnostic Sweeper (Captures Console & Network Errors)
+  useEffect(() => {
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+      const safeLog = args.map(arg => (typeof arg === 'object' ? JSON.stringify(arg) : String(arg))).join(' ');
+      capturedLogs.current.console.push(`[CONSOLE_ERR] ${safeLog.substring(0, 200)}`);
+      originalConsoleError.apply(console, args);
+    };
+
+    const handleWindowError = (e) => {
+      capturedLogs.current.console.push(`[SYS_CRASH] ${e.message} at ${e.filename}:${e.lineno}`);
+    };
+    window.addEventListener('error', handleWindowError);
+
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      try {
+        const response = await originalFetch(...args);
+        if (!response.ok) capturedLogs.current.network.push(`[HTTP_${response.status}] ${args[0]}`);
+        return response;
+      } catch (error) {
+        capturedLogs.current.network.push(`[NET_DROP] ${args[0]} - ${error.message}`);
+        throw error;
+      }
+    };
+
+    return () => {
+      console.error = originalConsoleError;
+      window.removeEventListener('error', handleWindowError);
+      window.fetch = originalFetch;
+    };
+  }, []);
+
   useEffect(() => {
     const flushPendingTelemetry = async () => {
       try {
@@ -89,9 +119,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           });
         }
         localStorage.removeItem('kmp_pending_telemetry');
-      } catch (e) {
-        // Keep buffered if network drops again
-      }
+      } catch (e) {}
     };
     flushPendingTelemetry();
   }, []);
@@ -104,26 +132,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       document.documentElement.style.setProperty('--universal-globe-pos', `${rotationPosition}px`);
       animationFrameId = requestAnimationFrame(syncGlobesToEpoch);
     };
-    
     animationFrameId = requestAnimationFrame(syncGlobesToEpoch);
     return () => cancelAnimationFrame(animationFrameId);
   }, []);
   
   const [signupData, setSignupData] = useState({
-    fnum: '', 
-    ipps: '', 
-    nin: '', 
-    name: '', 
-    rank: '', 
-    sex: 'MALE', 
-    region: 'KMP NORTH', 
-    station: 'KAWEMPE', 
-    position: '', 
-    email: '', 
-    phone: '', 
-    password: '', 
-    profile_photo_path: '',
-    policy_accepted: false
+    fnum: '', ipps: '', nin: '', name: '', rank: '', sex: 'MALE', 
+    region: 'KMP NORTH', station: 'KAWEMPE', position: '', email: '', 
+    phone: '', password: '', profile_photo_path: '', policy_accepted: false
   });
   const [photoFile, setPhotoFile] = useState(null);
 
@@ -146,20 +162,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   useEffect(() => {
     const IDLE_TIME = 30000;
-
     const resetIdle = () => {
       setIsLoginIdle(false);
       clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => {
-        setIsLoginIdle(true);
-      }, IDLE_TIME);
+      idleTimerRef.current = setTimeout(() => setIsLoginIdle(true), IDLE_TIME);
     };
-
     resetIdle();
-
     const events = ['mousemove', 'keydown', 'keyup', 'input', 'click', 'scroll', 'touchstart'];
     events.forEach(event => window.addEventListener(event, resetIdle, true));
-
     return () => {
       clearTimeout(idleTimerRef.current);
       events.forEach(event => window.removeEventListener(event, resetIdle, true));
@@ -174,9 +184,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         setLockoutEnd(null); 
         setAttempts(0); 
         setTimeLeft(0); 
-      } else { 
-        setTimeLeft(remaining); 
-      }
+      } else { setTimeLeft(remaining); }
     }, 1000);
     return () => clearInterval(interval);
   }, [lockoutEnd]);
@@ -186,12 +194,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     if (name === 'policy_accepted') {
       setSignupData({ ...signupData, policy_accepted: checked });
     } else if (name === 'region') {
-      setSignupData({ 
-        ...signupData, 
-        region: value, 
-        station: REGIONAL_HIERARCHY[value]?.[0] || '', 
-        position: '' 
-      });
+      setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value]?.[0] || '', position: '' });
     } else if (name === 'station') {
       setSignupData({ ...signupData, station: value, position: '' });
     } else if (name === 'fnum' || name === 'nin' || name === 'rank') {
@@ -209,7 +212,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       uploadData.append("file", file); 
       uploadData.append("fnum", signupData.fnum || "NEW_USER"); 
       uploadData.append("category", "user_profile");
-      
       try {
         const response = await authFetch('/api/v1/users/upload-profile', { method: "POST", body: uploadData });
         if (!response.ok) throw new Error("Upload failed on server.");
@@ -227,42 +229,31 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
-    if (!signupData.policy_accepted) return setAuthMessage("⚠️ Error: You must accept the Terms, Information Security Policy & User Guide.");
+    if (!signupData.policy_accepted) return setAuthMessage("⚠️ Error: You must accept the Terms & Policy.");
     if (!signupData.profile_photo_path) return setAuthMessage("⚠️ Error: Profile photo upload is mandatory.");
-    if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be exactly 10 digits.");
-
-    if (!signupData.password || signupData.password.length < 8) {
-      return setAuthMessage("⚠️ Error: Password must be at least 8 characters long.");
-    }
-    if (!/(?=.*[A-Za-z])(?=.*\d)/.test(signupData.password)) {
-      return setAuthMessage("⚠️ Error: Password must contain a mix of letters and numbers.");
-    }
-
+    if (!/^\d{10}$/.test(signupData.phone)) return setAuthMessage("⚠️ Error: Contact number must be 10 digits.");
+    if (!signupData.password || signupData.password.length < 8) return setAuthMessage("⚠️ Error: Password must be at least 8 characters.");
+    if (!/(?=.*[A-Za-z])(?=.*\d)/.test(signupData.password)) return setAuthMessage("⚠️ Error: Password must contain letters and numbers.");
+    
     if (signupData.nin) {
       const cleanNin = signupData.nin.trim().toUpperCase();
-      if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) {
-        return setAuthMessage("⚠️ Error: National ID (NIN) must start with CM or CF and be exactly 14 characters.");
-      }
+      if (!/^C[MF][A-Z0-9]{12}$/.test(cleanNin)) return setAuthMessage("⚠️ Error: NIN must start with CM/CF and be 14 characters.");
     }
 
     setAuthMessage("⏳ Submitting authorization request...");
     try {
       const formData = new FormData();
       Object.keys(signupData).forEach(key => {
-        if (signupData[key] !== null && signupData[key] !== undefined) {
-          formData.append(key, signupData[key]);
-        }
+        if (signupData[key] !== null && signupData[key] !== undefined) formData.append(key, signupData[key]);
       });
       
       let derivedRole = 'USER';
       if (signupData.position === 'System Manager') derivedRole = 'SUPER_ADMIN';
-      else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS' || signupData.station === 'KMP Headquarters' || signupData.region === 'POLICE HEADQUARTERS') derivedRole = 'ADMIN';
+      else if (POSITIONS.ADMIN.includes(signupData.position) || signupData.position.includes('Divisional Commander') || signupData.station === 'KMP HEADQUARTERS') derivedRole = 'ADMIN';
       else if (POSITIONS.RPC.includes(signupData.position) || signupData.position.includes(`${signupData.region} Commander`)) derivedRole = 'RPC';
       
       formData.set("role", derivedRole);
-      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) {
-        formData.set("file", photoFile);
-      }
+      if (photoFile && signupData.profile_photo_path.startsWith('blob:')) formData.set("file", photoFile);
 
       const response = await authFetch('/api/v1/auth/signup', { method: 'POST', body: formData });
       const data = await response.json();
@@ -295,23 +286,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
         if (response.ok) {
           setAuthSession(data.access_token, data.fnum || fnum.trim());
-          onLogin({ 
-            fnum: data.fnum || fnum.trim(), 
-            rank: data.rank || 'AIP', 
-            name: data.name || 'Afedra Vincent', 
-            sex: data.sex || 'MALE', 
-            ipps: data.ipps || '950010',
-            nin: data.nin || '',
-            region: data.region || 'KMP HEADQUARTERS', 
-            division: data.division || 'KMP HEADQUARTERS', 
-            station: data.station || 'KMP HEADQUARTERS',
-            position: data.position || 'System Manager', 
-            email: data.email || 'afedravnct@gmail.com', 
-            phone: data.phone || '0779302872', 
-            role: data.role || 'SUPER_ADMIN', 
-            permissions: data.permissions || {}, 
-            profile_photo_path: data.profile_photo_path || ''
-          });
+          onLogin({ ...data, fnum: data.fnum || fnum.trim() });
         } else {
           setPassword(''); 
           setAuthMessage(data.detail || "Incorrect Force Number or password");
@@ -322,13 +297,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
       } catch (err) { 
         setPassword(''); 
         setAuthMessage("Network error. Could not connect to the server."); 
-        logClientErrorLocally({
-          glitch_category: "Network Gateway Offline",
-          page_name: "Login Screen",
-          element_point: "handleLoginSubmit",
-          description: err.toString(),
-          timestamp: new Date().toISOString()
-        });
       }
     } else if (mode === 'forgot') {
       try {
@@ -347,6 +315,32 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         setAuthMessage("❌ Network error. Could not connect to the server."); 
       }
     }
+  };
+
+  const submitGlitchReport = async () => {
+    setAuthMessage("⏳ Transmitting diagnostic fault report...");
+    const payload = {
+      console_logs: capturedLogs.current.console.slice(-15),
+      network_errors: capturedLogs.current.network.slice(-15),
+      current_page: `Login Portal (${mode.toUpperCase()})`,
+      glitch_category: "PUBLIC_PORTAL_FAILURE",
+      element_point: "User Triggered Diagnostic",
+      description: glitchDesc || "No user description provided."
+    };
+    
+    try {
+      await fetch(`${API_URL}/api/v1/ai/report-crash`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      setAuthMessage("✅ Diagnostic payload securely dispatched to High Command IT.");
+    } catch(e) {
+      logClientErrorLocally(payload);
+      setAuthMessage("⚠️ Network offline. Fault report saved locally and will auto-sync.");
+    }
+    setShowGlitchModal(false);
+    setGlitchDesc('');
   };
 
   return (
@@ -378,10 +372,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                   <span
                     key={index}
                     className="animate-sweep-letter"
-                    style={{ 
-                      animationDelay: `${delay}s`,
-                      whiteSpace: "pre" 
-                    }}
+                    style={{ animationDelay: `${delay}s`, whiteSpace: "pre" }}
                   >
                     {char === " " ? "\u00A0" : char}
                   </span>
@@ -398,7 +389,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             <span className="inline-flex items-center justify-center shrink-0 animate-spin" style={{ animationDuration: '12s' }}>
               <Globe size={18} className="text-amber-300" />
             </span>
-
           </div>
 
           <p className="text-xs text-slate-300 mt-4 font-medium tracking-wide relative z-20">
@@ -450,11 +440,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
                       <input 
-                        type="text" 
-                        name="fnum" 
-                        required 
-                        value={signupData.fnum} 
-                        onChange={handleSignupChange} 
+                        type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} 
                         className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" 
                         placeholder="e.g. A/2408 or 63034"
                       />
@@ -462,12 +448,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
                       <input 
-                        type="text" 
-                        name="ipps" 
-                        required 
-                        maxLength="6" 
-                        value={signupData.ipps} 
-                        onChange={handleSignupChange} 
+                        type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} 
                         className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
                         placeholder="123456"
                       />
@@ -476,25 +457,14 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">National ID (NIN) *</label>
                       <input 
-                        type="text" 
-                        name="nin" 
-                        required 
-                        maxLength="14" 
-                        value={signupData.nin} 
-                        onChange={handleSignupChange} 
+                        type="text" name="nin" required maxLength="14" value={signupData.nin} onChange={handleSignupChange} 
                         className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm font-mono" 
                         placeholder="e.g. CM900000000000"
                       />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Gender / Sex *</label>
-                      <select 
-                        name="sex" 
-                        value={signupData.sex} 
-                        onChange={handleSignupChange} 
-                        required 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
-                      >
+                      <select name="sex" value={signupData.sex} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
                         <option value="MALE">MALE</option>
                         <option value="FEMALE">FEMALE</option>
                       </select>
@@ -502,149 +472,68 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
 
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-                      <input 
-                        type="text" 
-                        name="name" 
-                        required 
-                        value={signupData.name} 
-                        onChange={handleSignupChange} 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" 
-                      />
+                      <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
-                      <input 
-                        type="text" 
-                        name="rank" 
-                        required 
-                        value={signupData.rank} 
-                        onChange={handleSignupChange} 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" 
-                        placeholder="e.g. AIP, IP, ASP, PC"
-                      />
+                      <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" placeholder="e.g. AIP, IP, ASP, PC" />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
-                      <select 
-                        name="region" 
-                        value={signupData.region} 
-                        onChange={handleSignupChange} 
-                        required 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
-                      >
-                        {Object.keys(REGIONAL_HIERARCHY).map(reg => (
-                          <option key={reg} value={reg}>{reg}</option>
-                        ))}
+                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                        {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                      <select 
-                        name="station" 
-                        value={signupData.station} 
-                        onChange={handleSignupChange} 
-                        required 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
-                      >
-                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => (
-                          <option key={stat} value={stat}>{stat}</option>
-                        ))}
+                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
                       </select>
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
-                    <select 
-                      name="position" 
-                      value={signupData.position} 
-                      onChange={handleSignupChange} 
-                      required 
-                      className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm"
-                    >
+                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
                       <option value="">-- Select Official Title --</option>
-                      {availablePositions.map(pos => (
-                        <option key={pos} value={pos}>{pos}</option>
-                      ))}
+                      {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Email *</label>
-                      <input 
-                        type="email" 
-                        name="email" 
-                        required 
-                        value={signupData.email} 
-                        onChange={handleSignupChange} 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
-                      />
+                      <input type="email" name="email" required value={signupData.email} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" />
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Telephone *</label>
-                      <input 
-                        type="tel" 
-                        name="phone" 
-                        required 
-                        maxLength="10" 
-                        pattern="\d{10}" 
-                        value={signupData.phone} 
-                        onChange={handleSignupChange} 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
-                        placeholder="e.g. 0772123456" 
-                      />
+                      <input type="tel" name="phone" required maxLength="10" pattern="\d{10}" value={signupData.phone} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="e.g. 0772123456" />
                     </div>
                   </div>
+                  
                   <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
                     <label className="block text-xs font-bold text-gray-700 mb-2">Officer Identification Photo (Mandatory) *</label>
                     <div className="flex items-center space-x-4">
                       {signupData.profile_photo_path ? (
-                        <img 
-                          src={signupData.profile_photo_path} 
-                          alt="Preview" 
-                          className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" 
-                        />
+                        <img src={signupData.profile_photo_path} alt="Preview" className="w-16 h-16 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
                       ) : (
                         <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
                           <Camera size={24} />
                         </div>
                       )}
                       <div className="flex-1">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          required 
-                          onChange={handlePhotoUpload} 
-                          className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" 
-                        />
+                        <input type="file" accept="image/*" required onChange={handlePhotoUpload} className="text-xs w-full text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
                         <p className="text-xs text-gray-400 mt-1">Directly uploads to secure storage</p>
                       </div>
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Create Password *</label>
-                    <input 
-                      type="password" 
-                      name="password" 
-                      required 
-                      value={signupData.password} 
-                      onChange={handleSignupChange} 
-                      className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
-                      placeholder="Min. 8 characters (letters & numbers)"
-                    />
+                    <input type="password" name="password" required value={signupData.password} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" placeholder="Min. 8 characters (letters & numbers)" />
                     <p className="text-[10px] text-slate-500 mt-1">Must be at least 8 characters long with a mix of letters and numbers.</p>
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                     <div className="flex items-start space-x-2">
-                      <input 
-                        type="checkbox" 
-                        id="policyAcceptSignup"
-                        name="policy_accepted"
-                        required
-                        checked={signupData.policy_accepted}
-                        onChange={handleSignupChange}
-                        className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0"
-                      />
+                      <input type="checkbox" id="policyAcceptSignup" name="policy_accepted" required checked={signupData.policy_accepted} onChange={handleSignupChange} className="mt-0.5 w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 cursor-pointer shrink-0" />
                       <label htmlFor="policyAcceptSignup" className="text-xs text-slate-700 font-medium leading-snug cursor-pointer">
                         I agree to the <span className="text-blue-700 font-bold underline cursor-pointer" onClick={(e) => { e.preventDefault(); setShowPolicyModal(true); }}>Terms, Information Security Policy & User Guide</span>. *
                       </label>
@@ -652,20 +541,10 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                   </div>
 
                   <div className="pt-4 flex flex-col space-y-3">
-                    <button 
-                      type="submit" 
-                      disabled={!signupData.policy_accepted}
-                      className={`w-full font-bold py-3 rounded-lg transition-colors text-sm ${
-                        !signupData.policy_accepted ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 hover:bg-black text-white cursor-pointer'
-                      }`}
-                    >
+                    <button type="submit" disabled={!signupData.policy_accepted} className={`w-full font-bold py-3 rounded-lg transition-colors text-sm ${!signupData.policy_accepted ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-slate-900 hover:bg-black text-white cursor-pointer'}`}>
                       Submit Registration Request
                     </button>
-                    <button 
-                      type="button" 
-                      onClick={() => setMode('login')} 
-                      className="text-sm text-blue-600 hover:underline font-medium cursor-pointer"
-                    >
+                    <button type="button" onClick={() => setMode('login')} className="text-sm text-blue-600 hover:underline font-medium cursor-pointer">
                       Cancel and return to Login
                     </button>
                   </div>
@@ -681,16 +560,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     <label htmlFor="login-fnum" className="block text-sm font-bold text-gray-700 mb-1">Force Number</label>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                      <input 
-                        id="login-fnum"
-                        name="username"
-                        type="text" 
-                        required 
-                        value={fnum} 
-                        onChange={(e) => setfnum(e.target.value)} 
-                        className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase text-sm" 
-                        placeholder="e.g. A/2408 or 63034"
-                      />
+                      <input id="login-fnum" name="username" type="text" required value={fnum} onChange={(e) => setfnum(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase text-sm" placeholder="e.g. A/2408 or 63034" />
                     </div>
                   </div>
                   {mode === 'login' && (
@@ -698,47 +568,27 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       <label htmlFor="login-password" className="block text-sm font-bold text-gray-700 mb-1">Security Key (Password)</label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"/>
-                        <input 
-                          id="login-password"
-                          name="password"
-                          type="password" 
-                          required 
-                          value={password} 
-                          onChange={(e) => setPassword(e.target.value)} 
-                          className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" 
-                          placeholder="••••••••"
-                        />
+                        <input id="login-password" name="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" placeholder="••••••••" />
                       </div>
                     </div>
                   )}
 
-                  <button 
-                    type="submit" 
-                    className="w-full font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider bg-blue-700 hover:bg-blue-800 text-white"
-                  >
+                  <button type="submit" className="w-full font-bold py-3 rounded-lg transition-colors cursor-pointer text-xs uppercase tracking-wider bg-blue-700 hover:bg-blue-800 text-white">
                     {mode === 'login' ? 'Authorize Access' : 'Request Password Reset'}
                   </button>
                   <div className="text-center mt-4 flex justify-between px-4">
-                    <button 
-                      type="button" 
-                      onClick={() => { setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0); }} 
-                    className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer"
-                    >
+                    <button type="button" onClick={() => { setMode(mode === 'login' ? 'forgot' : 'login'); setAttempts(0); }} className="text-sm text-slate-600 hover:text-blue-600 hover:underline font-medium cursor-pointer">
                       {mode === 'login' ? 'Forgot Security Key?' : 'Back to Login'}
                     </button>
                     {mode === 'login' && (
-                      <button 
-                        type="button" 
-                        onClick={() => setMode('signup')} 
-                        className="text-sm text-blue-600 font-bold hover:underline cursor-pointer"
-                      >
+                      <button type="button" onClick={() => setMode('signup')} className="text-sm text-blue-600 font-bold hover:underline cursor-pointer">
                         Sign Up (Request Access)
                       </button>
                     )}
                   </div>
 
-                  {/* HELP BUTTON PLACED DOWN IN THE LOGIN SCREEN FLOW */}
-                  <div className="pt-2 flex justify-center">
+                  {/* 🟢 TOGGLES FOR PUBLIC GLITCH REPORTING & HELP */}
+                  <div className="pt-2 flex justify-center gap-3">
                     <button
                       type="button"
                       onClick={() => setShowHelpModal(true)}
@@ -746,7 +596,17 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       title="System Access Help Guide"
                     >
                       <HelpCircle size={16} className="text-blue-600" />
-                      <span>help</span>
+                      <span>Help</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowGlitchModal(true)}
+                      className="text-red-700 hover:text-red-900 transition-colors cursor-pointer bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg border border-red-300 shadow-sm flex items-center gap-1.5 text-xs font-bold"
+                      title="Report Console/Network Errors"
+                    >
+                      <Bug size={16} />
+                      <span>Report Glitch</span>
                     </button>
                   </div>
 
@@ -770,12 +630,8 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[85vh]">
             <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
-              <h3 className="font-extrabold uppercase text-xs tracking-wider">
-                UGANDA POLICE FORCE — KAMPALA METROPOLITAN POLICE (KMP-CSDMS)
-              </h3>
-              <button onClick={() => setShowPolicyModal(false)} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white">
-                <X size={18} />
-              </button>
+              <h3 className="font-extrabold uppercase text-xs tracking-wider">UGANDA POLICE FORCE — KAMPALA METROPOLITAN POLICE (KMP-CSDMS)</h3>
+              <button onClick={() => setShowPolicyModal(false)} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer text-slate-300 hover:text-white"><X size={18} /></button>
             </div>
             
             <div className="p-6 overflow-y-auto space-y-6 text-xs text-slate-700 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
@@ -806,10 +662,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
               <button 
                 type="button"
-                onClick={() => { 
-                  setSignupData(prev => ({ ...prev, policy_accepted: true }));
-                  setShowPolicyModal(false); 
-                }} 
+                onClick={() => { setSignupData(prev => ({ ...prev, policy_accepted: true })); setShowPolicyModal(false); }} 
                 className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl font-black text-xs uppercase tracking-wider shadow cursor-pointer transition"
               >
                 I Understand & Accept
@@ -819,7 +672,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
         </div>
       )}
 
-      {/* SYSTEM HELP & USER GUIDE MODAL */}
+      {/* SYSTEM HELP MODAL */}
       {showHelpModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden border border-slate-300 flex flex-col max-h-[90vh]">
@@ -833,7 +686,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
             </div>
             
             <div className="p-6 overflow-y-auto space-y-6 text-sm text-slate-800 leading-relaxed custom-scrollbar bg-slate-50 flex-1">
-              
               <div className="space-y-4 bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
                 <h4 className="font-black text-slate-950 uppercase text-base border-b border-slate-200 pb-2">Login Screen Navigation & Input Guide</h4>
                 <p><strong>1. Main Sign-In Mode (Existing Users):</strong></p>
@@ -856,12 +708,6 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                   <li><strong>Create Password:</strong> Define a strong password (minimum 8 characters combining letters and numbers).</li>
                   <li><strong>Terms & Policy Checkbox:</strong> You must click and read the Terms, Information Security Policy & User Guide via the modal link, then check the agreement box before the submission button becomes active.</li>
                 </ul>
-
-                <p className="pt-2"><strong>3. Password Reset / Recovery Mode:</strong></p>
-                <ul className="list-disc pl-6 space-y-2 text-slate-700">
-                  <li>Click <strong>"Forgot Security Key?"</strong> on the login screen.</li>
-                  <li>Enter your registered Force Number and submit a reset request directly to Command review logs.</li>
-                </ul>
               </div>
 
               <div className="space-y-3">
@@ -870,16 +716,56 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                   <SystemAssistant embedded={true} limitedMode={true} />
                 </div>
               </div>
-
             </div>
 
             <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
-              <button 
-                type="button" 
-                onClick={() => setShowHelpModal(false)}
-                className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-sm uppercase tracking-wider transition cursor-pointer shadow"
-              >
+              <button type="button" onClick={() => setShowHelpModal(false)} className="px-6 py-2.5 bg-slate-900 hover:bg-black text-white rounded-xl font-bold text-sm uppercase tracking-wider transition cursor-pointer shadow">
                 Close Guide
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🟢 PUBLIC GLITCH REPORTING MODAL */}
+      {showGlitchModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-300 flex flex-col">
+            <div className="bg-red-700 text-white px-6 py-4 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center gap-2">
+                <Bug size={18} /> REPORT SYSTEM GLITCH
+              </h3>
+              <button type="button" onClick={() => setShowGlitchModal(false)} className="hover:bg-red-800 p-1.5 rounded-lg transition cursor-pointer text-white">
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4 text-sm text-slate-800 bg-slate-50">
+              <p className="text-xs text-slate-600 font-medium">
+                The diagnostic engine has automatically captured the backend console and network trace for this session. Please describe what you were trying to do when the system failed.
+              </p>
+              
+              <textarea 
+                value={glitchDesc}
+                onChange={(e) => setGlitchDesc(e.target.value)}
+                placeholder="E.g., I tried to click Sign Up but the button froze..."
+                className="w-full h-24 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm resize-none"
+              ></textarea>
+              
+              <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 flex items-start gap-2">
+                <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                <p className="text-[10px] text-slate-500 font-mono">
+                  Payload includes {capturedLogs.current.console.length} console exceptions and {capturedLogs.current.network.length} network trace errors.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 border-t border-slate-200 flex justify-end gap-3 shrink-0">
+              <button type="button" onClick={() => setShowGlitchModal(false)} className="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-bold text-xs uppercase tracking-wider transition cursor-pointer">
+                Cancel
+              </button>
+              <button type="button" onClick={submitGlitchReport} className="px-5 py-2 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-xs uppercase tracking-wider transition cursor-pointer shadow">
+                Transmit Telemetry
               </button>
             </div>
           </div>
