@@ -27,6 +27,13 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU"]
 }
 
+def get_model_safe(*model_names):
+    """🟢 Safe helper to resolve database models across varying naming conventions."""
+    for name in model_names:
+        if hasattr(models, name):
+            return getattr(models, name)
+    return None
+
 def strip_html_tags(text_str: str) -> str:
     if not text_str:
         return ""
@@ -40,7 +47,6 @@ def strip_html_tags(text_str: str) -> str:
 def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     text_blob = f"{offence_str or ''} {raw_narrative or ''}".lower()
     
-    # Custom structure handling (accommodating custom text like furniture shop, commercial structures, etc.)
     classification = "RESIDENTIAL HOUSE"
     if any(k in text_blob for k in ["school", "college", "academy", "nursery", "student", "dormitory"]):
         classification = "SCHOOL"
@@ -154,7 +160,7 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         try:
             if isinstance(d_str, str):
                 dt = datetime.strptime(d_str.split('T')[0], "%Y-%m-%d")
-            elif isinstance(dt, datetime):
+            elif isinstance(d_str, datetime):  # 🟢 Fixed variable reference bug
                 dt = d_str
             else:
                 continue
@@ -285,7 +291,6 @@ def export_analytics_report(
         lockup_records = get_scoped_records(LockupModel)
         accidents_records = get_scoped_records(AccidentsModel)
 
-        # 🟢 ADVANCED FIRE INCIDENT & CUSTOM STRUCTURE PARSER
         fire_incidents_count = 0
         total_fire_deaths = 0
         total_fire_injuries = 0
@@ -299,7 +304,6 @@ def export_analytics_report(
                 total_fire_deaths += parsed_fire["deaths"]
                 total_fire_injuries += parsed_fire["injuries"]
 
-        # 🟢 LOCKUP AUDIT & PRECISE STATION OVERSTAY MAPPING
         overstayed_details_map = {}
         total_overstayed_suspects = 0
         total_female_custody = 0
@@ -313,7 +317,6 @@ def export_analytics_report(
             total_female_custody += int(getattr(lck, 'female_count', 0) or 0) + int(getattr(lck, 'female_juvenile_count', 0) or 0)
             total_juveniles_custody += int(getattr(lck, 'female_juvenile_count', 0) or 0) + int(getattr(lck, 'male_juvenile_count', 0) or 0)
 
-        # 🟢 GENERATE INTERNATIONAL STANDARD TIME-SERIES ANALYTICS
         detention_timeseries = calculate_timeseries_aggregates(
             lockup_records, date_field='date', 
             value_fields=['suspects', 'male_count', 'female_count', 'detention_3days_over']

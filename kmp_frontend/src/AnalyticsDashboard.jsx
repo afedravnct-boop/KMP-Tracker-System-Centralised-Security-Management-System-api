@@ -66,15 +66,37 @@ const parseFireIncidentAdvanced = (rawNarrative, offenceStr) => {
     };
 };
 
+// 🟢 Corrected Offence Normalizer (Preserves natural word order & fixes Sudden Death phrasing)
 const normalizeOffenceCategory = (rawOffence) => {
   if (!rawOffence) return "UNSPECIFIED OFFENCE";
   let clean = String(rawOffence).trim().toUpperCase();
-  if (clean.includes("FATAL") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) return "TRAFFIC ACCIDENT (FATAL)";
-  if (clean.includes("MINOR") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) return "TRAFFIC ACCIDENT (MINOR)";
-  if (clean.includes("DEFILEMENT") || clean.includes("RAPE")) return "DEFILEMENT / RAPE";
-  const words = clean.replace(/[^A-Z0-9\s]/g, '').split(/\s+/).filter(Boolean);
-  words.sort();
-  return words.join(' ') || clean;
+
+  const mapping = {
+    'DEATH SUDDEN': 'Sudden Death',
+    'DEATH_SUDDEN': 'Sudden Death',
+    'SUDDEN DEATH': 'Sudden Death',
+    'FIREOUTBREAK': 'Fire Outbreak',
+    'FIRE OUTBREAK': 'Fire Outbreak',
+    'BY DEATH DROWNING': 'Death by Drowning',
+    'DEATH DROWNING': 'Death by Drowning',
+    'AGGRAVATED ROBBERY': 'Aggravated Robbery',
+    'MURDER SUSPECTED': 'Suspected Murder',
+    'ATTEMPTED MURDER': 'Attempted Murder',
+    'DEFILEMENT / RAPE': 'Defilement / Rape'
+  };
+
+  if (mapping[clean]) {
+    return mapping[clean];
+  }
+
+  if (clean.includes("FATAL") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) return "Traffic Accident (Fatal)";
+  if (clean.includes("MINOR") && (clean.includes("TRAFFIC") || clean.includes("ACCIDENT"))) return "Traffic Accident (Minor)";
+  if (clean.includes("DEFILEMENT") || clean.includes("RAPE")) return "Defilement / Rape";
+
+  return clean
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (l) => l.toUpperCase());
 };
 
 const parseSuccessStoryNarrative = (rawHtmlNarrative) => {
@@ -740,22 +762,22 @@ const AnalyticsDashboard = ({
 
       {loading && (
         <div className="flex items-center justify-center py-2 px-3 bg-amber-50 rounded-lg border border-amber-200 text-[11px] text-amber-800 font-bold">
-          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-amber-600" /> Fetching live analytics data streams from NeonDB...
+          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-amber-600" /> Fetching live analytics ...
         </div>
       )}
 
       {/* Tabs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-9 gap-1.5">
         {[
-          { id: 'SUCCESS', label: '🌟 Success Stories' },
-          { id: 'CRIME', label: '📊 Crime Categories' },
-          { id: 'EXHIBITS', label: '🚚 Exhibits' },
-          { id: 'DETENTIONS', label: '🔒 Detentions' },
-          { id: 'ACCIDENTS', label: '🚓 Accidents' },
-          { id: 'FIRES', label: '🔥 Fire Incidents' },
-          { id: 'SUMMARY', label: '📋 Summary Table' },
-          { id: 'OPERATIONS', label: '⚡ Disruptive Ops' },
-          { id: 'MANPOWER_DEEP', label: '🛡️ Manpower Analysis' }
+          { id: 'SUCCESS', label: 'Success Stories' },
+          { id: 'CRIME', label: 'Crime Categories' },
+          { id: 'EXHIBITS', label: 'Exhibits' },
+          { id: 'DETENTIONS', label: 'Detentions' },
+          { id: 'ACCIDENTS', label: 'Accidents' },
+          { id: 'FIRES', label: 'Fire Incidents' },
+          { id: 'SUMMARY', label: 'Summary Table' },
+          { id: 'OPERATIONS', label: 'Disruptive Ops' },
+          { id: 'MANPOWER_DEEP', label: 'Manpower Analysis' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -921,7 +943,7 @@ const AnalyticsDashboard = ({
         </div>
       )}
 
-      {/* 🔒 DETENTIONS ANALYSIS TAB (MONDAY TO SUNDAY PROGRESSION + CHEVRONS) */}
+      {/* DETENTIONS ANALYSIS TAB */}
       {activeDomain === 'DETENTIONS' && (
         <div className="space-y-4 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
@@ -974,7 +996,7 @@ const AnalyticsDashboard = ({
         </div>
       )}
 
-      {/* 🚓 ACCIDENTS ANALYSIS TAB */}
+      {/* ACCIDENTS ANALYSIS TAB */}
       {activeDomain === 'ACCIDENTS' && (
         <div className="space-y-4 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">
@@ -1009,7 +1031,7 @@ const AnalyticsDashboard = ({
         </div>
       )}
 
-      {/* 🔥 FIRE INCIDENTS ANALYSIS TAB (ADVANCED CLASSIFICATIONS & CASUALTIES) */}
+      {/* FIRE INCIDENTS ANALYSIS TAB */}
       {activeDomain === 'FIRES' && (
         <div className="space-y-4 pb-12">
           <div className="bg-[#3a3225] rounded-xl p-3.5 text-[#f4eee2] shadow-sm border border-[#534735]">

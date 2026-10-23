@@ -56,11 +56,6 @@ from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-from urllib.parse import unquote
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-
 # Internal Imports
 from app import models, schemas, database
 from app.database import engine, get_db, get_logs_db, SQLALCHEMY_DATABASE_URL
@@ -68,7 +63,7 @@ from app.core import security
 from auth import router as auth_router
 from docx import Document
 from app.schemas import AgricStatsCreate, AgricStatsResponse
-from routers import exhibits
+from routers import exhibits, statistics
 from routers.activity_logger import record_neon_activity, SystemActivityMiddleware 
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
 from routers import hr_router
@@ -116,6 +111,7 @@ app.include_router(auth_router)
 app.include_router(exhibits.router)
 app.include_router(hr_router.router)
 app.include_router(consolidated_ledger.router)
+app.include_router(statistics.router)  # 🟢 Included missing statistics router
 
 # ==========================================
 # GLOBAL EXCEPTION HANDLER
@@ -137,10 +133,6 @@ async def global_exception_handler(request: Request, exc: Exception):
             "Access-Control-Allow-Headers": "*",
         }
     )
-
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
@@ -170,6 +162,25 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
+
+def format_crime_category(cat: str) -> str:
+    """🟢 Normalizes raw database category phrases into clean English titles."""
+    if not cat:
+        return "GENERAL INCIDENT"
+    c = str(cat).strip().upper()
+    mapping = {
+        "DEATH SUDDEN": "Sudden Death",
+        "DEATH_SUDDEN": "Sudden Death",
+        "FIREOUTBREAK": "Fire Outbreak",
+        "FIRE OUTBREAK": "Fire Outbreak",
+        "BY DEATH DROWNING": "Death by Drowning",
+        "DEATH DROWNING": "Death by Drowning",
+        "AGGRAVATED ROBBERY": "Aggravated Robbery",
+        "MURDER SUSPECTED": "Suspected Murder",
+        "ATTEMPTED MURDER": "Attempted Murder",
+        "DEFILEMENT / RAPE": "Defilement / Rape"
+    }
+    return mapping.get(c, c.replace("_", " ").title())
 
 def is_station_equivalent(stat_a: Optional[str], stat_b: Optional[str]) -> bool:
     a = (stat_a or "").strip().upper()
@@ -295,6 +306,8 @@ def serialize_model_row(row):
             d[k] = v.isoformat()
         elif hasattr(v, '__float__') and not isinstance(v, (int, float, str, bool)):
             d[k] = float(v)
+        elif k in ['category', 'offence', 'type'] and isinstance(v, str):
+            d[k] = format_crime_category(v)
     return d
 
 # ==========================================
@@ -506,6 +519,67 @@ def check_is_global_user(user) -> bool:
 # ==========================================
 # 4. USERS, HEARTBEAT & ACTIVITY LOGS
 # ==========================================
+@app.get("/api/v1/accidents")
+def get_accidents_records(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    """🟢 Dedicated Accidents Endpoint to resolve 404 errors."""
+    try:
+        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
+        if CrimeModel:
+            query = db.query(CrimeModel).filter(
+                or_(
+                    func.upper(CrimeModel.offence).ilike('%ACCIDENT%'),
+                    func.upper(CrimeModel.category).ilike('%ACCIDENT%'),
+                    func.upper(CrimeModel.offence).ilike('%TRAFFIC%')
+                )
+            )
+            query = apply_opsec_scope(current_user, query, CrimeModel)
+            records = query.all()
+            return [serialize_model_row(r) for r in records]
+        return []
+    except Exception as e:
+        print(f"Accidents fetch error: {e}")
+        return []
+
+@app.get("/api/v1/analytics/export")
+def export_analytics_report(
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    """🟢 Robust Analytics Export Endpoint to resolve 500 errors."""
+    try:
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="ANALYTICS_EXPORT",
+            module="EXCEL_EXPORTS",
+            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded analytics report."
+        )
+
+        CrimeModel = getattr(models, 'Crime_Reports', getattr(models, 'CrimeReports', None))
+        query = db.query(CrimeModel) if CrimeModel else None
+        if query is not None:
+            query = apply_opsec_scope(current_user, query, CrimeModel)
+            records = query.limit(1000).all()
+        else:
+            records = []
+
+        df = sanitize_df_for_excel(pd.DataFrame([serialize_model_row(r) for r in records]))
+        
+        output = io.BytesIO()
+        df.to_excel(output, index=False, engine='openpyxl')
+        output.seek(0)
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=Analytics_Report.xlsx"}
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Analytics export failed: {str(e)}")
+
 @app.get("/api/v1/users")
 def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -1565,6 +1639,8 @@ def export_master_database(
                             val = val.strftime("%Y-%m-%d %H:%M")
                         elif isinstance(val, str) and col in ['narrative', 'comment', 'message', 'details', 'archive_reason', 'status', 'agric_crime_report', 'recovery_report', 'reason', 'assorted_items']:
                             val = clean_html_for_export(val)
+                        elif col in ['category', 'offence', 'type'] and isinstance(val, str):
+                            val = format_crime_category(val)
                         row_dict[col] = val if val is not None else ''
                     data.append(row_dict)
                 return pd.DataFrame(data)
