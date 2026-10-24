@@ -128,7 +128,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const [disruptiveStats, setDisruptiveStats] = useState([]);
   const [agricStats, setAgricStats] = useState([]);
   const [accidentStats, setAccidentStats] = useState([]);
-  const [fireStats, setFireStats] = useState([]); // 🟢 Fires state
+  const [fireStats, setFireStats] = useState([]);
   const [agricSummaryRecords, setAgricSummaryRecords] = useState([]);
 
   const [expandedAgricRegions, setExpandedAgricRegions] = useState({
@@ -221,7 +221,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       } else if (statsDomain === 'ACCIDENTS') {
           const res = await authFetch(`/api/v1/accidents?${params.toString()}`);
           if (res.ok) setAccidentStats(await res.json());
-      } else if (statsDomain === 'FIRES') { // 🟢 Fires fetch
+      } else if (statsDomain === 'FIRES') {
           const res = await authFetch(`/api/v1/fires?${params.toString()}`);
           if (res.ok) setFireStats(await res.json());
       }
@@ -256,7 +256,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       if (statsDomain === 'DISRUPTIVE') raw = disruptiveStats;
       else if (statsDomain === 'AGRICULTURAL') raw = agricStats;
       else if (statsDomain === 'ACCIDENTS') raw = accidentStats;
-      else if (statsDomain === 'FIRES') raw = fireStats; // 🟢 Fires raw assignment
+      else if (statsDomain === 'FIRES') raw = fireStats;
 
       if (dateFilter === 'ALL TIME') return raw;
 
@@ -282,7 +282,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       let targetEndpoint = '/api/v1/stats/export';
       if (statsDomain === 'AGRICULTURAL') targetEndpoint = '/api/v1/agric-stats/export';
       if (statsDomain === 'ACCIDENTS') targetEndpoint = '/api/v1/accidents/export';
-      if (statsDomain === 'FIRES') targetEndpoint = '/api/v1/fires/export'; // 🟢 Fires export endpoint
+      if (statsDomain === 'FIRES') targetEndpoint = '/api/v1/fires/export';
 
       const params = new URLSearchParams();
       if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
@@ -415,7 +415,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
               date: getTodayString(), nature_of_accident: '', custom_nature_of_accident: '', minor: 0, serious: 0, fatal: 0, victims: 0
           };
       }
-      if (statsDomain === 'FIRES') { // 🟢 Initial form data for fires
+      if (statsDomain === 'FIRES') {
           return {
               sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
               date: getTodayString(), nature_of_fire: '', minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0
@@ -434,6 +434,11 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       setOperation('new');
       setUpdateSearch('');
   }, [statsDomain]);
+
+  // 🟢 Synchronized Statistics Domain Toggles
+  const handleToggleDomain = (domain) => {
+    setStatsDomain(domain);
+  };
 
   const complianceWarning = useMemo(() => {
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" }));
@@ -500,7 +505,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
             return acc;
         }, { minor: 0, serious: 0, fatal: 0, victims: 0, total: 0 });
     }
-    if (statsDomain === 'FIRES') { // 🟢 Totals calculation for fires
+    if (statsDomain === 'FIRES') {
         return currentDomainStats.reduce((acc, curr) => {
             acc.minor_outbreaks += (parseInt(curr.minor_outbreaks) || 0);
             acc.major_disasters += (parseInt(curr.major_disasters) || 0);
@@ -553,7 +558,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     let targetEndpoint = '/api/v1/stats';
     if (statsDomain === 'AGRICULTURAL') targetEndpoint = '/api/v1/agric-stats';
     if (statsDomain === 'ACCIDENTS') targetEndpoint = '/api/v1/accidents';
-    if (statsDomain === 'FIRES') targetEndpoint = '/api/v1/fires'; // 🟢 Fires endpoint
+    if (statsDomain === 'FIRES') targetEndpoint = '/api/v1/fires';
 
     const activeRegion = (canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
     const activeStation = (canViewGlobalLevel && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
@@ -663,7 +668,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const getDomainTitle = () => {
       if (statsDomain === 'AGRICULTURAL') return '🌱 Agricultural Crimes Statistics';
       if (statsDomain === 'ACCIDENTS') return '🚓 Traffic & Accidents Statistics';
-      if (statsDomain === 'FIRES') return '🔥 Fire & Rescue Incidents Statistics'; // 🟢 Fires title
+      if (statsDomain === 'FIRES') return '🔥 Fire & Rescue Incidents Statistics';
       return '⚡ Disruptive OPS Statistics';
   };
 
@@ -922,17 +927,18 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                 </select>
               </div>
 
+              {/* 🟢 Synchronized Statistics Domain Toggles */}
               <div className="inline-flex bg-slate-200 dark:bg-slate-800 p-1 rounded-xl border dark:border-slate-700 shadow-inner shrink-0 gap-1 flex-wrap">
-                <button type="button" onClick={() => setStatsDomain('DISRUPTIVE')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 dark:bg-slate-950 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
+                <button type="button" onClick={() => handleToggleDomain('DISRUPTIVE')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 dark:bg-slate-950 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
                   ⚡ Disruptive OPS
                 </button>
-                <button type="button" onClick={() => setStatsDomain('AGRICULTURAL')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'AGRICULTURAL' ? 'bg-emerald-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
+                <button type="button" onClick={() => handleToggleDomain('AGRICULTURAL')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'AGRICULTURAL' ? 'bg-emerald-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
                   🌱 Agric Crimes
                 </button>
-                <button type="button" onClick={() => setStatsDomain('ACCIDENTS')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'ACCIDENTS' ? 'bg-red-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
+                <button type="button" onClick={() => handleToggleDomain('ACCIDENTS')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'ACCIDENTS' ? 'bg-red-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
                   🚓 Accidents
                 </button>
-                <button type="button" onClick={() => setStatsDomain('FIRES')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'FIRES' ? 'bg-amber-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
+                <button type="button" onClick={() => handleToggleDomain('FIRES')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'FIRES' ? 'bg-amber-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
                   🔥 Fires
                 </button>
               </div>

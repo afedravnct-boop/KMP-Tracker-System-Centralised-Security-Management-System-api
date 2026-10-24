@@ -1,7 +1,7 @@
 // src/CrimeIncidentRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import {  
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -107,7 +107,8 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
    
   const [lockupData, setLockupData] = useState([]);
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
-  const [showAccidentsOnly, setShowAccidentsOnly] = useState(false); // 🟢 Added state for accidents toggle
+  const [showAccidentsOnly, setShowAccidentsOnly] = useState(false);
+  const [showFiresOnly, setShowFiresOnly] = useState(false);
 
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
@@ -208,8 +209,33 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
     region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', customOffence: '', category: 'GENERAL CRIMES', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+    offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
   });
+
+  // 🟢 Synchronized Filter Toggles (Automatically updates form category)
+  const handleToggleAgric = () => {
+    const next = !showAgriculturalOnly;
+    setShowAgriculturalOnly(next);
+    setShowAccidentsOnly(false);
+    setShowFiresOnly(false);
+    setFormData(prev => ({ ...prev, category: next ? 'AGRIC_CRIME' : '' }));
+  };
+
+  const handleToggleAccidents = () => {
+    const next = !showAccidentsOnly;
+    setShowAccidentsOnly(next);
+    setShowAgriculturalOnly(false);
+    setShowFiresOnly(false);
+    setFormData(prev => ({ ...prev, category: next ? 'ACCIDENT' : '' }));
+  };
+
+  const handleToggleFires = () => {
+    const next = !showFiresOnly;
+    setShowFiresOnly(next);
+    setShowAgriculturalOnly(false);
+    setShowAccidentsOnly(false);
+    setFormData(prev => ({ ...prev, category: next ? 'FIRE INCIDENTS' : '' }));
+  };
 
   useEffect(() => {
     const fetchLockupData = async () => {
@@ -275,8 +301,11 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       if (showAgriculturalOnly) {
         params.append('agri_only', 'true');
       }
-      if (showAccidentsOnly) { // 🟢 Append accidents_only param
+      if (showAccidentsOnly) {
         params.append('accidents_only', 'true');
+      }
+      if (showFiresOnly) {
+        params.append('fires_only', 'true');
       }
       if (debouncedSearch) {
         params.append('search', debouncedSearch);
@@ -299,7 +328,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     } finally {
       setIsFetchingReports(false);
     }
-  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, showAccidentsOnly, dateFilter, debouncedSearch, setReports, canViewGlobalActive]);
+  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, showAccidentsOnly, showFiresOnly, dateFilter, debouncedSearch, setReports, canViewGlobalActive]);
 
   useEffect(() => {
     fetchFilteredDatabaseReports();
@@ -310,7 +339,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
       region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
       date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-      offence: '', customOffence: '', category: 'GENERAL CRIMES', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+      offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
     });
     setUpdateSearch('');
   };
@@ -327,7 +356,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       sn: caseData.sn || caseData.id, 
       sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
       offence: stripHtmlTags(caseData.offence || 'Other'),
-      category: caseData.category || 'GENERAL CRIMES',
+      category: caseData.category || '',
       customOffence: '',
       suspectDetails: caseData.suspectDetails || [], 
       updateText: '' 
@@ -414,11 +443,33 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     };
   }, [finalFilteredReports, lockupData, filterRegion, filterStation]);
 
+  // 🟢 Bidirectional Form Input Handler (Updates filters when form category changes)
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
     const cleanValue = stripHtmlTags(value);
+    
     if (name === 'region') {
       setFormData(prev => ({ ...prev, region: cleanValue, station: REGIONAL_HIERARCHY[cleanValue]?.[0] || '' }));
+    } else if (name === 'category') {
+      const val = cleanValue.toUpperCase();
+      if (val === 'AGRIC_CRIME') {
+        setShowAgriculturalOnly(true);
+        setShowAccidentsOnly(false);
+        setShowFiresOnly(false);
+      } else if (val === 'ACCIDENT') {
+        setShowAccidentsOnly(true);
+        setShowAgriculturalOnly(false);
+        setShowFiresOnly(false);
+      } else if (val === 'FIRE INCIDENTS' || val === 'FIRE') {
+        setShowFiresOnly(true);
+        setShowAgriculturalOnly(false);
+        setShowAccidentsOnly(false);
+      } else {
+        setShowAgriculturalOnly(false);
+        setShowAccidentsOnly(false);
+        setShowFiresOnly(false);
+      }
+      setFormData(prev => ({ ...prev, category: val }));
     } else if (['customOffence'].includes(name)) {
       setFormData(prev => ({ ...prev, [name]: cleanValue.toUpperCase() }));
     } else {
@@ -544,6 +595,11 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
   const handleFormSubmit = async (e) => {
     e.preventDefault();
           
+    // 🟢 Mandatory Category Selection Validation Check
+    if (!formData.category || formData.category.trim() === "") {
+      return setNotification("⚠️ Error: Operation Category selection is mandatory. Please select a valid category.");
+    }
+
     let formattedTime = stripHtmlTags(formData.time || '');
     if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
 
@@ -586,7 +642,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         date: stripHtmlTags(formData.date), 
         time: formattedTime, 
         offence: formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence), 
-        category: formData.category || 'GENERAL CRIMES',
+        category: formData.category,
         narrative: plainNarrative, 
         status: stripHtmlTags(formData.status), 
         suspects: formData.suspectDetails.length, 
@@ -625,7 +681,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         time: formattedTime, 
         narrative: updatedNarrative, 
         offence: finalOffenceValue, 
-        category: formData.category || 'GENERAL CRIMES',
+        category: formData.category,
         status: formData.status,
         suspects: formData.suspectDetails.length,
         last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`, 
@@ -666,7 +722,8 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
       if (filterOffence && filterOffence !== 'ALL OFFENCES') params.append('offence', filterOffence);
       if (showAgriculturalOnly) params.append('agri_only', 'true');
-      if (showAccidentsOnly) params.append('accidents_only', 'true'); // 🟢 Pass accidents_only to export
+      if (showAccidentsOnly) params.append('accidents_only', 'true');
+      if (showFiresOnly) params.append('fires_only', 'true');
       if (debouncedSearch) params.append('search', debouncedSearch);
       
       const { start, end } = getDateRangeParams(dateFilter);
@@ -926,10 +983,13 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                  
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Operation Category / Focus *</label>
-                  <select name="category" value={formData.category} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
+                  {/* 🟢 Mandatory Category Selection Dropdown (Bidirectionally Synced) */}
+                  <select name="category" value={formData.category} onChange={handleInputChange} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
+                    <option value="" disabled>-- Select Mandatory Category --</option>
                     <option value="GENERAL CRIMES">GENERAL CRIMES</option>
                     <option value="AGRIC_CRIME">🌾 AGRICULTURAL CRIMES / LIVESTOCK & FARM SECURITY</option>
-                    <option value="ACCIDENT">🚗 TRAFFIC ACCIDENTS / CRASHES</option> {/* 🟢 Added Accident Category option */}
+                    <option value="ACCIDENT">🚗 TRAFFIC ACCIDENTS / CRASHES</option>
+                    <option value="FIRE INCIDENTS">🔥 FIRE & RESCUE INCIDENTS</option>
                   </select>
                 </div>
 
@@ -1078,9 +1138,10 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                <input type="text" placeholder="Search Reference, narrative, station or offence..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-1.5 border dark:border-slate-700 rounded-lg text-xs shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
              </div>
 
+             {/* 🟢 Synchronized Agri-Crimes Toggle */}
              <button
                type="button"
-               onClick={() => setShowAgriculturalOnly(prev => !prev)}
+               onClick={handleToggleAgric}
                className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
                  showAgriculturalOnly 
                    ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/20' 
@@ -1091,10 +1152,10 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
              </button>
 
-             {/* 🟢 Added Accidents Only Filter Toggle Button */}
+             {/* 🟢 Synchronized Accidents Toggle */}
              <button
                type="button"
-               onClick={() => setShowAccidentsOnly(prev => !prev)}
+               onClick={handleToggleAccidents}
                className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
                  showAccidentsOnly 
                    ? 'bg-red-700 text-white border-red-800 ring-2 ring-red-500/20' 
@@ -1103,6 +1164,20 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
              >
                <Car className="w-3.5 h-3.5 mr-1" />
                {showAccidentsOnly ? 'Accidents: ON' : 'Filter Accidents'}
+             </button>
+
+             {/* 🟢 Synchronized Fires Toggle */}
+             <button
+               type="button"
+               onClick={handleToggleFires}
+               className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+                 showFiresOnly 
+                   ? 'bg-amber-600 text-white border-amber-700 ring-2 ring-amber-500/20' 
+                   : 'bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-slate-700'
+               }`}
+             >
+               <Flame className="w-3.5 h-3.5 mr-1" />
+               {showFiresOnly ? 'Fires: ON' : 'Filter Fires'}
              </button>
 
             <select 
@@ -1182,7 +1257,8 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                   ) : finalFilteredReports.map((report, index) => {
                     const rRegion = getOfficialRegionForStation(report.station, report.region);
                     const isAgriMatch = (report.category || '').toUpperCase() === 'AGRIC_CRIME';
-                    const isAccidentMatch = ['ACCIDENT', 'ACCIDENTS', 'ACCIDENT_REPORT'].includes((report.category || '').toUpperCase()); // 🟢 Check accident tag
+                    const isAccidentMatch = ['ACCIDENT', 'ACCIDENTS', 'ACCIDENT_REPORT'].includes((report.category || '').toUpperCase());
+                    const isFireMatch = ['FIRE_INCIDENT', 'FIRE INCIDENTS', 'FIRE'].includes((report.category || '').toUpperCase());
                     const statusClean = stripHtmlTags(report.status || '');
 
                     return (
@@ -1199,8 +1275,11 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                             {isAgriMatch && (
                               <span className="bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">🌾 AGRI-CRIME</span>
                             )}
-                            {isAccidentMatch && ( // 🟢 Render Accident badge in the table
+                            {isAccidentMatch && (
                               <span className="bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-red-300 dark:border-red-800">🚗 ACCIDENT</span>
+                            )}
+                            {isFireMatch && (
+                              <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800">🔥 FIRE INCIDENT</span>
                             )}
                           </div>
                           <div className="ql-editor p-0 line-clamp-3 text-slate-600 dark:text-slate-300 [&_*]:!text-[11px] [&_*]:!bg-transparent whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: report.narrative }} />

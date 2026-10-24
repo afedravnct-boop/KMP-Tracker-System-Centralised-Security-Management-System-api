@@ -220,7 +220,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
     return query.filter(text("1=0"))
 
 # ====================================================================
-# 1. RETRIEVE CRIME REPORTS (WITH RESTORED AGRI & ACCIDENT FILTERING)
+# 1. RETRIEVE CRIME REPORTS (WITH RESTORED AGRI, ACCIDENT & FIRE FILTERING)
 # ====================================================================
 @router.get("/reports")
 def get_reports(
@@ -231,6 +231,8 @@ def get_reports(
     end_date: Optional[str] = Query(default=None), 
     agri_only: bool = Query(default=False), 
     accidents_only: bool = Query(default=False),
+    fires_only: bool = Query(default=False),
+    fire_only: bool = Query(default=False),
     search: Optional[str] = Query(default=None),
     limit: int = Query(default=200, le=1000), 
     db: Session = Depends(get_db), 
@@ -277,6 +279,15 @@ def get_reports(
                 func.upper(CrimeModel.category) == 'ACCIDENT',
                 func.upper(CrimeModel.category) == 'ACCIDENTS',
                 func.upper(CrimeModel.category) == 'ACCIDENT_REPORT'
+            )
+        )
+
+    if (fires_only or fire_only) and hasattr(CrimeModel, 'category'):
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'FIRE_INCIDENT',
+                func.upper(CrimeModel.category) == 'FIRE INCIDENTS',
+                func.upper(CrimeModel.category) == 'FIRE'
             )
         )
         
@@ -398,6 +409,7 @@ def get_crime_analytics(
     agri_only: bool = Query(default=False),
     fire_only: bool = Query(default=False),
     accidents_only: bool = Query(default=False),
+    fires_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -436,11 +448,12 @@ def get_crime_analytics(
             )
         )
 
-    if fire_only and hasattr(CrimeModel, 'category'):
+    if (fire_only or fires_only) and hasattr(CrimeModel, 'category'):
         query = query.filter(
             or_(
                 func.upper(CrimeModel.category) == 'FIRE_INCIDENT',
-                func.upper(CrimeModel.category) == 'FIRE INCIDENTS'
+                func.upper(CrimeModel.category) == 'FIRE INCIDENTS',
+                func.upper(CrimeModel.category) == 'FIRE'
             )
         )
 
@@ -477,6 +490,8 @@ def export_reports_excel(
     end_date: Optional[str] = Query(default=None),
     agri_only: bool = Query(default=False),
     accidents_only: bool = Query(default=False),
+    fires_only: bool = Query(default=False),
+    fire_only: bool = Query(default=False),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -521,6 +536,15 @@ def export_reports_excel(
                 func.upper(CrimeModel.category) == 'ACCIDENT',
                 func.upper(CrimeModel.category) == 'ACCIDENTS',
                 func.upper(CrimeModel.category) == 'ACCIDENT_REPORT'
+            )
+        )
+
+    if (fires_only or fire_only) and hasattr(CrimeModel, 'category'):
+        query = query.filter(
+            or_(
+                func.upper(CrimeModel.category) == 'FIRE_INCIDENT',
+                func.upper(CrimeModel.category) == 'FIRE INCIDENTS',
+                func.upper(CrimeModel.category) == 'FIRE'
             )
         )
         
@@ -789,8 +813,9 @@ def create_report(
                 data["region"] = current_user.region
                 data["station"] = current_user.station
 
-        if not data.get("category"):
-            data["category"] = "GENERAL CRIMES"
+        # 🟢 Enforce strict mandatory category validation server-side
+        if not data.get("category") or str(data.get("category")).strip() == "":
+            raise HTTPException(status_code=400, detail="Category selection is mandatory.")
 
         incoming_sd_ref = (data.get("sd_ref") or "").strip().lower()
         incoming_station = (data.get("station") or "").strip().lower()
@@ -933,11 +958,10 @@ def update_report(
             data.pop("region", None)
             data.pop("station", None)
 
-        # 🟢 Explicitly persist category updates (e.g. converting to/from agricultural crimes)
         if "category" in data and data["category"]:
             existing_report.category = str(data["category"]).strip().upper()
         elif not getattr(existing_report, 'category', None):
-            existing_report.category = "GENERAL CRIMES"
+            raise HTTPException(status_code=400, detail="Category selection is mandatory.")
 
         for key, value in data.items():
             if key != 'category' and hasattr(existing_report, key):
