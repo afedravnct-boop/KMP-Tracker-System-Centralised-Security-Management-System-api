@@ -513,6 +513,28 @@ def export_audit_logs_excel(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
 
+# ==========================================
+# 4. SILENT FIXES FOR FRONTEND 404 LOGGING ROUTES
+# ==========================================
+@app.post("/api/v1/system/log-session")
+@app.post("/api/v1/activity-logs")
+def receive_frontend_activity_log(
+    data: dict = {},
+    logs_db: Session = Depends(get_logs_db)
+):
+    """Silently resolves the 404 frontend telemetry posts."""
+    try:
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=str(data.get("fnum", "SYSTEM")),
+            action=str(data.get("action", "FRONTEND_EVENT")),
+            module=str(data.get("module", "CLIENT")),
+            details=str(data.get("details", "Frontend session activity logged."))
+        )
+        return {"status": "success", "recorded": True}
+    except Exception:
+        return {"status": "success", "recorded": False}
+
 class HeartbeatPayload(BaseModel):
     fnum: Optional[str] = None
 
@@ -586,7 +608,7 @@ def get_online_users(db: Session = Depends(database.get_db)):
     ]
 
 # ====================================================================
-# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
+# 5. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
 # ====================================================================
 eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler(timezone=eat_tz)
