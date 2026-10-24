@@ -24,11 +24,11 @@ from routers.activity_logger import record_neon_activity
 router = APIRouter(prefix="/api/v1/hr", tags=["HR & Establishments"])
 
 REGIONAL_HIERARCHY = {
-    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-    "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
-    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-    "POLICE HEADQUARTERS": ["NAGURU"]
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
 def normalize_education_level(educ_str):
@@ -348,34 +348,7 @@ def export_demographics_word(
 
         records = db.execute(text(nr_query + status_filter), params).fetchall()
 
-        doc = Document()
-        section = doc.sections[0]
-        section.orientation = WD_ORIENT.LANDSCAPE
-        section.page_width = Inches(11.69)
-        section.page_height = Inches(8.27)
-        section.top_margin = Inches(0.6)
-        section.bottom_margin = Inches(0.6)
-        section.left_margin = Inches(0.6)
-        section.right_margin = Inches(0.6)
-
-        title_p = doc.add_paragraph()
-        title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run_title = title_p.add_run("UGANDA POLICE FORCE - KAMPALA METROPOLITAN POLICE\nHR & DEMOGRAPHIC COMMAND SUMMARY REPORT")
-        run_title.font.name = "Calibri"
-        run_title.font.size = Pt(12)
-        run_title.font.bold = True
-        run_title.font.color.rgb = RGBColor(153, 27, 27)
-
-        sub_p = doc.add_paragraph()
-        sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run_sub = sub_p.add_run(f"Jurisdiction Scope: {current_user.station or current_user.region} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-        run_sub.font.name = "Calibri"
-        run_sub.font.size = Pt(9)
-        run_sub.font.color.rgb = RGBColor(100, 116, 139)
-
-        doc.add_paragraph()
-
-        # Compute exact regional totals & demographics matching UI ledger
+        # Re-run aggregation calculation to match the UI Nominal Roll table precisely
         def is_officer(rank_str):
             if not rank_str: return False
             clean = str(rank_str).upper().replace('.', '').replace('/', '').strip()
@@ -424,80 +397,116 @@ def export_demographics_word(
             {"key": "POLICE HEADQUARTERS", "match": ["POLICE HEADQUARTERS", "NAGURU"]}
         ]
 
-        # Add Table mirroring Nominal Roll Aggregates UI
-        table = doc.add_table(rows=1, cols=6)
+        nominal_aggregates = []
+        for reg in regions_config:
+            reg_personnel = [r for r in records if any(m in str(r[4] or '').upper() for m in reg["match"])]
+            officers = [r for r in reg_personnel if is_officer(r[2])]
+            ncos = [r for r in reg_personnel if not is_officer(r[2])]
+            nominal_aggregates.append({
+                "region": reg["key"],
+                "officers": calc_stats(officers),
+                "ncos": calc_stats(ncos),
+                "totalOff": len(officers),
+                "totalNco": len(ncos),
+                "regionTotal": len(reg_personnel)
+            })
+
+        # Build Word Document matching the exact UI table
+        doc = Document()
+        section = doc.sections[0]
+        section.orientation = WD_ORIENT.LANDSCAPE
+        section.page_width = Inches(11.69)
+        section.page_height = Inches(8.27)
+        section.top_margin = Inches(0.5)
+        section.bottom_margin = Inches(0.5)
+        section.left_margin = Inches(0.5)
+        section.right_margin = Inches(0.5)
+
+        title_p = doc.add_paragraph()
+        title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_title = title_p.add_run("UGANDA POLICE FORCE - KAMPALA METROPOLITAN POLICE\nNOMINAL ROLL AGGREGATES & DEMOGRAPHIC STRENGTH REPORT")
+        run_title.font.name = "Calibri"
+        run_title.font.size = Pt(12)
+        run_title.font.bold = True
+        run_title.font.color.rgb = RGBColor(153, 27, 27)
+
+        sub_p = doc.add_paragraph()
+        sub_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_sub = sub_p.add_run(f"Jurisdiction Scope: {current_user.station or current_user.region} | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        run_sub.font.name = "Calibri"
+        run_sub.font.size = Pt(9)
+        run_sub.font.color.rgb = RGBColor(100, 116, 139)
+
+        doc.add_paragraph()
+
+        # Create Word Table mirroring UI columns
+        table = doc.add_table(rows=2, cols=11)
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.style = 'Table Grid'
-        
-        headers = ["Region", "Officers", "NCOs", "Male / Female (Off / NCO)", "Education Breakdown (Off / NCO)", "Region Total"]
+
+        # Merge Header cells for multi-level row headers
         hdr_cells = table.rows[0].cells
-        for i, h_text in enumerate(headers):
-            hdr_cells[i].text = h_text
-            set_cell_background(hdr_cells[i], "1F2937")
-            for p in hdr_cells[i].paragraphs:
+        hdr_cells[0].merge(table.rows[1].cells[0]) # SN
+        hdr_cells[1].merge(table.rows[1].cells[1]) # Region
+        hdr_cells[2].merge(table.rows[1].cells[2]) # Total Off
+        hdr_cells[3].merge(table.rows[1].cells[3]) # Total NCO
+        hdr_cells[4].merge(table.rows[1].cells[4]) # Age Off
+        hdr_cells[5].merge(table.rows[1].cells[5]) # Age NCO
+        hdr_cells[6].merge(table.rows[1].cells[6]) # Sex Off
+        hdr_cells[7].merge(table.rows[1].cells[7]) # Sex NCO
+        hdr_cells[8].merge(table.rows[1].cells[8]) # Edu Off
+        hdr_cells[9].merge(table.rows[1].cells[9]) # Edu NCO
+        hdr_cells[10].merge(table.rows[1].cells[10]) # Region Total
+
+        headers_top = ["SN", "REGION", "TOTAL OFF", "TOTAL NCO", "AGE (OFF)", "AGE (NCO)", "SEX (OFF)", "SEX (NCO)", "EDU (OFF)", "EDU (NCO)", "REGION TOTAL"]
+        for idx, text_val in enumerate(headers_top):
+            hdr_cells[idx].text = text_val
+            set_cell_background(hdr_cells[idx], "1F2937")
+            for p in hdr_cells[idx].paragraphs:
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 for r in p.runs:
                     r.font.bold = True
                     r.font.size = Pt(8.5)
                     r.font.color.rgb = RGBColor(255, 255, 255)
 
-        master_off = 0
-        master_nco = 0
-        master_total = 0
-
-        for reg in regions_config:
-            reg_personnel = [r for r in records if any(m in str(r[4] or '').upper() for m in reg["match"])]
-            officers = [r for r in reg_personnel if is_officer(r[2])]
-            ncos = [r for r in reg_personnel if not is_officer(r[2])]
-            
-            off_stats = calc_stats(officers)
-            nco_stats = calc_stats(ncos)
-            
-            master_off += len(officers)
-            master_nco += len(ncos)
-            master_total += len(reg_personnel)
-
+        # Populate rows
+        for idx, row in enumerate(nominal_aggregates):
             row_cells = table.add_row().cells
-            row_cells[0].text = reg["key"]
-            row_cells[1].text = str(len(officers))
-            row_cells[2].text = str(len(ncos))
-            row_cells[3].text = f"Off: M-{off_stats['sex']['M']} / F-{off_stats['sex']['F']}\nNCO: M-{nco_stats['sex']['M']} / F-{nco_stats['sex']['F']}"
-            row_cells[4].text = f"Off Deg:{off_stats['edu']['degree']} Dip:{off_stats['edu']['diploma']} UACE:{off_stats['edu']['uace']} UCE:{off_stats['edu']['uce']}\nNCO Deg:{nco_stats['edu']['degree']} Dip:{nco_stats['edu']['diploma']} UACE:{nco_stats['edu']['uace']} UCE:{nco_stats['edu']['uce']}"
-            row_cells[5].text = str(len(reg_personnel))
+            row_cells[0].text = str(idx + 1)
+            row_cells[1].text = row["region"]
+            row_cells[2].text = str(row["totalOff"])
+            row_cells[3].text = str(row["totalNco"])
+            
+            # Formatted summaries for Word cells
+            age_off = f"18-29:{row['officers']['age']['twenties']} | 30-39:{row['officers']['age']['thirties']} | 40-49:{row['officers']['age']['forties']} | 50+:{row['officers']['age']['fifties']}"
+            age_nco = f"18-29:{row['ncos']['age']['twenties']} | 30-39:{row['ncos']['age']['thirties']} | 40-49:{row['ncos']['age']['forties']} | 50+:{row['ncos']['age']['fifties']}"
+            sex_off = f"M:{row['officers']['sex']['M']} | F:{row['officers']['sex']['F']}"
+            sex_nco = f"M:{row['ncos']['sex']['M']} | F:{row['ncos']['sex']['F']}"
+            edu_off = f"Deg:{row['officers']['edu']['degree']} | Dip:{row['officers']['edu']['diploma']} | Cert:{row['officers']['edu']['cert']} | UACE:{row['officers']['edu']['uace']} | UCE:{row['officers']['edu']['uce']}"
+            edu_nco = f"Deg:{row['ncos']['edu']['degree']} | Dip:{row['ncos']['edu']['diploma']} | Cert:{row['ncos']['edu']['cert']} | UACE:{row['ncos']['edu']['uace']} | UCE:{row['ncos']['edu']['uce']}"
 
-            for idx, cell in enumerate(row_cells):
+            row_cells[4].text = age_off
+            row_cells[5].text = age_nco
+            row_cells[6].text = sex_off
+            row_cells[7].text = sex_nco
+            row_cells[8].text = edu_off
+            row_cells[9].text = edu_nco
+            row_cells[10].text = str(row["regionTotal"])
+
+            for cell in row_cells:
                 for p in cell.paragraphs:
-                    if idx in [0, 3, 4]: p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                    else: p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     for r in p.runs: r.font.size = Pt(7.5)
-
-        # Master Total Row
-        tot_row = table.add_row().cells
-        tot_row[0].text = "KMP MASTER TOTALS"
-        tot_row[1].text = str(master_off)
-        tot_row[2].text = str(master_nco)
-        tot_row[3].text = "-"
-        tot_row[4].text = "-"
-        tot_row[5].text = str(master_total)
-        
-        for cell in tot_row:
-            set_cell_background(cell, "E5E7EB")
-            for p in cell.paragraphs:
-                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                for r in p.runs:
-                    r.font.bold = True
-                    r.font.size = Pt(8.5)
 
         doc_stream = io.BytesIO()
         doc.save(doc_stream)
         doc_stream.seek(0)
 
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
-        filename = f"KMP_HR_Demographic_Summary_{eat_time.strftime('%Y%m%d')}.docx"
+        filename = f"KMP_Nominal_Aggregates_Report_{eat_time.strftime('%Y%m%d')}.docx"
 
         record_neon_activity(
             logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="DEMOGRAPHICS_WORD",
-            target_id="WORD_EXPORT", changes_summary=f"{current_user.fnum} downloaded HR Demographic Summary Word Report."
+            target_id="WORD_EXPORT", changes_summary=f"{current_user.fnum} downloaded Nominal Aggregates Word Report."
         )
 
         return StreamingResponse(
@@ -506,4 +515,6 @@ def export_demographics_word(
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Word Export Error: {str(e)}")
