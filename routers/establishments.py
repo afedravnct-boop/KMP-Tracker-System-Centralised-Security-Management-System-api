@@ -143,9 +143,25 @@ def build_filtered_query(query, ModelClass, region, station, search):
     return query
 
 # ====================================================================
+# 0. COMPATIBILITY ROUTE (Fixes 405 Method Not Allowed on legacy frontend path)
+# ====================================================================
+@router.get("/reports/establishments-json")
+@router.get("/reports/establishments-json/")
+def get_establishments_json_compatibility(
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    EstModel = get_est_model()
+    query = db.query(EstModel)
+    query = apply_opsec_scope(current_user, query, EstModel)
+    records = query.all()
+    return [serialize_row(r) for r in records]
+
+# ====================================================================
 # 1. RETRIEVE ESTABLISHMENTS
 # ====================================================================
 @router.get("/establishments")
+@router.get("/establishments/")
 def get_all_establishments(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
@@ -188,6 +204,7 @@ def get_all_establishments(
 # 1B. EXPORT ESTABLISHMENTS TO SECURE AES-256 ZIP (.XLSX)
 # ====================================================================
 @router.get("/establishments/export")
+@router.get("/establishments/export/")
 def export_establishments_excel(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
@@ -329,6 +346,7 @@ def export_establishments_excel(
 # 2. CREATE ESTABLISHMENT
 # ====================================================================
 @router.post("/establishments")
+@router.post("/establishments/")
 def create_establishment(
     data: dict, 
     db: Session = Depends(get_db), 
@@ -388,6 +406,7 @@ def create_establishment(
 # 3. UPDATE ESTABLISHMENT
 # ====================================================================
 @router.put("/establishments/{est_id}")
+@router.put("/establishments/{est_id}/")
 def update_establishment(
     est_id: int, 
     est_update: dict, 
@@ -455,6 +474,7 @@ def update_establishment(
 # 4. DELETE ESTABLISHMENT
 # ====================================================================
 @router.delete("/establishments/{est_id}")
+@router.delete("/establishments/{est_id}/")
 def delete_establishment(
     est_id: int, 
     db: Session = Depends(get_db), 
