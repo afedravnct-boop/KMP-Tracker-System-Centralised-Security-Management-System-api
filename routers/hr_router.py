@@ -46,6 +46,29 @@ def normalize_education_level(educ_str):
         
     return cleaned
 
+def normalize_region(reg_str, station_str=""):
+    """🟢 Normalizes rogue or department-polluted region entries into official KMP regions."""
+    combined = f"{str(reg_str or '')} {str(station_str or '')}".upper()
+    
+    if any(k in combined for k in ['POLICE HEADQUARTERS', 'NAGURU', 'LOGISTICS & ENGINEERING', 'FIRE & RESCUE']):
+        return "POLICE HEADQUARTERS"
+    if any(k in combined for k in ['KMP HEADQUARTERS', 'TRAFFIC', 'CID', 'ICT', 'FLYING SQUAD', 'CRIME INTELLIGENCE', 'G/D', 'CFPU', 'LOG AND ENG', 'LOGISTICS']):
+        return "KMP HEADQUARTERS"
+    if any(k in combined for k in ['NORTH', 'KAWEMPE', 'KAKIRI', 'KASANGATI', 'MATUGGA', 'NANSANA', 'OLD KAMPALA', 'WAKISO', 'WANDEGEYA']):
+        return "KMP NORTH"
+    if any(k in combined for k in ['EAST', 'JINJA ROAD', 'KIRA', 'MUKONO', 'NAGGALAMA', 'SEETA', 'KMPE']):
+        return "KMP EAST"
+    if any(k in combined for k in ['SOUTH', 'NATEETE', 'CPS', 'PARLIAMENT', 'ENTEBBE', 'KABALAGALA', 'KAJJANSI', 'KASENYI', 'KATWE', 'KYENGERA', 'NSANGI']):
+        return "KMP SOUTH"
+        
+    # Check hierarchy matching fallback
+    for reg_name, stations in REGIONAL_HIERARCHY.items():
+        for stn in stations:
+            if stn in combined:
+                return reg_name
+                
+    return "KMP HEADQUARTERS"
+
 @router.get("/aggregated-ledger")
 @router.get("/aggregated-ledger/")
 def get_aggregated_hr_ledger(
@@ -193,7 +216,8 @@ def get_aggregated_hr_ledger(
 
         nominal_aggregates = []
         for reg in regions_config:
-            reg_personnel = [r for r in records if any(m in str(r[4] or '').upper() for m in reg["match"])]
+            # 🟢 Use normalized region check
+            reg_personnel = [r for r in records if normalize_region(r[4], r[5]) == reg["key"]]
             officers = [r for r in reg_personnel if is_officer(r[2])]
             ncos = [r for r in reg_personnel if not is_officer(r[2])]
             nominal_aggregates.append({
@@ -208,7 +232,10 @@ def get_aggregated_hr_ledger(
         region_map = {}
         for r in records:
             stn = str(r[5] or 'HQ').strip().upper()
-            reg = str(r[4] or 'KMP GENERAL').strip().upper()
+            raw_reg = str(r[4] or '').strip().upper()
+            
+            # 🟢 Normalize the region strictly to official buckets
+            reg = normalize_region(raw_reg, stn)
 
             if reg not in region_map:
                 region_map[reg] = {"regionName": reg, "hqPersonnel": 0, "stations": {}, "total": 0}
