@@ -879,3 +879,55 @@ async def report_public_client_crash(
         db.rollback()
         logs_db.rollback()
         return {"status": "success", "message": "Fault telemetry logged."}
+
+# ====================================================================
+# 8. ADDITIONAL SYSTEM ENDPOINTS (Session Logging & User Roster)
+# ====================================================================
+
+@router.get("/users")
+@router.get("/api/v1/users")
+def get_all_active_users_auth(
+    db: Session = Depends(database.get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    """Provides active user roster to the frontend dashboard after authorization."""
+    try:
+        users = db.query(models.Users).filter(models.Users.is_approved == True).all()
+        return [
+            {
+                "fnum": u.fnum, "name": u.name, "rank": u.rank, "role": u.role, 
+                "station": u.station, "region": u.region, "division": u.division,
+                "position": u.position, "email": u.email, "phone": u.phone,
+                "ipps": u.ipps, "sex": u.sex, "profile_photo_path": u.profile_photo_path,
+                "permissions": u.permissions
+            } for u in users
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class SessionLogPayload(BaseModel):
+    fnum: Optional[str] = None
+    action: Optional[str] = "LOGIN"
+    details: Optional[str] = "Session established"
+
+@router.post("/system/log-session")
+@router.post("/api/v1/system/log-session")
+@router.post("/activity-logs")
+@router.post("/api/v1/activity-logs")
+def log_frontend_session_activity(
+    payload: SessionLogPayload,
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    """Captures frontend sign-in session logs and activity telemetry."""
+    try:
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum or payload.fnum,
+            action=payload.action,
+            module="SESSION_TELEMETRY",
+            details=payload.details
+        )
+        return {"status": "success", "message": "Session telemetry recorded."}
+    except Exception as e:
+        return {"status": "success", "message": "Telemetry received with minor notice."}
