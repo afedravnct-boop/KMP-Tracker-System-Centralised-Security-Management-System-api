@@ -47,6 +47,14 @@ def clean_model_dict(obj):
             clean[k] = v
     return clean
 
+def get_officer_signature(user):
+    if not user:
+        return "UNKNOWN COMMANDER"
+    fnum = (user.fnum or "").strip()
+    rank = (user.rank or "").strip()
+    name = (user.name or "").strip()
+    return f"{fnum} {rank} {name}".strip().upper()
+
 def apply_opsec_scope(current_user, query, ModelClass):
     if not ModelClass or not current_user:
         return query.filter(text("1=0"))
@@ -124,7 +132,6 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
             )
 
     if start_date and hasattr(ModelClass, 'date'):
-        # Ensure string comparison aligns correctly with YYYY-MM-DD format
         query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) >= start_date)
     
     if end_date and hasattr(ModelClass, 'date'):
@@ -139,6 +146,7 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
         if hasattr(ModelClass, 'sn'): search_conds.append(func.cast(ModelClass.sn, text("VARCHAR")).ilike(term))
         if hasattr(ModelClass, 'agric_crime_report'): search_conds.append(ModelClass.agric_crime_report.ilike(term))
         if hasattr(ModelClass, 'nature_of_accident'): search_conds.append(ModelClass.nature_of_accident.ilike(term))
+        if hasattr(ModelClass, 'nature_of_fire'): search_conds.append(ModelClass.nature_of_fire.ilike(term))
         if search_conds:
             query = query.filter(or_(*search_conds))
             
@@ -518,7 +526,7 @@ def get_accidents_stats(
     search: Optional[str] = Query(default=None), limit: int = Query(default=300),
     db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
 ):
-    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
     if not AccidentsModel: return []
     
     query = db.query(AccidentsModel)
@@ -530,7 +538,7 @@ def get_accidents_stats(
     results = []
     for r in records:
         clean = clean_model_dict(r)
-        if r.created_at:
+        if hasattr(r, 'created_at') and r.created_at:
             clean['created_at'] = r.created_at.isoformat() if hasattr(r.created_at, 'isoformat') else str(r.created_at)
         results.append(clean)
         
@@ -538,14 +546,13 @@ def get_accidents_stats(
 
 @router.post("/accidents")
 def create_accidents_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
-    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
     if not AccidentsModel: raise HTTPException(status_code=500, detail="Accidents model not configured in database.")
     try:
         data.pop('sn', None); data.pop('id', None)
         valid_cols = [c.key for c in AccidentsModel.__table__.columns]
         safe_data = {k: v for k, v in data.items() if k in valid_cols}
         
-        # Ensure total matches the severity breakdown
         safe_data['total'] = int(safe_data.get('minor', 0)) + int(safe_data.get('serious', 0)) + int(safe_data.get('fatal', 0))
         safe_data['entered_by'] = get_officer_signature(current_user)
         
@@ -562,7 +569,7 @@ def create_accidents_stat(data: dict, db: Session = Depends(get_db), logs_db: Se
         )
 
         clean = clean_model_dict(new_record)
-        if new_record.created_at:
+        if hasattr(new_record, 'created_at') and new_record.created_at:
             clean['created_at'] = new_record.created_at.isoformat() if hasattr(new_record.created_at, 'isoformat') else str(new_record.created_at)
         return clean
     except Exception as e:
@@ -570,7 +577,7 @@ def create_accidents_stat(data: dict, db: Session = Depends(get_db), logs_db: Se
 
 @router.put("/accidents/{record_id}")
 def update_accidents_stat(record_id: int, data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
-    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
     if not AccidentsModel: raise HTTPException(status_code=500, detail="Accidents model not configured.")
     try:
         record = db.query(AccidentsModel).filter(AccidentsModel.id == record_id).first()
@@ -595,7 +602,7 @@ def update_accidents_stat(record_id: int, data: dict, db: Session = Depends(get_
         )
 
         clean = clean_model_dict(record)
-        if record.created_at:
+        if hasattr(record, 'created_at') and record.created_at:
             clean['created_at'] = record.created_at.isoformat() if hasattr(record.created_at, 'isoformat') else str(record.created_at)
         return clean
     except Exception as e:
@@ -608,7 +615,7 @@ def export_accidents_stats_secure_zip(
     search: Optional[str] = Query(default=None), db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
 ):
-    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics')
+    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
     if not AccidentsModel: raise HTTPException(status_code=500, detail="Model not found")
 
     query = db.query(AccidentsModel)
@@ -661,7 +668,7 @@ def export_accidents_stats_secure_zip(
 
     current_row = 5
     for r in records:
-        created_str = r.created_at.strftime("%Y-%m-%d %H:%M") if r.created_at else ''
+        created_str = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r, 'created_at') and r.created_at else ''
         row_data = [
             getattr(r, 'id', ''), getattr(r, 'date', ''), getattr(r, 'station', ''), getattr(r, 'nature_of_accident', ''),
             getattr(r, 'minor', 0), getattr(r, 'serious', 0), getattr(r, 'fatal', 0), getattr(r, 'victims', 0), getattr(r, 'total', 0),
@@ -701,6 +708,206 @@ def export_accidents_stats_secure_zip(
     record_neon_activity(
         logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="ACCIDENTS_STATS", target_id="SECURE_ZIP_EXPORT",
         changes_summary=f"{current_user.fnum} securely exported AES-256 encrypted Accidents Statistics archive."
+    )
+
+    return StreamingResponse(
+        zip_stream, media_type="application/zip",
+        headers={'Content-Disposition': f'attachment; filename="{zip_filename}"', 'Access-Control-Expose-Headers': 'Content-Disposition'}
+    )
+
+
+# ==========================================
+# 5. FIRE & RESCUE INCIDENTS STATISTICS ENDPOINTS
+# ==========================================
+@router.get("/fires")
+def get_fires_stats(
+    region: Optional[str] = Query(default=None), station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None), end_date: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None), limit: int = Query(default=300),
+    db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
+):
+    FiresModel = get_model_safe('Fire_Statistics', 'FireStatistics', 'fire_statistics', 'FiresStats')
+    if not FiresModel: return []
+    
+    query = db.query(FiresModel)
+    query = apply_opsec_scope(current_user, query, FiresModel)
+    query = build_filtered_query(query, FiresModel, region, station, start_date, end_date, search)
+    
+    records = query.order_by(FiresModel.id.desc()).limit(limit).all()
+    
+    results = []
+    for r in records:
+        clean = clean_model_dict(r)
+        if hasattr(r, 'created_at') and r.created_at:
+            clean['created_at'] = r.created_at.isoformat() if hasattr(r.created_at, 'isoformat') else str(r.created_at)
+        results.append(clean)
+        
+    return results
+
+@router.post("/fires")
+def create_fires_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    FiresModel = get_model_safe('Fire_Statistics', 'FireStatistics', 'fire_statistics', 'FiresStats')
+    if not FiresModel: raise HTTPException(status_code=500, detail="Fire statistics model not configured in database.")
+    try:
+        data.pop('sn', None); data.pop('id', None)
+        valid_cols = [c.key for c in FiresModel.__table__.columns]
+        safe_data = {k: v for k, v in data.items() if k in valid_cols}
+        
+        safe_data['total'] = int(safe_data.get('minor_outbreaks', 0)) + int(safe_data.get('major_disasters', 0)) + int(safe_data.get('fatal_fires', 0))
+        safe_data['entered_by'] = get_officer_signature(current_user)
+        
+        new_record = FiresModel(**safe_data)
+        db.add(new_record); db.commit(); db.refresh(new_record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="FIRE_STATS",
+            target_id=str(new_record.id),
+            changes_summary=f"{current_user.fnum} recorded Fire Incident stats for {new_record.station}."
+        )
+
+        clean = clean_model_dict(new_record)
+        if hasattr(new_record, 'created_at') and new_record.created_at:
+            clean['created_at'] = new_record.created_at.isoformat() if hasattr(new_record.created_at, 'isoformat') else str(new_record.created_at)
+        return clean
+    except Exception as e:
+        db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/fires/{record_id}")
+def update_fires_stat(record_id: int, data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
+    FiresModel = get_model_safe('Fire_Statistics', 'FireStatistics', 'fire_statistics', 'FiresStats')
+    if not FiresModel: raise HTTPException(status_code=500, detail="Fire statistics model not configured.")
+    try:
+        record = db.query(FiresModel).filter(FiresModel.id == record_id).first()
+        if not record: raise HTTPException(status_code=404, detail="Fire record not found.")
+        
+        data.pop('id', None); data.pop('sn', None)
+        for key, value in data.items():
+            if hasattr(record, key): setattr(record, key, value)
+            
+        record.total = int(record.minor_outbreaks or 0) + int(record.major_disasters or 0) + int(record.fatal_fires or 0)
+        record.last_updated_by = get_officer_signature(current_user)
+            
+        db.commit(); db.refresh(record)
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="FIRE_STATS",
+            target_id=str(record_id),
+            changes_summary=f"{current_user.fnum} updated Fire Incident stats ID {record_id}."
+        )
+
+        clean = clean_model_dict(record)
+        if hasattr(record, 'created_at') and record.created_at:
+            clean['created_at'] = record.created_at.isoformat() if hasattr(record.created_at, 'isoformat') else str(record.created_at)
+        return clean
+    except Exception as e:
+        db.rollback(); logs_db.rollback(); raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/fires/export")
+def export_fires_stats_secure_zip(
+    region: Optional[str] = Query(default=None), station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None), end_date: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None), db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
+):
+    FiresModel = get_model_safe('Fire_Statistics', 'FireStatistics', 'fire_statistics', 'FiresStats')
+    if not FiresModel: raise HTTPException(status_code=500, detail="Model not found")
+
+    query = db.query(FiresModel)
+    query = apply_opsec_scope(current_user, query, FiresModel)
+    query = build_filtered_query(query, FiresModel, region, station, start_date, end_date, search)
+    records = query.order_by(FiresModel.id.desc()).all()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Fire & Rescue Stats"
+    ws.views.sheetView[0].showGridLines = True
+
+    eat_tz = pytz.timezone("Africa/Nairobi")
+    eat_time = datetime.now(eat_tz).replace(tzinfo=None)
+    
+    officer_name = (current_user.name or "UNKNOWN").strip().upper()
+    officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+    officer_rank = (current_user.rank or "").strip().upper()
+    officer_station = (current_user.station or "HQ").strip().upper()
+    timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
+
+    wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
+    wb.properties.lastModifiedBy = f"KMP-CSDMS SECURITY AUDIT ENGINE [{officer_station}]"
+    wb.properties.title = "Official Law Enforcement Restricted Fire Incidents Export"
+
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="B45309", end_color="B45309", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_font = Font(name="Calibri", size=10)
+    thin_border = Border(left=Side(style='thin', color='D1D5DB'), right=Side(style='thin', color='D1D5DB'), top=Side(style='thin', color='D1D5DB'), bottom=Side(style='thin', color='D1D5DB'))
+
+    ws.merge_cells("A1:K1")
+    banner_cell = ws.cell(row=1, column=1)
+    banner_cell.value = f"RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED TO OFFICER: {officer_fnum} {officer_rank} {officer_name} ({officer_station}) — TIMESTAMP: {timestamp_str}"
+    banner_cell.font = Font(name="Calibri", size=9, bold=True, color="991B1B")
+    banner_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    banner_cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    ws.cell(row=2, column=1, value="UGANDA POLICE FORCE - FIRE & RESCUE INCIDENTS STATISTICS LEDGER").font = Font(bold=True, size=11)
+    ws.row_dimensions[2].height = 18
+
+    headers = ["ID", "Date", "Division/Station", "Nature of Fire", "Minor Outbreaks", "Major Disasters", "Fatal Fires", "Victims", "Total", "Created By", "Date Created"]
+    ws.row_dimensions[4].height = 26
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        cell.border = thin_border
+
+    current_row = 5
+    for r in records:
+        created_str = r.created_at.strftime("%Y-%m-%d %H:%M") if hasattr(r, 'created_at') and r.created_at else ''
+        row_data = [
+            getattr(r, 'id', ''), getattr(r, 'date', ''), getattr(r, 'station', ''), getattr(r, 'nature_of_fire', ''),
+            getattr(r, 'minor_outbreaks', 0), getattr(r, 'major_disasters', 0), getattr(r, 'fatal_fires', 0), getattr(r, 'victims', 0), getattr(r, 'total', 0),
+            getattr(r, 'entered_by', getattr(r, 'last_updated_by', '')), created_str
+        ]
+        ws.append(row_data)
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws.cell(row=current_row, column=col_idx)
+            cell.font = cell_font
+            cell.border = thin_border
+            if col_idx in [1, 2, 5, 6, 7, 8, 9]:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+        current_row += 1
+
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+
+    excel_stream = io.BytesIO()
+    wb.save(excel_stream)
+    excel_stream.seek(0)
+
+    zip_stream = io.BytesIO()
+    zip_password = str(current_user.fnum).strip().encode('utf-8')
+    fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+    excel_filename = f"{fnum_clean}_Fire_Stats_{eat_time.strftime('%Y%m%d')}.xlsx"
+    zip_filename = f"SECURE_FIRE_STATS_{eat_time.strftime('%Y%m%d')}.zip"
+
+    with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(zip_password)
+        zf.writestr(excel_filename, excel_stream.getvalue())
+    zip_stream.seek(0)
+
+    record_neon_activity(
+        logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="FIRE_STATS", target_id="SECURE_ZIP_EXPORT",
+        changes_summary=f"{current_user.fnum} securely exported AES-256 encrypted Fire & Rescue Statistics archive."
     )
 
     return StreamingResponse(

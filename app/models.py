@@ -526,6 +526,27 @@ AICommandLogs = AI_Command_Logs
 DailyComplianceTracker = Daily_Compliance_Tracker
 AccidentsStatistics = Accidents_Statistics
 
+# ======================================================================
+# FIRES SUMMARY LEDGER
+# ======================================================================
+class Fire_Statistics(Base):
+    __tablename__ = "fire_statistics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sn = Column(Integer, nullable=True)
+    region = Column(String(100), index=True, nullable=False)
+    station = Column(String(100), index=True, nullable=False)
+    date = Column(String(20), index=True, nullable=False)
+    nature_of_fire = Column(String(200), nullable=False)
+    minor_outbreaks = Column(Integer, default=0)
+    major_disasters = Column(Integer, default=0)
+    fatal_fires = Column(Integer, default=0)
+    victims = Column(Integer, default=0)
+    total = Column(Integer, default=0)
+    entered_by = Column(String(150), nullable=True)
+    last_updated_by = Column(String(150), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # ==========================================
 # AGRICULTURAL CRIME SUMMARY LEDGER
 # ==========================================

@@ -1,6 +1,6 @@
 // src/components/Statistics.jsx
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle, Sprout, Save, HardDrive, X, Car } from 'lucide-react';
+import { BarChart3, PlusCircle, Edit, AlertTriangle, CheckCircle, Sprout, Save, HardDrive, X, Car, Flame } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
@@ -27,6 +27,20 @@ const COMMON_ACCIDENTS = [
   "BOAT CAPSIZING",
   "TRAIN DERAILMENT / LEVEL CROSSING",
   "AIRCRAFT / AVIATION INCIDENT"
+];
+
+const COMMON_FIRES = [
+  "MARKET FIRE OUTBREAK",
+  "RESIDENTIAL BUILDING FIRE",
+  "COMMERCIAL PLAZA FIRE",
+  "INDUSTRIAL / FACTORY FIRE",
+  "SCHOOL / DORMITORY FIRE",
+  "FUEL TANKER / VEHICLE FIRE",
+  "BUSH / GRASS FIRE",
+  "ELECTRICAL SHORT CIRCUIT FIRE",
+  "GAS CYLINDER EXPLOSION",
+  "WAREHOUSE / STORAGE FIRE",
+  "OTHER"
 ];
 
 const cleanStr = (str) => {
@@ -114,6 +128,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const [disruptiveStats, setDisruptiveStats] = useState([]);
   const [agricStats, setAgricStats] = useState([]);
   const [accidentStats, setAccidentStats] = useState([]);
+  const [fireStats, setFireStats] = useState([]); // 🟢 Fires state
   const [agricSummaryRecords, setAgricSummaryRecords] = useState([]);
 
   const [expandedAgricRegions, setExpandedAgricRegions] = useState({
@@ -206,6 +221,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       } else if (statsDomain === 'ACCIDENTS') {
           const res = await authFetch(`/api/v1/accidents?${params.toString()}`);
           if (res.ok) setAccidentStats(await res.json());
+      } else if (statsDomain === 'FIRES') { // 🟢 Fires fetch
+          const res = await authFetch(`/api/v1/fires?${params.toString()}`);
+          if (res.ok) setFireStats(await res.json());
       }
     } catch (err) {
       console.error(`Failed to load ${statsDomain} ledger:`, err);
@@ -233,12 +251,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     fetchAgricSummaries();
   }, [fetchDomainStats, fetchAgricSummaries]);
 
-  // 🟢 Robust Client-Side Date Filter for the Ledger & Metrics Cards
   const currentDomainStats = useMemo(() => {
       let raw = [];
       if (statsDomain === 'DISRUPTIVE') raw = disruptiveStats;
       else if (statsDomain === 'AGRICULTURAL') raw = agricStats;
       else if (statsDomain === 'ACCIDENTS') raw = accidentStats;
+      else if (statsDomain === 'FIRES') raw = fireStats; // 🟢 Fires raw assignment
 
       if (dateFilter === 'ALL TIME') return raw;
 
@@ -250,7 +268,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           if (!itemDateStr) return true;
           return itemDateStr >= start && itemDateStr <= end;
       });
-  }, [statsDomain, disruptiveStats, agricStats, accidentStats, dateFilter]);
+  }, [statsDomain, disruptiveStats, agricStats, accidentStats, fireStats, dateFilter]);
 
   const handleExportDomainStats = async () => {
     if (!currentDomainStats.length) {
@@ -264,6 +282,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       let targetEndpoint = '/api/v1/stats/export';
       if (statsDomain === 'AGRICULTURAL') targetEndpoint = '/api/v1/agric-stats/export';
       if (statsDomain === 'ACCIDENTS') targetEndpoint = '/api/v1/accidents/export';
+      if (statsDomain === 'FIRES') targetEndpoint = '/api/v1/fires/export'; // 🟢 Fires export endpoint
 
       const params = new URLSearchParams();
       if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
@@ -396,6 +415,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
               date: getTodayString(), nature_of_accident: '', custom_nature_of_accident: '', minor: 0, serious: 0, fatal: 0, victims: 0
           };
       }
+      if (statsDomain === 'FIRES') { // 🟢 Initial form data for fires
+          return {
+              sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
+              date: getTodayString(), nature_of_fire: '', minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0
+          };
+      }
       return {
           sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
           date: getTodayString(), arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
@@ -475,6 +500,16 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
             return acc;
         }, { minor: 0, serious: 0, fatal: 0, victims: 0, total: 0 });
     }
+    if (statsDomain === 'FIRES') { // 🟢 Totals calculation for fires
+        return currentDomainStats.reduce((acc, curr) => {
+            acc.minor_outbreaks += (parseInt(curr.minor_outbreaks) || 0);
+            acc.major_disasters += (parseInt(curr.major_disasters) || 0);
+            acc.fatal_fires += (parseInt(curr.fatal_fires) || 0);
+            acc.victims += (parseInt(curr.victims) || 0);
+            acc.total += (parseInt(curr.total) || 0);
+            return acc;
+        }, { minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0, total: 0 });
+    }
     return currentDomainStats.reduce((acc, curr) => {
       acc.arrested += (parseInt(curr.arrested) || 0); acc.given_bond += (parseInt(curr.given_bond) || 0);
       acc.cautioned += (parseInt(curr.cautioned) || 0); acc.pending_court += (parseInt(curr.pending_court) || 0);
@@ -518,13 +553,14 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     let targetEndpoint = '/api/v1/stats';
     if (statsDomain === 'AGRICULTURAL') targetEndpoint = '/api/v1/agric-stats';
     if (statsDomain === 'ACCIDENTS') targetEndpoint = '/api/v1/accidents';
+    if (statsDomain === 'FIRES') targetEndpoint = '/api/v1/fires'; // 🟢 Fires endpoint
 
     const activeRegion = (canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') ? filterRegion : formData.region;
     const activeStation = (canViewGlobalLevel && filterStation && filterStation !== 'ALL STATIONS') ? filterStation : formData.station;
 
     if (operation === 'new') {
       let isDuplicate = false;
-      if (statsDomain !== 'ACCIDENTS') {
+      if (statsDomain !== 'ACCIDENTS' && statsDomain !== 'FIRES') {
           isDuplicate = currentDomainStats.some(s =>  
             String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&  
             String(s.date) === String(formData.date)
@@ -551,6 +587,8 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           if (newStat.nature_of_accident === 'OTHER') {
               newStat.nature_of_accident = formData.custom_nature_of_accident;
           }
+      } else if (statsDomain === 'FIRES') {
+          newStat.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
       }
       
       try {
@@ -575,7 +613,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       if (!recordKey) return setNotification("Error: Please select a record from the list to update first.");
 
       let isDuplicateConflict = false;
-      if (statsDomain !== 'ACCIDENTS') {
+      if (statsDomain !== 'ACCIDENTS' && statsDomain !== 'FIRES') {
           isDuplicateConflict = currentDomainStats.some(s =>  
             (String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&  
              String(s.date) === String(formData.date)) &&  
@@ -599,6 +637,8 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           if (updatedRecord.nature_of_accident === 'OTHER') {
               updatedRecord.nature_of_accident = formData.custom_nature_of_accident;
           }
+      } else if (statsDomain === 'FIRES') {
+          updatedRecord.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
       }
 
       try {
@@ -620,27 +660,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     }
   };
 
-  const parseAgricStatus = (record) => {
-    try {
-      if (record.status && record.status.includes('{')) {
-        const parsed = JSON.parse(record.status);
-        return {
-          numLabel: parsed.numLabel || `${record.number_count}`,
-          recReport: parsed.recReport || 'RECOVERED',
-          recLabel: parsed.recLabel || `${record.recoveries}`,
-        };
-      }
-    } catch(e) { }
-    return {
-      numLabel: record.number_count_label || `${record.number_count}`,
-      recReport: record.recovery_report || `${record.agric_crime_report} RECOVERED`,
-      recLabel: record.recoveries_label || `${record.recoveries}`
-    };
-  };
-
   const getDomainTitle = () => {
       if (statsDomain === 'AGRICULTURAL') return '🌱 Agricultural Crimes Statistics';
       if (statsDomain === 'ACCIDENTS') return '🚓 Traffic & Accidents Statistics';
+      if (statsDomain === 'FIRES') return '🔥 Fire & Rescue Incidents Statistics'; // 🟢 Fires title
       return '⚡ Disruptive OPS Statistics';
   };
 
@@ -667,8 +690,8 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden">
               <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center relative z-30">
                 <h3 className="text-white font-semibold flex items-center">
-                  {statsDomain === 'ACCIDENTS' ? <Car className="w-5 h-5 mr-2 text-red-400" /> : <BarChart3 className="w-5 h-5 mr-2 text-blue-400" />} 
-                  ⚙️ Log {statsDomain === 'AGRICULTURAL' ? 'Agri-Crimes' : statsDomain === 'ACCIDENTS' ? 'Accident' : 'Disruptive'} Stats
+                  {statsDomain === 'ACCIDENTS' ? <Car className="w-5 h-5 mr-2 text-red-400" /> : statsDomain === 'FIRES' ? <Flame className="w-5 h-5 mr-2 text-amber-400" /> : <BarChart3 className="w-5 h-5 mr-2 text-blue-400" />} 
+                  ⚙️ Log {statsDomain === 'AGRICULTURAL' ? 'Agri-Crimes' : statsDomain === 'ACCIDENTS' ? 'Accident' : statsDomain === 'FIRES' ? 'Fire' : 'Disruptive'} Stats
                 </h3>
               </div>
               <div className="p-5 space-y-6 dark:bg-slate-900">
@@ -774,6 +797,33 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                           <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-purple-500/20"><label className="block text-[10px] font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1">Victims (Count)</label><input type="number" name="victims" min="0" value={formData.victims} onChange={handleInputChange} className="w-full text-lg font-black text-purple-600 dark:text-purple-400 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
                         </div>
                       </div>
+                  ) : statsDomain === 'FIRES' ? (
+                      <div className="bg-amber-50 dark:bg-slate-800 p-4 rounded-lg border border-amber-200 dark:border-slate-700">
+                        <h4 className="text-sm font-bold text-amber-900 dark:text-amber-300 border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">🔥 Fire & Rescue Aggregates</h4>
+                        
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Fire *</label>
+                            <select 
+                              name="nature_of_fire" 
+                              value={formData.nature_of_fire || ''} 
+                              onChange={handleInputChange} 
+                              required 
+                              className="w-full text-sm border border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-2 uppercase cursor-pointer"
+                            >
+                              <option value="" disabled>-- Select Nature of Fire --</option>
+                              {COMMON_FIRES.map(fire => (
+                                  <option key={fire} value={fire}>{fire}</option>
+                              ))}
+                            </select>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-3">
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Minor</label><input type="number" name="minor_outbreaks" min="0" value={formData.minor_outbreaks || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-amber-600 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Major</label><input type="number" name="major_disasters" min="0" value={formData.major_disasters || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-orange-600 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fatal</label><input type="number" name="fatal_fires" min="0" value={formData.fatal_fires || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-amber-500/20"><label className="block text-[10px] font-extrabold text-amber-600 uppercase mb-1">Victims</label><input type="number" name="victims" min="0" value={formData.victims || 0} onChange={handleInputChange} className="w-full text-lg font-black text-amber-700 outline-none p-1 bg-transparent" /></div>
+                        </div>
+                      </div>
                   ) : (
                       <div className="bg-blue-50 dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-slate-700">
                         <h4 className="text-sm font-bold text-blue-900 dark:text-blue-300 border-b border-blue-200 dark:border-slate-700 pb-2 mb-4 flex items-center">📊 Enter Weekly Metric Aggregates (8 Fields)</h4>
@@ -836,6 +886,14 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     <MetricCard title="Victims (Count)" value={totals.victims} colorClass="text-purple-600 dark:text-purple-400" />
                     <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
                   </div>
+              ) : statsDomain === 'FIRES' ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
+                    <MetricCard title="Minor Outbreaks" value={totals.minor_outbreaks} colorClass="text-amber-600 dark:text-amber-400" />
+                    <MetricCard title="Major Disasters" value={totals.major_disasters} colorClass="text-orange-600 dark:text-orange-400" />
+                    <MetricCard title="Fatal Fires" value={totals.fatal_fires} colorClass="text-red-600 dark:text-red-400" />
+                    <MetricCard title="Victims (Count)" value={totals.victims} colorClass="text-amber-700 dark:text-amber-300" />
+                    <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
+                  </div>
               ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mt-4">
                     <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700 dark:text-blue-400" />
@@ -864,7 +922,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                 </select>
               </div>
 
-              <div className="inline-flex bg-slate-200 dark:bg-slate-800 p-1 rounded-xl border dark:border-slate-700 shadow-inner shrink-0">
+              <div className="inline-flex bg-slate-200 dark:bg-slate-800 p-1 rounded-xl border dark:border-slate-700 shadow-inner shrink-0 gap-1 flex-wrap">
                 <button type="button" onClick={() => setStatsDomain('DISRUPTIVE')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 dark:bg-slate-950 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
                   ⚡ Disruptive OPS
                 </button>
@@ -874,10 +932,13 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                 <button type="button" onClick={() => setStatsDomain('ACCIDENTS')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'ACCIDENTS' ? 'bg-red-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
                   🚓 Accidents
                 </button>
+                <button type="button" onClick={() => setStatsDomain('FIRES')} className={`px-3 py-1.5 rounded-lg font-bold text-xs transition cursor-pointer ${statsDomain === 'FIRES' ? 'bg-amber-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
+                  🔥 Fires
+                </button>
               </div>
             </div>
 
-            <ExpandableTableCard title={`Weekly Metrics Breakdown Ledger (${statsDomain === 'AGRICULTURAL' ? 'Agricultural Crimes' : statsDomain === 'ACCIDENTS' ? 'Accidents' : 'Disruptive OPS'})`} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+            <ExpandableTableCard title={`Weekly Metrics Breakdown Ledger (${statsDomain === 'AGRICULTURAL' ? 'Agricultural Crimes' : statsDomain === 'ACCIDENTS' ? 'Accidents' : statsDomain === 'FIRES' ? 'Fires & Rescue' : 'Disruptive OPS'})`} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
               <div className="overflow-x-auto w-full dark:bg-slate-900">
                 
                 {statsDomain === 'ACCIDENTS' ? (
@@ -903,7 +964,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
-                      {currentDomainStats.map((stat, idx) => (
+                      {currentDomainStats.map((stat) => (
                         <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
                           <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900 dark:text-slate-100 border-r border-slate-100 dark:border-slate-800">{stat.id || stat.sn}</td>
                           <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">{stat.date}</td>
@@ -933,6 +994,56 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         </tr>
                       )}
                       {currentDomainStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No accident statistics logged for this jurisdiction.</td></tr>}
+                    </tbody>
+                  </table>
+                ) : statsDomain === 'FIRES' ? (
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800">
+                    <thead className="bg-amber-50 dark:bg-slate-950 sticky top-0">
+                      <tr>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700 align-middle">S/N</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700 align-middle">Date</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700 align-middle">Division/Station</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700 align-middle">Nature of Fire</th>
+                        <th colSpan="4" className="px-3 py-2 text-center text-xs font-black text-white bg-amber-800 dark:bg-amber-900 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700">Fire Outbreaks & Rescue Casualties</th>
+                        <th rowSpan="2" className="px-3 py-3 text-center text-xs font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700 align-middle">TOTAL</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700 align-middle">Created By</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-amber-900 dark:text-amber-300 uppercase tracking-wider border-b border-amber-200 dark:border-slate-700 align-middle">Date Created</th>
+                      </tr>
+                      <tr>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-amber-800 bg-amber-100 dark:bg-slate-900 border-b border-amber-200 uppercase">Minor</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-orange-800 bg-amber-100 dark:bg-slate-900 border-b border-amber-200 uppercase">Major</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-800 bg-amber-100 dark:bg-slate-900 border-b border-amber-200 uppercase">Fatal</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-black text-amber-900 bg-amber-100 dark:bg-slate-900 border-b border-amber-200 uppercase">Victims</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
+                      {currentDomainStats.map((stat) => (
+                        <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900 dark:text-slate-100 border-r border-slate-100 dark:border-slate-800">{stat.id || stat.sn}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400 border-r border-slate-100 dark:border-slate-800">{stat.date}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-amber-800 dark:text-amber-400 border-r border-slate-100 dark:border-slate-800">{stat.station}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800">{stat.nature_of_fire}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-amber-600 border-r border-slate-100 dark:border-slate-800">{stat.minor_outbreaks}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-orange-600 border-r border-slate-100 dark:border-slate-800">{stat.major_disasters}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-black text-red-600 border-r border-slate-100 dark:border-slate-800">{stat.fatal_fires}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-black text-amber-700 border-r border-slate-100 dark:border-slate-800">{stat.victims}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-sm text-center font-black text-slate-800 dark:text-slate-100 border-r border-slate-100 dark:border-slate-800">{stat.total}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-[10px] font-semibold text-gray-500 border-r border-slate-100 dark:border-slate-800">{stat.entered_by || stat.last_updated_by}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-[10px] font-mono text-gray-400">{stat.created_at ? stat.created_at.split('T')[0] : ''}</td>
+                        </tr>
+                      ))}
+                      {currentDomainStats.length > 0 && (
+                        <tr className="bg-amber-900 text-white font-black">
+                          <td colSpan="4" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total Aggregates</td>
+                          <td className="px-2 py-3 text-center text-xs">{totals.minor_outbreaks}</td>
+                          <td className="px-2 py-3 text-center text-xs">{totals.major_disasters}</td>
+                          <td className="px-2 py-3 text-center text-xs">{totals.fatal_fires}</td>
+                          <td className="px-2 py-3 text-center text-xs text-amber-200">{totals.victims}</td>
+                          <td className="px-3 py-3 text-center text-sm bg-black">{totals.total}</td>
+                          <td colSpan="2" className="px-3 py-3"></td>
+                        </tr>
+                      )}
+                      {currentDomainStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No fire statistics logged for this jurisdiction.</td></tr>}
                     </tbody>
                   </table>
                 ) : (
