@@ -50,7 +50,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 from app import models, schemas, database
 from app.database import engine, get_db, get_logs_db, SQLALCHEMY_DATABASE_URL
 from app.core import security
-from auth import router as auth_router
+from auth import router as auth_router, get_current_user
 from routers.activity_logger import record_neon_activity, SystemActivityMiddleware 
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
 
@@ -303,7 +303,7 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
         logs_db.rollback()
         print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
 
-def require_admin_or_observer(current_user: models.Users = Depends(auth_router)):
+def require_admin_or_observer(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     if "ADMIN" in user_role or "RPC" in user_role:
         return current_user
@@ -318,7 +318,7 @@ def require_admin_or_observer(current_user: models.Users = Depends(auth_router))
         
     raise HTTPException(status_code=403, detail="Clearance Denied: Admin or Global Observer privileges required.")
 
-def require_export_privilege(current_user: models.Users = Depends(auth_router)):
+def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     perms = current_user.permissions or {}
     if isinstance(perms, str):
@@ -377,7 +377,7 @@ app.add_middleware(SystemActivityMiddleware)
 # 3. CORE SYSTEM ENDPOINTS (Users, Heartbeat, Audit Logs)
 # ==========================================
 @app.get("/api/v1/users")
-def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(auth_router)):
+def get_all_active_users(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
         users = db.query(models.Users).filter(models.Users.is_approved == True).all()
         return [
