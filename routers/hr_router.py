@@ -61,7 +61,6 @@ def normalize_region(reg_str, station_str=""):
     if any(k in combined for k in ['SOUTH', 'NATEETE', 'CPS', 'PARLIAMENT', 'ENTEBBE', 'KABALAGALA', 'KAJJANSI', 'KASENYI', 'KATWE', 'KYENGERA', 'NSANGI']):
         return "KMP SOUTH"
         
-    # Check hierarchy matching fallback
     for reg_name, stations in REGIONAL_HIERARCHY.items():
         for stn in stations:
             if stn in combined:
@@ -216,7 +215,6 @@ def get_aggregated_hr_ledger(
 
         nominal_aggregates = []
         for reg in regions_config:
-            # 🟢 Use normalized region check
             reg_personnel = [r for r in records if normalize_region(r[4], r[5]) == reg["key"]]
             officers = [r for r in reg_personnel if is_officer(r[2])]
             ncos = [r for r in reg_personnel if not is_officer(r[2])]
@@ -234,7 +232,6 @@ def get_aggregated_hr_ledger(
             stn = str(r[5] or 'HQ').strip().upper()
             raw_reg = str(r[4] or '').strip().upper()
             
-            # 🟢 Normalize the region strictly to official buckets
             reg = normalize_region(raw_reg, stn)
 
             if reg not in region_map:
@@ -278,6 +275,8 @@ def get_aggregated_hr_ledger(
 
 @router.get("/export-excel")
 @router.get("/export-excel/")
+@router.get("/export-ledger")
+@router.get("/export-ledger/")
 def export_hr_establishments_zip(
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
