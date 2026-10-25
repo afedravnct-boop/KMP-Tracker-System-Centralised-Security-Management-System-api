@@ -1,10 +1,10 @@
-# ai_router.py
+# routers/ai_router.py
 import os
 import json
 import re
 import time
 import traceback
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Request
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Request, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text, inspect, func, or_
@@ -607,6 +607,9 @@ async def process_tactical_query(
         print(tracecode)
         raise HTTPException(status_code=500, detail=f"Google API Connectivity Issue: {str(e)}")
 
+# ====================================================================
+# CRASH TELEMETRY & BACKGROUND PROCESSING
+# ====================================================================
 class CrashTelemetryPayload(BaseModel):
     glitch_category: str
     page_name: str
@@ -615,16 +618,134 @@ class CrashTelemetryPayload(BaseModel):
     console_logs: list[str] = []
     network_errors: list[str] = []
 
+def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str):
+    """
+    Background worker that opens fresh DB sessions, queries Gemini for a root-cause 
+    analysis, logs the AI interaction, and dispatches the enriched diagnostic memo.
+    """
+    db_gen = get_db()
+    logs_db_gen = get_logs_db()
+    db = next(db_gen)
+    logs_db = next(logs_db_gen)
+    
+    try:
+        # 1. Identify User Details
+        UserModel = getattr(models, 'Users', getattr(models, 'User', None))
+        user_name = "Unknown Officer"
+        if UserModel and fnum_val != "PUBLIC_VISITOR":
+            user_record = db.query(UserModel).filter(func.trim(func.upper(UserModel.fnum)) == fnum_val.strip().upper()).first()
+            if user_record:
+                user_name = f"{user_record.rank or ''} {user_record.name or ''}".strip()
+
+        # 2. AI Diagnosis Generation
+        api_key = os.getenv("GEMINI_API_KEY")
+        ai_diagnosis = "AI diagnostics unavailable (API Key missing or timeout)."
+        prompt = (
+            f"Analyze this KMP frontend system crash.\n"
+            f"User: {fnum_val} ({user_name})\n"
+            f"Page: {payload.page_name} | Element: {payload.element_point}\n"
+            f"User Description: {payload.description}\n"
+            f"Console Logs: {json.dumps(payload.console_logs)}\n"
+            f"Network Errors: {json.dumps(payload.network_errors)}\n\n"
+            "Provide a clean, plain-text technical report addressing strictly these 4 points:\n"
+            "1. The Glitch: What exactly failed?\n"
+            "2. The Location: Where in the UI or codebase is it happening?\n"
+            "3. The User: Who experienced this?\n"
+            "4. The Remedy: Actionable fix for the development/admin team."
+        )
+        
+        if api_key and (payload.console_logs or payload.network_errors):
+            try:
+                client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction="You are the KMP System Diagnostic AI. Return only the requested report concisely."
+                    )
+                )
+                ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
+            except Exception as ai_err:
+                print(f"AI Auto-Diagnosis failed: {ai_err}")
+
+        # 3. 🟢 NEW: Save to AI Command Logs Table First
+        LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+        if LogModel:
+            new_ai_log = LogModel(
+                fnum=fnum_val,
+                prompt=f"CRASH DIAGNOSTIC FOR {payload.page_name}: {payload.description} | CONSOLE: {json.dumps(payload.console_logs)}",
+                response=ai_diagnosis,
+                target_region="KMP HEADQUARTERS",
+                target_station="KMP HEADQUARTERS"
+            )
+            db.add(new_ai_log)
+
+        # 4. Assemble the Final Command Dispatch
+        glitch_summary = (
+            f"<div style='background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 15px; margin-bottom: 20px;'>"
+            f"<h3 style='color: #991b1b; margin-top: 0;'>SYSTEM CRASH TELEMETRY</h3>"
+            f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
+            f"<p><strong>Page Location:</strong> {payload.page_name}</p>"
+            f"<p><strong>Trigger Element:</strong> {payload.element_point}</p>"
+            f"</div>"
+            f"<div style='background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; white-space: pre-wrap;'>"
+            f"<h4 style='color: #1e293b; margin-top: 0;'>🤖 AI ROOT-CAUSE ANALYSIS</h4>"
+            f"{ai_diagnosis}"
+            f"</div>"
+            f"<hr/><p style='font-size: 11px; color: #64748b;'><strong>Raw Console Trace:</strong><br/>{json.dumps(payload.console_logs)}</p>"
+        )
+        
+        import pytz
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
+
+        # 5. Save to Admin Communications Table
+        AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))))
+        if AdminCommsModel:
+            new_dispatch = AdminCommsModel(
+                msg_ref=f"CRASH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{fnum_val[:4]}",
+                sender_fnum="SYSTEM_AUTO",
+                sender_name="KMP AI DIAGNOSTICS",
+                target_audience="ADMINS_ONLY",
+                target_region="KMP HEADQUARTERS",
+                target_fnum="ROLE:SUPER_ADMIN,ROLE:ADMIN,ROLE:SYSTEM_MANAGER",
+                subject=f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]",
+                message=glitch_summary,
+                message_type="TECHNICAL_GLITCH_ALERT",
+                status="ACTIVE",
+                created_at=uganda_now
+            )
+            db.add(new_dispatch)
+
+        db.commit()
+
+        # 6. Log System Activity
+        from routers.activity_logger import log_independent_activity
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=fnum_val,
+            action="CRASH_REPORT_GENERATED",
+            module="FRONTEND_TELEMETRY",
+            details=f"Automated AI crash diagnostic generated for page [{payload.page_name}] and routed to High Command."
+        )
+
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        print(f"🚨 Background Glitch Processor Failed: {str(e)}")
+    finally:
+        db.close()
+        logs_db.close()
+
 @router.post("/report-crash")
 async def report_client_crash(
     payload: CrashTelemetryPayload,
-    db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db),
+    background_tasks: BackgroundTasks,
     request: Request = None
 ):
     """
-    Silently captures frontend WSOD/crash telemetry from the ErrorBoundary or Login Portal,
-    logs it to audit trails, and auto-dispatches an internal alert to Super Admins.
+    Receives frontend telemetry payloads immediately, freeing the client browser, 
+    and passes the data to the AI background worker for deep diagnostics and dispatch.
     """
     try:
         fnum_val = "PUBLIC_VISITOR"
@@ -637,50 +758,15 @@ async def report_client_crash(
                     from app.core import security
                     decoded = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
                     if decoded.get("sub"):
-                        fnum_val = decoded.get("sub")
+                        fnum_val = decoded.get("sub").strip().upper()
                 except Exception:
                     pass
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=fnum_val,
-            action_type="CRASH_REPORT",
-            module="FRONTEND_TELEMETRY",
-            target_id=payload.page_name,
-            changes_summary=f"WSOD/Login Crash on page [{payload.page_name}]. Element: {payload.element_point}. Error: {payload.description}"
-        )
+        # Hand off the heavy AI diagnostics and DB writing to the background task
+        background_tasks.add_task(process_and_diagnose_crash_bg, payload=payload, fnum_val=fnum_val)
 
-        AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))))
-        if AdminCommsModel:
-            glitch_summary = (
-                f"<p><strong>[AUTOMATED SYSTEM TELEMETRY ALERT]</strong></p>"
-                f"<p><strong>Glitch Category:</strong> {payload.glitch_category}</p>"
-                f"<p><strong>Malfunctioning Page:</strong> {payload.page_name}</p>"
-                f"<p><strong>Element / Coordinate:</strong> {payload.element_point}</p>"
-                f"<p><strong>Description:</strong> {payload.description}</p>"
-                f"<hr/><p><strong>Console Trace:</strong> {json.dumps(payload.console_logs)}</p>"
-            )
-            
-            new_dispatch = AdminCommsModel(
-                sender_fnum=fnum_val,
-                sender_name="System AI Diagnostics",
-                target_audience="ADMINS_ONLY",
-                subject=f"⚠️ TECHNICAL FAULT DETECTED: {payload.page_name}",
-                message=glitch_summary,
-                status="ACTIVE",
-                created_at=time.strftime('%Y-%m-%d %H:%M:%S')
-            )
-            if hasattr(new_dispatch, 'sender_rank'):
-                new_dispatch.sender_rank = "AUTONOMOUS AUDITOR"
-            if hasattr(new_dispatch, 'category'):
-                new_dispatch.category = "TECHNICAL_GLITCH"
-            if hasattr(new_dispatch, 'priority'):
-                new_dispatch.priority = "CRITICAL"
-                
-            db.add(new_dispatch)
-            db.commit()
-
-        return {"status": "success", "message": "Crash telemetry processed and routed to High Command."}
+        return {"status": "success", "message": "Crash telemetry received. AI diagnostics in progress."}
+    
     except Exception as e:
-        db.rollback()
-        return {"status": "success", "message": "Crash telemetry captured softly."}
+        print(f"🚨 Telemetry Receiver Failed: {str(e)}")
+        return {"status": "error", "message": "Failed to queue crash telemetry."}

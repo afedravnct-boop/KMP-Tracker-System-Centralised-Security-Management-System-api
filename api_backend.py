@@ -590,10 +590,45 @@ def get_online_users(db: Session = Depends(database.get_db)):
 # ====================================================================
 eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler(timezone=eat_tz)
+
+# Existing Tactical Briefing
 scheduler.add_job(
     lambda: run_weekly_tactical_briefing_job(conf), 
     CronTrigger(day_of_week='mon', hour=6, minute=0, timezone=eat_tz),
     id='monday_tactical_briefing',
+    replace_existing=True,
+    misfire_grace_time=3600
+)
+
+# 🟢 NEW: Automated 11:00 AM Daily Lockup Compliance Sweep
+def run_automated_compliance_sweep():
+    print("⏰ Executing 11:00 AM Lockup Matrix Compliance Sweep...")
+    db_gen = get_db()
+    db = next(db_gen)
+    
+    # Create a mock BackgroundTasks instance to satisfy the router function signature
+    class DummyBackgroundTasks(BackgroundTasks):
+        def add_task(self, func, *args, **kwargs):
+            try:
+                func(*args, **kwargs)
+            except Exception as e:
+                print(f"Background task failed: {e}")
+                
+    dummy_tasks = DummyBackgroundTasks()
+    
+    try:
+        from routers.lockup_matrix import execute_daily_compliance_sweep
+        result = execute_daily_compliance_sweep(background_tasks=dummy_tasks, db=db)
+        print(f"✅ Compliance Sweep Result: {result.get('message', result.get('action', 'Success'))}")
+    except Exception as e:
+        print(f"🚨 Scheduled Compliance Sweep Failed: {str(e)}")
+    finally:
+        db.close()
+
+scheduler.add_job(
+    run_automated_compliance_sweep,
+    CronTrigger(hour=11, minute=0, timezone=eat_tz),
+    id='daily_lockup_compliance_sweep',
     replace_existing=True,
     misfire_grace_time=3600
 )

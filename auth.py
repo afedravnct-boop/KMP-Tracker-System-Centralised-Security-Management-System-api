@@ -791,18 +791,16 @@ class PublicGlitchTelemetryPayload(BaseModel):
     description: Optional[str] = "Unauthenticated fault report"
     attempted_fnum: Optional[str] = ""
 
-@router.post("/report-crash")
-@router.post("/api/v1/ai/report-crash")
-@router.post("/api/auth/report-crash")
-async def report_public_client_crash(
-    payload: PublicGlitchTelemetryPayload,
-    db: Session = Depends(database.get_db),
-    logs_db: Session = Depends(get_logs_db)
-):
+def process_public_crash_bg(payload: PublicGlitchTelemetryPayload, user_identity: str):
     """
-    Publicly captures login/signup faults, generates an autonomous AI diagnosis,
-    and dispatches a high-priority enriched technical alert to Admin Communications.
+    Background worker that queries Gemini for unauthenticated login faults, logs the 
+    AI diagnostics to AI_Command_Logs, and dispatches the enriched technical alert.
     """
+    db_gen = database.get_db()
+    logs_db_gen = get_logs_db()
+    db = next(db_gen)
+    logs_db = next(logs_db_gen)
+    
     try:
         captured_logs = payload.console_logs or []
         network_logs = payload.network_errors or []
@@ -810,47 +808,65 @@ async def report_public_client_crash(
         ai_diagnosis = "Autonomous diagnosis unavailable (AI bypass or timeout)."
         api_key = os.getenv("GEMINI_API_KEY")
         
+        prompt_text = (
+            f"Analyze this UI crash on page '{payload.current_page}'.\n"
+            f"User Identity: {user_identity}\n"
+            f"Console: {json.dumps(captured_logs)}\n"
+            f"Network: {json.dumps(network_logs)}\n"
+            f"User Description: {payload.description}\n\n"
+            "Provide a clean, plain-text technical report addressing strictly these 4 points:\n"
+            "1. The Glitch: What exactly failed?\n"
+            "2. The Location: Where in the UI or codebase is it happening?\n"
+            "3. The User: Who experienced this?\n"
+            "4. The Remedy: Actionable fix for the development/admin team."
+        )
+        
         if api_key and (captured_logs or network_logs):
             try:
                 client = genai.Client(api_key=api_key)
-                prompt = (
-                    f"Analyze this UI crash on page '{payload.current_page}'.\n"
-                    f"Console: {json.dumps(captured_logs)}\n"
-                    f"Network: {json.dumps(network_logs)}\n"
-                    f"User Description: {payload.description}\n\n"
-                    "Provide a concise, 2-paragraph root-cause diagnosis and a specific technical recommendation to fix it. Be direct."
-                )
-                
                 response = client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=prompt,
+                    contents=prompt_text,
                     config=types.GenerateContentConfig(
-                        system_instruction="You are a strict QA system debugger for law enforcement software."
+                        system_instruction="You are a strict QA system debugger for law enforcement software. Return only the requested report concisely."
                     )
                 )
                 ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
             except Exception as ai_err:
                 print(f"AI Auto-Diagnosis skipped: {ai_err}")
 
+        # 1. Save to AI Command Logs Table First
+        LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+        if LogModel:
+            new_ai_log = LogModel(
+                fnum=user_identity,
+                prompt=f"PUBLIC CRASH DIAGNOSTIC FOR {payload.current_page}: {payload.description} | CONSOLE: {json.dumps(captured_logs)}",
+                response=ai_diagnosis,
+                target_region="KMP HEADQUARTERS",
+                target_station="PUBLIC_PORTAL"
+            )
+            db.add(new_ai_log)
+
+        # 2. Assemble the Final Command Dispatch
         glitch_summary = (
-            f"<p><strong>[PUBLIC PORTAL FAULT TELEMETRY]</strong></p>"
+            f"<div style='background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 15px; margin-bottom: 20px;'>"
+            f"<h3 style='color: #991b1b; margin-top: 0;'>PUBLIC PORTAL FAULT TELEMETRY</h3>"
             f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
             f"<p><strong>Portal Page:</strong> {payload.current_page}</p>"
-            f"<p><strong>Attempted User ID:</strong> {payload.attempted_fnum or 'PUBLIC_VISITOR'}</p>"
+            f"<p><strong>Attempted User ID:</strong> {user_identity}</p>"
             f"<p><strong>Description:</strong> {payload.description}</p>"
-            f"<hr/>"
-            f"<div style='background-color: #f8fafc; padding: 12px; border-left: 4px solid #3b82f6; margin: 15px 0;'>"
-            f"<h4 style='color: #1e40af; margin-top: 0;'>🤖 AI Root-Cause Analysis</h4>"
-            f"<p style='font-size: 14px; color: #334155;'>{ai_diagnosis}</p>"
             f"</div>"
-            f"<hr/><p><strong>Diagnostics Trace:</strong> {json.dumps(captured_logs)}</p>"
+            f"<div style='background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; white-space: pre-wrap;'>"
+            f"<h4 style='color: #1e293b; margin-top: 0;'>🤖 AI ROOT-CAUSE ANALYSIS</h4>"
+            f"{ai_diagnosis}"
+            f"</div>"
+            f"<hr/><p style='font-size: 11px; color: #64748b;'><strong>Raw Console Trace:</strong><br/>{json.dumps(captured_logs)}</p>"
         )
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
 
-        user_identity = payload.attempted_fnum.strip().upper() if payload.attempted_fnum else "PUBLIC_VISITOR"
-
+        # 3. Save to Admin Communications Table
         CommModel = getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))
         if CommModel:
             auto_dispatch = CommModel(
@@ -858,14 +874,19 @@ async def report_public_client_crash(
                 sender_fnum=user_identity,
                 sender_name=f"Portal Safeguard ({user_identity})",
                 target_audience="ADMINS_ONLY",
+                target_region="KMP HEADQUARTERS",
+                target_fnum="ROLE:SUPER_ADMIN,ROLE:ADMIN",
                 message_type="TECHNICAL_GLITCH_ALERT",
                 subject=f"⚠️ SIGN-IN FAULT DETECTED: {payload.current_page} [{user_identity}]",
                 message=glitch_summary,
+                status="ACTIVE",
                 created_at=uganda_now
             )
             db.add(auto_dispatch)
-            db.commit()
+        
+        db.commit()
 
+        # 4. Log System Activity
         log_independent_activity(
             logs_db=logs_db,
             fnum=user_identity,
@@ -874,11 +895,33 @@ async def report_public_client_crash(
             details=f"Fault on {payload.current_page} by {user_identity}: {payload.description}"
         )
 
-        return {"status": "success", "message": "Fault report securely transmitted to High Command IT Support."}
     except Exception as e:
         db.rollback()
         logs_db.rollback()
-        return {"status": "success", "message": "Fault telemetry logged."}
+        print(f"🚨 Background Public Glitch Processor Failed: {str(e)}")
+    finally:
+        db.close()
+        logs_db.close()
+
+@router.post("/report-crash")
+@router.post("/api/v1/ai/report-crash")
+@router.post("/api/auth/report-crash")
+async def report_public_client_crash(
+    payload: PublicGlitchTelemetryPayload,
+    background_tasks: BackgroundTasks
+):
+    """
+    Instantly accepts unauthenticated login faults and routes the payload to a 
+    background AI processor for diagnostics and secure logging.
+    """
+    try:
+        user_identity = payload.attempted_fnum.strip().upper() if payload.attempted_fnum else "PUBLIC_VISITOR"
+        background_tasks.add_task(process_public_crash_bg, payload=payload, user_identity=user_identity)
+        
+        return {"status": "success", "message": "Fault report securely transmitted to High Command IT Support."}
+    except Exception as e:
+        print(f"🚨 Public Telemetry Receiver Failed: {str(e)}")
+        return {"status": "error", "message": "Failed to queue public crash telemetry."}
 
 # ====================================================================
 # 8. ADDITIONAL SYSTEM ENDPOINTS (Session Logging & User Roster)

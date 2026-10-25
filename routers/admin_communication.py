@@ -109,55 +109,106 @@ class GlitchTelemetryPayload(BaseModel):
     element_point: Optional[str] = "React Component Tree"
     description: Optional[str] = "Automated telemetry capture"
 
-@router.post("/communications/diagnose-glitch")
-@router.post("/Admin_Communication/diagnose-glitch")
-def diagnose_client_glitch(
-    payload: GlitchTelemetryPayload,
-    db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(get_current_user)
-):
+def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, current_user_dict: dict):
     """
-    AI-powered backend telemetry inspector that automatically isolates frontend faults,
-    records activity logs, and dispatches an internal priority alert to Super Admins.
+    Background worker that queries Gemini for authenticated crash faults, logs the 
+    AI diagnostics to AI_Command_Logs, and dispatches the enriched technical alert.
     """
+    db_gen = get_db()
+    logs_db_gen = get_logs_db()
+    db = next(db_gen)
+    logs_db = next(logs_db_gen)
+
     try:
         captured_logs = payload.console_logs or []
         if payload.auto_probe and not captured_logs:
-            captured_logs.append(f"Runtime telemetry probe active for user {current_user.fnum} at state: {payload.current_page}")
+            captured_logs.append(f"Runtime telemetry probe active for user {current_user_dict['fnum']} at state: {payload.current_page}")
 
-        try:
-            CommModel = get_comm_model()
-            glitch_summary = (
-                f"<p><strong>[AUTOMATED TECHNICAL FAULT TELEMETRY]</strong></p>"
-                f"<p><strong>Reporting Officer:</strong> {current_user.fnum} {current_user.rank} {current_user.name}</p>"
-                f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
-                f"<p><strong>Malfunctioning Page:</strong> {payload.current_page}</p>"
-                f"<p><strong>Element/Point:</strong> {payload.element_point}</p>"
-                f"<p><strong>Description:</strong> {payload.description}</p>"
-                f"<hr/><p><strong>Console Trace:</strong> {json.dumps(captured_logs)}</p>"
-            )
-
-            high_command_users = db.query(models.Users.fnum).filter(
-                models.Users.is_approved == True,
-                or_(
-                    models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN']),
-                    func.upper(models.Users.position).like('%KMP COMMANDER%'),
-                    func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
+        network_logs = payload.network_errors or []
+        
+        ai_diagnosis = "Autonomous diagnosis unavailable (AI bypass or timeout)."
+        api_key = os.getenv("GEMINI_API_KEY")
+        
+        prompt_text = (
+            f"Analyze this UI glitch on page '{payload.current_page}'.\n"
+            f"User Identity: {current_user_dict['fnum']} ({current_user_dict['name']})\n"
+            f"Console: {json.dumps(captured_logs)}\n"
+            f"Network: {json.dumps(network_logs)}\n"
+            f"User Description: {payload.description}\n\n"
+            "Provide a clean, plain-text technical report addressing strictly these 4 points:\n"
+            "1. The Glitch: What exactly failed?\n"
+            "2. The Location: Where in the UI or codebase is it happening?\n"
+            "3. The User: Who experienced this?\n"
+            "4. The Remedy: Actionable fix for the development/admin team."
+        )
+        
+        if api_key and (captured_logs or network_logs):
+            try:
+                client = genai.Client(api_key=api_key)
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt_text,
+                    config=types.GenerateContentConfig(
+                        system_instruction="You are a strict QA system debugger for law enforcement software. Return only the requested report concisely."
+                    )
                 )
-            ).all()
-            admin_fnums = [hc[0] for hc in high_command_users if hc[0]]
-            target_fnum_val = ",".join(admin_fnums)
+                ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
+            except Exception as ai_err:
+                print(f"AI Auto-Diagnosis skipped: {ai_err}")
 
-            eat_tz = pytz.timezone("Africa/Nairobi")
-            uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
+        # 1. 🟢 NEW: Save to AI Command Logs Table First
+        LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+        if LogModel:
+            new_ai_log = LogModel(
+                fnum=current_user_dict['fnum'],
+                prompt=f"DIAGNOSTIC FOR {payload.current_page}: {payload.description} | CONSOLE: {json.dumps(captured_logs)}",
+                response=ai_diagnosis,
+                target_region=current_user_dict.get('region', 'KMP HEADQUARTERS'),
+                target_station="KMP HEADQUARTERS"
+            )
+            db.add(new_ai_log)
 
+        # 2. Assemble the Final Command Dispatch
+        glitch_summary = (
+            f"<div style='background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 15px; margin-bottom: 20px;'>"
+            f"<h3 style='color: #991b1b; margin-top: 0;'>AUTOMATED TECHNICAL FAULT TELEMETRY</h3>"
+            f"<p><strong>Reporting Officer:</strong> {current_user_dict['fnum']} {current_user_dict['rank']} {current_user_dict['name']}</p>"
+            f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
+            f"<p><strong>Malfunctioning Page:</strong> {payload.current_page}</p>"
+            f"<p><strong>Element/Point:</strong> {payload.element_point}</p>"
+            f"<p><strong>Description:</strong> {payload.description}</p>"
+            f"</div>"
+            f"<div style='background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; white-space: pre-wrap;'>"
+            f"<h4 style='color: #1e293b; margin-top: 0;'>🤖 AI ROOT-CAUSE ANALYSIS</h4>"
+            f"{ai_diagnosis}"
+            f"</div>"
+            f"<hr/><p style='font-size: 11px; color: #64748b;'><strong>Console Trace:</strong><br/>{json.dumps(captured_logs)}</p>"
+        )
+
+        eat_tz = pytz.timezone("Africa/Nairobi")
+        uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
+
+        # 3. Identify High Command for targeting
+        high_command_users = db.query(models.Users.fnum).filter(
+            models.Users.is_approved == True,
+            or_(
+                models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN']),
+                func.upper(models.Users.position).like('%KMP COMMANDER%'),
+                func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
+            )
+        ).all()
+        admin_fnums = [hc[0] for hc in high_command_users if hc[0]]
+        target_fnum_val = ",".join(admin_fnums)
+
+        # 4. Save to Admin Communications Table
+        CommModel = get_comm_model()
+        if CommModel:
             auto_dispatch = CommModel(
                 msg_ref=f"UPF/OPS/TECH-GLITCH/{datetime.now().strftime('%Y%m%d%H%M%S')}",
-                sender_fnum=current_user.fnum,
-                sender_name=f"{current_user.fnum}, {current_user.rank}, {current_user.name} (SYSTEM TELEMETRY)",
+                sender_fnum=current_user_dict['fnum'],
+                sender_name=f"{current_user_dict['fnum']}, {current_user_dict['rank']}, {current_user_dict['name']} (SYSTEM TELEMETRY)",
                 target_audience="SPECIFIC_USER",
-                target_region=current_user.region,
+                target_region=current_user_dict['region'],
                 target_fnum=target_fnum_val,
                 message_type="TECHNICAL_GLITCH_ALERT",
                 subject=f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
@@ -165,10 +216,47 @@ def diagnose_client_glitch(
                 created_at=uganda_now
             )
             db.add(auto_dispatch)
-            db.commit()
-        except Exception as dispatch_err:
-            print(f"Auto-dispatch notice: {dispatch_err}")
+        
+        db.commit()
 
+        # 5. Log System Activity
+        from routers.activity_logger import log_independent_activity
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user_dict['fnum'],
+            action="DIAGNOSE_GLITCH",
+            module="FRONTEND_TELEMETRY",
+            details=f"Automated AI crash diagnostic generated for page [{payload.current_page}] and routed to High Command."
+        )
+
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        print(f"🚨 Background Authenticated Glitch Processor Failed: {str(e)}")
+    finally:
+        db.close()
+        logs_db.close()
+
+@router.post("/communications/diagnose-glitch")
+@router.post("/Admin_Communication/diagnose-glitch")
+def diagnose_client_glitch(
+    payload: GlitchTelemetryPayload,
+    background_tasks: BackgroundTasks,
+    current_user: models.Users = Depends(get_current_user)
+):
+    """
+    Instantly accepts authenticated fault telemetry and routes the payload to a 
+    background AI processor for diagnostics, secure logging, and dispatch.
+    """
+    try:
+        current_user_dict = {
+            "fnum": current_user.fnum,
+            "rank": current_user.rank or "",
+            "name": current_user.name or "",
+            "region": current_user.region or ""
+        }
+        background_tasks.add_task(process_and_diagnose_client_glitch_bg, payload=payload, current_user_dict=current_user_dict)
+        
         return {
             "status": "success",
             "diagnostic": {
@@ -179,10 +267,9 @@ def diagnose_client_glitch(
             }
         }
     except Exception as e:
-        db.rollback()
-        logs_db.rollback()
+        print(f"🚨 Authenticated Telemetry Receiver Failed: {str(e)}")
         return {
-            "status": "success",
+            "status": "error",
             "diagnostic": {
                 "glitch_category": "Data synchronization failure",
                 "page_name": payload.current_page or "Dashboard",

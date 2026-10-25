@@ -145,11 +145,11 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isDbKillActive, setIsDbKillActive] = useState(false);
 
-  // 🟢 Technical Glitch Verification States
+  // 🟢 Technical Glitch Verification States (Cleared Hardcoded Defaults)
   const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [verifyCategory, setVerifyCategory] = useState('System showing zeros where data should exist');
-  const [verifyPage, setVerifyPage] = useState('Command Comms');
-  const [verifyElement, setVerifyElement] = useState('Dispatch Button');
+  const [verifyCategory, setVerifyCategory] = useState('');
+  const [verifyPage, setVerifyPage] = useState('');
+  const [verifyElement, setVerifyElement] = useState('');
   const [verifyLogs, setVerifyLogs] = useState('Initializing live console telemetry...');
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
@@ -232,6 +232,11 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     } else {
       setVerifyLogs("No recent console errors or failed network requests captured in global session buffer.");
     }
+    
+    // Auto-fill Target Page with current URL path, clear category/element for manual entry
+    setVerifyPage(window.location.pathname === '/' ? 'Home Dashboard' : window.location.pathname);
+    setVerifyCategory('');
+    setVerifyElement('');
     setVerificationResult(null);
     setShowVerificationModal(true);
   };
@@ -386,6 +391,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
                     type="text" 
                     value={verifyCategory} 
                     onChange={(e) => setVerifyCategory(e.target.value)} 
+                    placeholder="E.g., Missing Data, 500 Error, etc."
                     className="w-full p-2.5 bg-[#020617] border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-amber-500" 
                     required 
                   />
@@ -408,6 +414,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
                   type="text" 
                   value={verifyElement} 
                   onChange={(e) => setVerifyElement(e.target.value)} 
+                  placeholder="E.g., Save Button, Dashboard Table, etc."
                   className="w-full p-2.5 bg-[#020617] border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-amber-500" 
                   required 
                 />
