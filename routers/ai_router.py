@@ -649,8 +649,8 @@ class CrashTelemetryPayload(BaseModel):
 
 def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str):
     """
-    Background worker that opens fresh DB sessions, queries Gemini for a root-cause 
-    analysis, logs the AI interaction, and dispatches the enriched diagnostic memo.
+    Background worker that independently commits AI crash diagnostics to AI_Command_Logs 
+    and attempts high-command memo dispatch without cross-rollback failures.
     """
     db_gen = get_db()
     logs_db_gen = get_logs_db()
@@ -697,71 +697,79 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
             except Exception as ai_err:
                 print(f"AI Auto-Diagnosis failed: {ai_err}")
 
-        # 3. 🟢 NEW: Save to AI Command Logs Table First
-        LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
-        if LogModel:
-            new_ai_log = LogModel(
+        # 3. 🟢 CRITICAL: Save to AI Command Logs Table and Commit Instantly
+        try:
+            LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+            if LogModel:
+                new_ai_log = LogModel(
+                    fnum=fnum_val,
+                    prompt=f"CRASH DIAGNOSTIC FOR {payload.page_name}: {payload.description} | CONSOLE: {json.dumps(payload.console_logs)}",
+                    response=ai_diagnosis,
+                    target_region="KMP HEADQUARTERS",
+                    target_station="KMP HEADQUARTERS"
+                )
+                db.add(new_ai_log)
+                db.commit() # Commit log immediately so it is never lost
+        except Exception as log_err:
+            db.rollback()
+            print(f"⚠️ Failed to commit AI Command Log: {log_err}")
+
+        # 4. Attempt Admin Communication Dispatch (Isolated in its own try/except)
+        try:
+            glitch_summary = (
+                f"<div style='background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 15px; margin-bottom: 20px;'>"
+                f"<h3 style='color: #991b1b; margin-top: 0;'>SYSTEM CRASH TELEMETRY</h3>"
+                f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
+                f"<p><strong>Page Location:</strong> {payload.page_name}</p>"
+                f"<p><strong>Trigger Element:</strong> {payload.element_point}</p>"
+                f"</div>"
+                f"<div style='background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; white-space: pre-wrap;'>"
+                f"<h4 style='color: #1e293b; margin-top: 0;'>🤖 AI ROOT-CAUSE ANALYSIS</h4>"
+                f"{ai_diagnosis}"
+                f"</div>"
+                f"<hr/><p style='font-size: 11px; color: #64748b;'><strong>Raw Console Trace:</strong><br/>{json.dumps(payload.console_logs)}</p>"
+            )
+            
+            import pytz
+            eat_tz = pytz.timezone("Africa/Nairobi")
+            uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
+
+            AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))))
+            if AdminCommsModel:
+                new_dispatch = AdminCommsModel(
+                    msg_ref=f"CRASH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{fnum_val[:4]}",
+                    sender_fnum="SYSTEM_AUTO",
+                    sender_name="KMP AI DIAGNOSTICS",
+                    target_audience="ADMINS_ONLY",
+                    target_region="KMP HEADQUARTERS",
+                    target_fnum="ROLE:SUPER_ADMIN,ROLE:ADMIN,ROLE:SYSTEM_MANAGER",
+                    subject=f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]",
+                    message=glitch_summary,
+                    message_type="TECHNICAL_GLITCH_ALERT",
+                    status="ACTIVE",
+                    created_at=uganda_now
+                )
+                db.add(new_dispatch)
+                db.commit()
+        except Exception as comm_err:
+            db.rollback()
+            print(f"⚠️ Failed to dispatch Admin Communication alert: {comm_err}")
+
+        # 5. Log System Activity
+        try:
+            from routers.activity_logger import log_independent_activity
+            log_independent_activity(
+                logs_db=logs_db,
                 fnum=fnum_val,
-                prompt=f"CRASH DIAGNOSTIC FOR {payload.page_name}: {payload.description} | CONSOLE: {json.dumps(payload.console_logs)}",
-                response=ai_diagnosis,
-                target_region="KMP HEADQUARTERS",
-                target_station="KMP HEADQUARTERS"
+                action="CRASH_REPORT_GENERATED",
+                module="FRONTEND_TELEMETRY",
+                details=f"Automated AI crash diagnostic generated for page [{payload.page_name}] and routed to High Command."
             )
-            db.add(new_ai_log)
-
-        # 4. Assemble the Final Command Dispatch
-        glitch_summary = (
-            f"<div style='background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 15px; margin-bottom: 20px;'>"
-            f"<h3 style='color: #991b1b; margin-top: 0;'>SYSTEM CRASH TELEMETRY</h3>"
-            f"<p><strong>Category:</strong> {payload.glitch_category}</p>"
-            f"<p><strong>Page Location:</strong> {payload.page_name}</p>"
-            f"<p><strong>Trigger Element:</strong> {payload.element_point}</p>"
-            f"</div>"
-            f"<div style='background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 15px; white-space: pre-wrap;'>"
-            f"<h4 style='color: #1e293b; margin-top: 0;'>🤖 AI ROOT-CAUSE ANALYSIS</h4>"
-            f"{ai_diagnosis}"
-            f"</div>"
-            f"<hr/><p style='font-size: 11px; color: #64748b;'><strong>Raw Console Trace:</strong><br/>{json.dumps(payload.console_logs)}</p>"
-        )
-        
-        import pytz
-        eat_tz = pytz.timezone("Africa/Nairobi")
-        uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
-
-        # 5. Save to Admin Communications Table
-        AdminCommsModel = getattr(models, 'AdminCommunications', getattr(models, 'Admin_Communications', getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))))
-        if AdminCommsModel:
-            new_dispatch = AdminCommsModel(
-                msg_ref=f"CRASH-{datetime.now().strftime('%Y%m%d%H%M%S')}-{fnum_val[:4]}",
-                sender_fnum="SYSTEM_AUTO",
-                sender_name="KMP AI DIAGNOSTICS",
-                target_audience="ADMINS_ONLY",
-                target_region="KMP HEADQUARTERS",
-                target_fnum="ROLE:SUPER_ADMIN,ROLE:ADMIN,ROLE:SYSTEM_MANAGER",
-                subject=f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]",
-                message=glitch_summary,
-                message_type="TECHNICAL_GLITCH_ALERT",
-                status="ACTIVE",
-                created_at=uganda_now
-            )
-            db.add(new_dispatch)
-
-        db.commit()
-
-        # 6. Log System Activity
-        from routers.activity_logger import log_independent_activity
-        log_independent_activity(
-            logs_db=logs_db,
-            fnum=fnum_val,
-            action="CRASH_REPORT_GENERATED",
-            module="FRONTEND_TELEMETRY",
-            details=f"Automated AI crash diagnostic generated for page [{payload.page_name}] and routed to High Command."
-        )
+        except Exception as act_err:
+            print(f"⚠️ Failed to record activity log: {act_err}")
 
     except Exception as e:
-        db.rollback()
-        logs_db.rollback()
-        print(f"🚨 Background Glitch Processor Failed: {str(e)}")
+        print(f"🚨 Background Glitch Processor Critical Failure: {str(e)}")
     finally:
         db.close()
         logs_db.close()

@@ -219,30 +219,52 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     }
   };
 
-  // 🟢 Open Modal and Fetch Live Backend Logs
+  // 🟢 Open Modal, Fetch Live Backend Logs, and Auto-Categorize Errors
   const openVerificationModal = async () => {
     setShowVerificationModal(true);
     setVerificationResult(null);
-    setVerifyCategory('');
-    setVerifyElement('');
     setVerifyPage(window.location.pathname === '/' ? 'Home Dashboard' : window.location.pathname);
-    setVerifyLogs("Fetching captured errors from NeonDB backend...");
+    setVerifyLogs("Fetching captured errors from NeonDB backend & live buffer...");
 
     try {
       const res = await authFetch('/api/v1/ai/crashes');
+      let logText = "";
+      
       if (res.ok) {
         const data = await res.json();
         setCapturedCrashes(data);
         if (data.length > 0) {
-          setVerifyLogs(data.map(c => `[${c.created_at}] FNum: ${c.fnum}\n${c.prompt}\n---`).join('\n\n'));
-        } else {
-          setVerifyLogs("No backend crash logs recorded yet.");
+          logText = data.map(c => `[${c.created_at}] FNum: ${c.fnum}\n${c.prompt}`).join('\n\n');
         }
-      } else {
-        setVerifyLogs("Failed to retrieve backend crash logs.");
       }
+
+      // Fallback or combine with global telemetry network drop logs
+      const globalBuffer = window.__kmp_global_telemetry || { console: [], network: [] };
+      const networkLogs = (globalBuffer.network || []).join('\n');
+      
+      // 🟢 FIXED: Corrected Boolean filter & join syntax
+      const combinedLogs = [logText, networkLogs].filter(Boolean).join('\n') || "No recent system errors captured.";
+      setVerifyLogs(combinedLogs);
+
+      // Intelligent Auto-Categorization based on captured log patterns
+      if (combinedLogs.includes("Failed to fetch") || combinedLogs.includes("NET_DROP")) {
+        setVerifyCategory("Client-Server Network Connection Drop");
+        setVerifyElement("API Fetch / Heartbeat Polling");
+      } else if (combinedLogs.includes("404")) {
+        setVerifyCategory("Endpoint Not Found / 404 Error");
+        setVerifyElement("API Router / Frontend Route");
+      } else if (combinedLogs.includes("500")) {
+        setVerifyCategory("Unhandled Backend Exception");
+        setVerifyElement("FastAPI Server / NeonDB");
+      } else {
+        setVerifyCategory("General Runtime / Network Exception");
+        setVerifyElement("Component Tree / API Controller");
+      }
+
     } catch (err) {
       setVerifyLogs(`Error fetching logs: ${err.message}`);
+      setVerifyCategory("Telemetry Sync Error");
+      setVerifyElement("Auditor Fetch Routine");
     }
   };
 
