@@ -145,7 +145,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isDbKillActive, setIsDbKillActive] = useState(false);
 
-  // 🟢 Technical Glitch Verification States (Cleared Hardcoded Defaults)
+  // 🟢 Technical Glitch Verification States
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [verifyCategory, setVerifyCategory] = useState('');
   const [verifyPage, setVerifyPage] = useState('');
@@ -153,6 +153,7 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   const [verifyLogs, setVerifyLogs] = useState('Initializing live console telemetry...');
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
+  const [capturedCrashes, setCapturedCrashes] = useState([]);
 
   // 🟢 Live Telemetry Buffer Ref
   const capturedLogsRef = useRef({ console: [], network: [] });
@@ -218,27 +219,31 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
     }
   };
 
-  // 🟢 Open Modal and Auto-Populate with Live Captured Telemetry
-  const openVerificationModal = () => {
-    const globalBuffer = window.__kmp_global_telemetry || { console: [], network: [] };
-    const allCaptured = [
-      ...capturedLogsRef.current.console,
-      ...globalBuffer.network,
-      ...capturedLogsRef.current.network
-    ];
-
-    if (allCaptured.length > 0) {
-      setVerifyLogs(allCaptured.join('\n'));
-    } else {
-      setVerifyLogs("No recent console errors or failed network requests captured in global session buffer.");
-    }
-    
-    // Auto-fill Target Page with current URL path, clear category/element for manual entry
-    setVerifyPage(window.location.pathname === '/' ? 'Home Dashboard' : window.location.pathname);
+  // 🟢 Open Modal and Fetch Live Backend Logs
+  const openVerificationModal = async () => {
+    setShowVerificationModal(true);
+    setVerificationResult(null);
     setVerifyCategory('');
     setVerifyElement('');
-    setVerificationResult(null);
-    setShowVerificationModal(true);
+    setVerifyPage(window.location.pathname === '/' ? 'Home Dashboard' : window.location.pathname);
+    setVerifyLogs("Fetching captured errors from NeonDB backend...");
+
+    try {
+      const res = await authFetch('/api/v1/ai/crashes');
+      if (res.ok) {
+        const data = await res.json();
+        setCapturedCrashes(data);
+        if (data.length > 0) {
+          setVerifyLogs(data.map(c => `[${c.created_at}] FNum: ${c.fnum}\n${c.prompt}\n---`).join('\n\n'));
+        } else {
+          setVerifyLogs("No backend crash logs recorded yet.");
+        }
+      } else {
+        setVerifyLogs("Failed to retrieve backend crash logs.");
+      }
+    } catch (err) {
+      setVerifyLogs(`Error fetching logs: ${err.message}`);
+    }
   };
 
   // 🟢 Instant Client-Side Dictionary Check with Backend AI Fallback
@@ -384,6 +389,29 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
             </div>
             
             <form onSubmit={handleVerifyGlitchDiagnosis} className="p-6 space-y-4">
+              {capturedCrashes.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-amber-400 uppercase mb-1">Select Recent Backend-Captured Error</label>
+                  <select 
+                    onChange={(e) => {
+                      const selected = capturedCrashes.find(c => c.id.toString() === e.target.value);
+                      if (selected) {
+                        setVerifyCategory("Backend Captured Fault");
+                        setVerifyLogs(`Prompt/Error: ${selected.prompt}\n\nAI Diagnosis:\n${selected.response}`);
+                      }
+                    }}
+                    className="w-full p-2.5 bg-[#020617] border border-amber-500/50 rounded-lg text-xs font-bold text-amber-200 outline-none mb-3"
+                  >
+                    <option value="">-- Choose a captured system error --</option>
+                    {capturedCrashes.map(c => (
+                      <option key={c.id} value={c.id}>
+                        [{c.created_at}] {c.fnum} - {c.prompt.slice(0, 60)}...
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-300 uppercase mb-1">Glitch Category</label>

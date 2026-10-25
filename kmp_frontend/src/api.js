@@ -96,12 +96,31 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       credentials: 'include'
     });
 
-    // 🟢 Automatically capture non-2xx API failures globally into telemetry buffer
+    // 🟢 Automatically capture non-2xx API failures globally into telemetry buffer & backend database
     if (response && !response.ok) {
       const errorMsg = `[HTTP_${response.status}] Failed request to ${url}`;
       window.__kmp_global_telemetry.network.push(errorMsg);
       if (window.__kmp_global_telemetry.network.length > 30) {
         window.__kmp_global_telemetry.network.shift();
+      }
+
+      // Instantly push to backend database storage (skip if calling report-crash to prevent loops)
+      if (!url.includes('/report-crash')) {
+        fetch(`${BASE_URL}/api/v1/ai/report-crash`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(currentToken ? { 'Authorization': `Bearer ${currentToken}` } : {})
+          },
+          body: JSON.stringify({
+            glitch_category: `HTTP_${response.status}_ERROR`,
+            page_name: window.location.pathname,
+            element_point: `API Endpoint: ${url}`,
+            description: `Automatic background telemetry capture for HTTP ${response.status}`,
+            console_logs: [errorMsg],
+            network_errors: [errorMsg]
+          })
+        }).catch(() => {}); // Silent catch safeguard
       }
     }
   } catch (networkError) {

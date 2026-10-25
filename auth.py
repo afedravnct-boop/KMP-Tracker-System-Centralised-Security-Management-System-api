@@ -948,6 +948,35 @@ def get_all_active_users_auth(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/users/recipients-list")
+@router.get("/api/v1/users/recipients-list")
+def get_recipients_list(
+    db: Session = Depends(database.get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    """Provides a formatted list of approved system users for communication targeting."""
+    try:
+        users = db.query(models.Users).filter(models.Users.is_approved == True).all()
+        return [
+            {
+                "fnum": u.fnum,
+                "name": u.name,
+                "rank": u.rank,
+                "role": u.role,
+                "station": u.station,
+                "region": u.region,
+                "division": u.division,
+                "position": u.position,
+                "email": u.email,
+                "phone": u.phone,
+                "ipps": u.ipps,
+                "sex": u.sex,
+                "profile_photo_path": getattr(u, 'profile_photo_path', '')
+            } for u in users
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class SessionLogPayload(BaseModel):
     fnum: Optional[str] = None
     action: Optional[str] = "LOGIN"

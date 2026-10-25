@@ -131,6 +131,35 @@ def check_diagnostic_clearance(user) -> bool:
         "DEPUTY KMP COMMANDER" in pos
     )
 
+@router.get("/crashes")
+async def get_recent_crashes(
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    """Retrieves recent system crashes and telemetry logs for the High Command auditor console."""
+    if not check_diagnostic_clearance(current_user):
+        raise HTTPException(
+            status_code=403, 
+            detail="Clearance Denied: Restricted to Super Admins and KMP Commanders."
+        )
+    try:
+        LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
+        if not LogModel:
+            return []
+        
+        logs = db.query(LogModel).order_by(LogModel.id.desc()).limit(30).all()
+        return [
+            {
+                "id": l.id,
+                "fnum": getattr(l, 'fnum', 'UNKNOWN'),
+                "prompt": getattr(l, 'prompt', ''),
+                "response": getattr(l, 'response', ''),
+                "created_at": str(getattr(l, 'created_at', ''))
+            } for l in logs
+        ]
+    except Exception as e:
+        return []
+
 @router.post("/verify-diagnosis")
 async def verify_client_diagnosis(
     payload: DiagnosisVerificationPayload,
