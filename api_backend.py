@@ -78,7 +78,8 @@ from routers import (
     statistics,
     exhibits,
     hr_router,
-    consolidated_ledger
+    consolidated_ledger,
+    admin_users  # 🟢 ADDED ADMIN USERS ROUTER
 )
 
 # ==========================================
@@ -101,6 +102,7 @@ app.include_router(exhibits.router)
 app.include_router(hr_router.router)
 app.include_router(consolidated_ledger.router)
 app.include_router(statistics.router)
+app.include_router(admin_users.router) # 🟢 ADDED ADMIN USERS ROUTER
 
 # ==========================================
 # GLOBAL EXCEPTION HANDLER
@@ -363,7 +365,8 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "https://kmp-tracker-system-centralised-secu.vercel.app",
         "https://kmp-tracker-system-centralised-security-management-adj4h23x4.vercel.app",
-        "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app"
+        "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app",
+        "https://kmp-tracker-system-centr-aip-afedra-vincent-uganda-police-force.vercel.app" # Explicitly added
     ],
     allow_origin_regex=r"https://kmp-tracker.*\.vercel\.app",
     allow_credentials=True,
