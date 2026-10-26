@@ -151,6 +151,31 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
     });
   }, [filteredNominalAggregates]);
 
+  const grandCombinedTotals = useMemo(() => {
+    return {
+      sex: {
+        M: masterTotals.offSex.M + masterTotals.ncoSex.M,
+        F: masterTotals.offSex.F + masterTotals.ncoSex.F,
+      },
+      age: {
+        twenties: masterTotals.offAge.twenties + masterTotals.ncoAge.twenties,
+        thirties: masterTotals.offAge.thirties + masterTotals.ncoAge.thirties,
+        forties: masterTotals.offAge.forties + masterTotals.ncoAge.forties,
+        fifties: masterTotals.offAge.fifties + masterTotals.ncoAge.fifties,
+        unknown: masterTotals.offAge.unknown + masterTotals.ncoAge.unknown,
+      },
+      edu: {
+        degree: masterTotals.offEdu.degree + masterTotals.ncoEdu.degree,
+        diploma: masterTotals.offEdu.diploma + masterTotals.ncoEdu.diploma,
+        cert: masterTotals.offEdu.cert + masterTotals.ncoEdu.cert,
+        uace: masterTotals.offEdu.uace + masterTotals.ncoEdu.uace,
+        uce: masterTotals.offEdu.uce + masterTotals.ncoEdu.uce,
+        s2_s3: masterTotals.offEdu.s2_s3 + masterTotals.ncoEdu.s2_s3,
+        others: masterTotals.offEdu.others + masterTotals.ncoEdu.others,
+      }
+    };
+  }, [masterTotals]);
+
   const renderAgeBlock = (stats, isDark = false) => (
     <div className={`text-[9px] font-medium space-y-0.5 w-full max-w-[90px] mx-auto ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
       <div className="flex justify-between"><span>18-29yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.age.twenties}</strong></div>
@@ -158,6 +183,16 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
       <div className="flex justify-between"><span>40-49yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.age.forties}</strong></div>
       <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>50+ yrs:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.age.fifties}</strong></div>
       {stats.age.unknown > 0 && <div className={`flex justify-between italic mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`}><span>Unrecorded:</span> <strong>{stats.age.unknown}</strong></div>}
+    </div>
+  );
+
+  const renderGrandAgeBlock = (ageStats) => (
+    <div className="text-[9px] font-bold space-y-0.5 w-full max-w-[95px] mx-auto text-yellow-200">
+      <div className="flex justify-between"><span>18-29yrs:</span> <strong>{ageStats.twenties}</strong></div>
+      <div className="flex justify-between"><span>30-39yrs:</span> <strong>{ageStats.thirties}</strong></div>
+      <div className="flex justify-between"><span>40-49yrs:</span> <strong>{ageStats.forties}</strong></div>
+      <div className="flex justify-between border-t border-yellow-600/50 pt-0.5 mt-0.5"><span>50+ yrs:</span> <strong>{ageStats.fifties}</strong></div>
+      {ageStats.unknown > 0 && <div className="flex justify-between italic text-red-300 mt-0.5"><span>Unrecorded:</span> <strong>{ageStats.unknown}</strong></div>}
     </div>
   );
 
@@ -170,6 +205,18 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
       <div className="flex justify-between text-emerald-700 font-bold"><span>UCE (S4):</span> <strong className={isDark ? 'text-emerald-300' : 'text-emerald-900'}>{stats.edu.uce}</strong></div>
       <div className={`flex justify-between border-t pt-0.5 mt-0.5 ${isDark ? 'border-slate-600' : 'border-slate-200'}`}><span>S2 / S3:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.edu.s2_s3}</strong></div>
       <div className="flex justify-between"><span>Others:</span> <strong className={isDark ? 'text-white' : 'text-slate-900'}>{stats.edu.others}</strong></div>
+    </div>
+  );
+
+  const renderGrandEduBlock = (eduStats) => (
+    <div className="text-[9px] font-bold space-y-0.5 w-full max-w-[95px] mx-auto text-yellow-200">
+      <div className="flex justify-between"><span>Degree:</span> <strong>{eduStats.degree}</strong></div>
+      <div className="flex justify-between"><span>Diploma:</span> <strong>{eduStats.diploma}</strong></div>
+      <div className="flex justify-between"><span>Cert:</span> <strong>{eduStats.cert}</strong></div>
+      <div className="flex justify-between text-blue-200"><span>UACE (S6):</span> <strong>{eduStats.uace}</strong></div>
+      <div className="flex justify-between text-emerald-200"><span>UCE (S4):</span> <strong>{eduStats.uce}</strong></div>
+      <div className="flex justify-between border-t border-yellow-600/50 pt-0.5 mt-0.5"><span>S2 / S3:</span> <strong>{eduStats.s2_s3}</strong></div>
+      <div className="flex justify-between"><span>Others:</span> <strong>{eduStats.others}</strong></div>
     </div>
   );
 
@@ -311,6 +358,7 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
                       </tr>
                    ))}
 
+                   {/* KMP MASTER TOTALS ROW */}
                    <tr className="bg-slate-800 border-t-[3px] border-slate-900">
                       <td colSpan="2" className="p-4 text-center text-[11px] font-black text-yellow-400 uppercase tracking-widest border-r border-slate-700 shadow-inner">
                           {selectedRegion === 'ALL REGIONS' ? 'KMP MASTER TOTALS:' : `${selectedRegion} MASTER TOTALS:`}
@@ -348,6 +396,33 @@ const HrEstablishmentsLedger = ({ onClose, currentUser, canViewGlobal = false })
                       <td className="p-4 text-center text-lg font-black text-white bg-blue-800 border-r border-blue-900 shadow-inner">{masterTotals.totalOff}</td>
                       <td className="p-4 text-center text-lg font-black text-white bg-emerald-700 border-r border-emerald-900 shadow-inner">{masterTotals.totalNco}</td>
                       <td className="p-4 text-center text-xl font-black text-yellow-400 bg-slate-950 shadow-inner">
+                           {masterTotals.regionTotal}
+                      </td>
+                   </tr>
+
+                   {/* OVERALL GRAND TOTAL ROW */}
+                   <tr className="bg-slate-950 border-t-2 border-yellow-500 text-yellow-300">
+                      <td colSpan="2" className="p-4 text-center text-[11px] font-black uppercase tracking-widest border-r border-slate-800 shadow-inner text-yellow-400">
+                          OVERALL GRAND TOTAL:
+                      </td>
+                      <td colSpan="2" className="p-4 text-center text-base font-black text-yellow-300 border-r border-slate-800">
+                          {masterTotals.totalOff + masterTotals.totalNco}
+                      </td>
+                      <td colSpan="2" className="p-2 align-top border-r border-slate-800 bg-slate-900/60">
+                        {renderGrandAgeBlock(grandCombinedTotals.age)}
+                      </td>
+                      <td colSpan="2" className="p-2 text-center align-middle border-r border-slate-800 bg-slate-900/60">
+                         <div className="inline-flex flex-col space-y-1">
+                            <span className="text-[10px] font-black text-blue-300 bg-blue-950 px-2.5 py-0.5 border border-blue-700 rounded shadow-sm">M: {grandCombinedTotals.sex.M}</span>
+                            <span className="text-[10px] font-black text-pink-300 bg-pink-950 px-2.5 py-0.5 border border-pink-700 rounded shadow-sm">F: {grandCombinedTotals.sex.F}</span>
+                         </div>
+                      </td>
+                      <td colSpan="2" className="p-2 align-top border-r border-slate-800 bg-slate-900/60">
+                        {renderGrandEduBlock(grandCombinedTotals.edu)}
+                      </td>
+                      <td className="p-4 text-center text-lg font-black text-white bg-blue-900 border-r border-blue-950 shadow-inner">{masterTotals.totalOff}</td>
+                      <td className="p-4 text-center text-lg font-black text-white bg-emerald-800 border-r border-emerald-950 shadow-inner">{masterTotals.totalNco}</td>
+                      <td className="p-4 text-center text-xl font-black text-yellow-300 bg-black shadow-inner">
                            {masterTotals.regionTotal}
                       </td>
                    </tr>

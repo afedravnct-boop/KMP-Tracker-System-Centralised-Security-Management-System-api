@@ -23,7 +23,7 @@ import boto3
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Request
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Request, Query
 from fastapi.responses import StreamingResponse, FileResponse, RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
@@ -278,7 +278,6 @@ def serialize_model_row(row):
     return d
 
 def get_model_safe(*model_names):
-    """🟢 Safe helper to resolve database models across varying naming conventions."""
     for name in model_names:
         if hasattr(models, name):
             return getattr(models, name)
@@ -355,6 +354,8 @@ except Exception as e:
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+app.add_middleware(SystemActivityMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -371,7 +372,6 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-app.add_middleware(SystemActivityMiddleware)
 
 # ==========================================
 # 3. CORE SYSTEM ENDPOINTS (Users, Heartbeat, Audit Logs)
@@ -586,7 +586,7 @@ def get_online_users(db: Session = Depends(database.get_db)):
     ]
 
 # ====================================================================
-# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
+# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER (Local Only)
 # ====================================================================
 eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler(timezone=eat_tz)
@@ -600,7 +600,6 @@ scheduler.add_job(
     misfire_grace_time=3600
 )
 
-# 🟢 NEW: Automated 11:00 AM Daily Lockup Compliance Sweep
 def run_automated_compliance_sweep():
     print("⏰ Executing 11:00 AM Lockup Matrix Compliance Sweep...")
     db_gen = get_db()
@@ -643,6 +642,31 @@ def start_scheduler():
 def shutdown_scheduler():
     if scheduler.running:
         scheduler.shutdown()
+
+# ====================================================================
+# 7. EXTERNAL CRON TRIGGERS (TO BYPASS RENDER SLEEP)
+# ====================================================================
+# Use these endpoints in cron-job.org to wake up the server and run your tasks natively.
+CRON_SECRET = os.getenv("CRON_SECRET_KEY", "kmp-cron-secure-key-2026")
+
+@app.get("/api/v1/cron/trigger-compliance")
+@app.post("/api/v1/cron/trigger-compliance")
+def external_trigger_compliance(background_tasks: BackgroundTasks, db: Session = Depends(get_db), key: str = Query(None)):
+    if key != CRON_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized Cron Trigger")
+    
+    from routers.lockup_matrix import execute_daily_compliance_sweep
+    background_tasks.add_task(execute_daily_compliance_sweep, background_tasks=background_tasks, db=db)
+    return {"status": "success", "message": "Compliance sweep queued via external cron wake-up."}
+
+@app.get("/api/v1/cron/trigger-briefing")
+@app.post("/api/v1/cron/trigger-briefing")
+def external_trigger_briefing(background_tasks: BackgroundTasks, key: str = Query(None)):
+    if key != CRON_SECRET:
+        raise HTTPException(status_code=403, detail="Unauthorized Cron Trigger")
+    
+    background_tasks.add_task(run_weekly_tactical_briefing_job, conf)
+    return {"status": "success", "message": "Weekly tactical briefing queued via external cron wake-up."}
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)

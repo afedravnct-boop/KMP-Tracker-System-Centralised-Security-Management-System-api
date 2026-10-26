@@ -381,6 +381,25 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }
   };
 
+  // 🟢 NEW: Trigger Database Sweep API Call from UI
+  const handleTriggerComplianceSweep = async () => {
+    if (!window.confirm("EXECUTE COMMAND SWEEP?\n\nThis will permanently log defaulters in the database and dispatch official command warning alerts. Proceed?")) return;
+    
+    setNotification({ type: 'info', text: "⏳ Executing Command Compliance Sweep..." });
+    try {
+      const res = await authFetch('/api/v1/compliance/trigger-1100hrs-sweep', { method: 'POST' });
+      if (!res.ok) {
+        const errData = await res.json().catch(()=>({}));
+        throw new Error(errData.detail || "Sweep failed on server.");
+      }
+      const data = await res.json();
+      setNotification({ type: 'success', text: `✅ ${data.action || 'Sweep executed successfully.'}` });
+      setTimeout(() => setNotification(null), 6000);
+    } catch (err) {
+      setNotification({ type: 'error', text: `❌ ${err.message}` });
+    }
+  };
+
   const filteredLockupEntries = useMemo(() => {
     if (ledgerViewType === 'MASTER') return []; 
 
@@ -824,7 +843,18 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                   <div className="flex-1 w-full bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
                       <div className="bg-red-600 px-4 py-3 flex justify-between items-center text-white">
                           <h4 className="font-extrabold text-xs uppercase tracking-wider flex items-center"><AlertTriangle className="mr-2 w-4 h-4" /> Defaulting Stations</h4>
-                          <span className="bg-red-800 px-2 py-0.5 rounded text-[10px] font-black">{complianceData.defaulted.length}</span>
+                          <div className="flex items-center gap-3">
+                              {canManageMasterLockup && (
+                                  <button 
+                                      onClick={handleTriggerComplianceSweep}
+                                      className="bg-red-900 hover:bg-slate-950 text-white border border-red-800 px-3 py-1 rounded text-[9px] font-black cursor-pointer transition-colors shadow-inner flex items-center"
+                                      title="Force Backend Database Sweep and Dispatch Alerts"
+                                  >
+                                      <Shield className="w-3 h-3 mr-1.5" /> DISPATCH COMMAND ALERTS
+                                  </button>
+                              )}
+                              <span className="bg-red-800 px-2 py-0.5 rounded text-[10px] font-black">{complianceData.defaulted.length}</span>
+                          </div>
                       </div>
                       <div className="divide-y divide-slate-100 dark:divide-slate-800">
                           {complianceData.defaulted.length > 0 ? complianceData.defaulted.map((stn, idx) => (

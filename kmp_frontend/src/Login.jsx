@@ -172,6 +172,24 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     flushPendingTelemetry();
   }, []);
 
+  // 🟢 Intelligent Auto-Fill for Glitch Description
+  useEffect(() => {
+    if (showGlitchModal && !glitchDesc) {
+      const netErrors = capturedLogs.current.network.join(' ').toUpperCase();
+      const consErrors = capturedLogs.current.console.join(' ').toUpperCase();
+
+      if (netErrors.includes('ERR_FAILED') || netErrors.includes('FAILED TO FETCH') || consErrors.includes('CORS')) {
+        setGlitchDesc("Attempted to authorize access / fetch data, but the system encountered a secure connection drop (Cold Start 502 / CORS Preflight Failure).");
+      } else if (consErrors.includes('401') || consErrors.includes('403')) {
+        setGlitchDesc("Attempted an action but received an unauthorized/forbidden security rejection.");
+      } else if (consErrors.includes('500')) {
+        setGlitchDesc("Triggered a critical internal backend exception while navigating the portal.");
+      } else if (capturedLogs.current.network.length > 0 || capturedLogs.current.console.length > 0) {
+        setGlitchDesc("System UI experienced an unexpected runtime crash or unhandled rendering exception.");
+      }
+    }
+  }, [showGlitchModal, glitchDesc]);
+
   useEffect(() => {
     let animationFrameId;
     const syncGlobesToEpoch = () => {
@@ -714,7 +732,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
           )}
         </div>
       </div>
-    
+      
       {/* POLICY & TERMS MODAL FOR SIGNUP */}
       {showPolicyModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-in fade-in">
