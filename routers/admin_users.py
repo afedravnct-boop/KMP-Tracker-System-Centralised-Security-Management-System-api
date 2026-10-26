@@ -671,3 +671,56 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
     threshold = datetime.now(eat_tz).replace(tzinfo=None) - timedelta(minutes=2)
     active_users = db.query(models.Users).filter(models.Users.is_approved == True, models.Users.last_active_at >= threshold).all()
     return [{"fnum": u.fnum, "name": u.name, "station": u.station, "profile_photo_path": u.profile_photo_path} for u in active_users]
+
+
+# 11. HR MODIFICATION & TRANSFER REQUESTS (COMMAND APPROVALS)
+@router.get("/requests")
+@router.get("/transfer-requests")
+def get_admin_transfer_requests(
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    # Enforce strict command clearance
+    delegation = verify_admin_delegation(current_user, db)
+    if not delegation["is_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Clearance Denied: You lack administrative delegation to view transfer requests."
+        )
+
+    try:
+        # Dynamically resolve your exact database model name for transfers
+        TransferModel = getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None))
+        
+        if not TransferModel:
+            return [] # Returns empty array if model doesn't exist yet, preventing crashes
+
+        query = db.query(TransferModel)
+
+        # Apply regional/station scope locks if the admin is not global
+        if not delegation["is_global"]:
+            user_role = (current_user.role or "").upper()
+            user_pos = (current_user.position or "").upper()
+            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
+
+            if is_regional and current_user.region:
+                query = query.filter(func.upper(TransferModel.current_region) == func.upper(current_user.region))
+            elif current_user.station:
+                query = query.filter(func.upper(TransferModel.current_station) == func.upper(current_user.station))
+
+        requests = query.order_by(TransferModel.id.desc()).all()
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="ADMIN_APPROVALS",
+            target_id="HR_TRANSFERS_TAB",
+            changes_summary=f"{current_user.fnum} accessed the HR Transfer Requests command queue."
+        )
+
+        return requests
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database fetch failed: {str(e)}")
