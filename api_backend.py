@@ -409,19 +409,37 @@ def get_audit_logs(
         details=f"Officer {current_user.name} ({current_user.fnum}) accessed the secure System Audit Logs tab."
     )
     try:
-        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
-        if not AuditModel:
+        # 1. Point to the NeonDB Activity_Logs model
+        ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
+        if not ActivityModel:
             return []
-        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).limit(100).all()
+            
+        # 2. Define the exact "package" of modules this tab should fetch
+        admin_auth_modules = [
+            "USER_AUTHENTICATION", 
+            "SESSION", 
+            "SESSION_TELEMETRY",
+            "USER_ACCOUNTS", 
+            "PASSWORD_RESETS", 
+            "SECURITY_VAULT", 
+            "ACCESS_MATRIX"
+        ]
+        
+        # 3. Query logs_db and filter out general system activity
+        logs = logs_db.query(ActivityModel).filter(
+            ActivityModel.module.in_(admin_auth_modules)
+        ).order_by(ActivityModel.id.desc()).limit(100).all()
+        
+        # 4. Map the NeonDB columns perfectly to your React frontend UI expectations
         return [
             {
                 "id": log.id,
-                "event_type": getattr(log, 'event_type', 'ACTION'),
-                "target_user": getattr(log, 'target_user', ''),
-                "status": getattr(log, 'status', 'SUCCESS'),
+                "event_type": getattr(log, 'action', 'ACTION'),
+                "target_user": getattr(log, 'module', ''),
+                "status": "SUCCESS",
                 "details": getattr(log, 'details', ''),
-                "user_fnum": getattr(log, 'user_fnum', ''),
-                "user_name": getattr(log, 'user_name', ''), 
+                "user_fnum": getattr(log, 'fnum', ''),
+                "user_name": "", 
                 "created_at": str(getattr(log, 'created_at', ''))
             } for log in logs
         ]
