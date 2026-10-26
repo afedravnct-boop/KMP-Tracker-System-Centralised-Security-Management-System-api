@@ -516,6 +516,17 @@ def export_audit_logs_excel(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
 
+# 🟢 NATIVE ALIAS: Catches the exact 404 URL for HR Transfers bridging directly to admin approvals
+@app.get("/api/v1/requests")
+def get_global_hr_requests_fallback(
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    from routers.admin_users import get_admin_transfer_requests
+    return get_admin_transfer_requests(db=db, logs_db=logs_db, current_user=current_user)
+
+
 class HeartbeatPayload(BaseModel):
     fnum: Optional[str] = None
 
