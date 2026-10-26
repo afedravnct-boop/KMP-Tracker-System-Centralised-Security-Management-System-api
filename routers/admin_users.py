@@ -1,4 +1,5 @@
 import os
+import asyncio
 from urllib.parse import unquote
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, BackgroundTasks
@@ -353,7 +354,6 @@ def approve_pending_user(
 
     db.commit()
 
-    # 🟢 Trigger background email notification to the approved user
     if target_user.email:
         background_tasks.add_task(
             lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, True))
@@ -578,7 +578,6 @@ def revoke_user_access(
 
     db.commit()
 
-    # 🟢 Trigger background email notification to the rejected/revoked user
     if target_user.email:
         background_tasks.add_task(
             lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, False, reason))
@@ -681,7 +680,6 @@ def get_admin_transfer_requests(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    # Enforce strict command clearance
     delegation = verify_admin_delegation(current_user, db)
     if not delegation["is_admin"]:
         raise HTTPException(
@@ -690,24 +688,33 @@ def get_admin_transfer_requests(
         )
 
     try:
-        # Dynamically resolve your exact database model name for transfers
         TransferModel = getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None))
         
         if not TransferModel:
-            return [] # Returns empty array if model doesn't exist yet, preventing crashes
+            return [] 
 
         query = db.query(TransferModel)
 
-        # Apply regional/station scope locks if the admin is not global
+        # 🟢 Apply regional/station scope locks (OR logic for both losing and gaining command)
         if not delegation["is_global"]:
             user_role = (current_user.role or "").upper()
             user_pos = (current_user.position or "").upper()
             is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
 
             if is_regional and current_user.region:
-                query = query.filter(func.upper(TransferModel.current_region) == func.upper(current_user.region))
+                query = query.filter(
+                    or_(
+                        func.upper(TransferModel.current_region) == func.upper(current_user.region),
+                        func.upper(TransferModel.requested_region) == func.upper(current_user.region)
+                    )
+                )
             elif current_user.station:
-                query = query.filter(func.upper(TransferModel.current_station) == func.upper(current_user.station))
+                query = query.filter(
+                    or_(
+                        func.upper(TransferModel.current_station) == func.upper(current_user.station),
+                        func.upper(TransferModel.requested_station) == func.upper(current_user.station)
+                    )
+                )
 
         requests = query.order_by(TransferModel.id.desc()).all()
 
@@ -724,3 +731,190 @@ def get_admin_transfer_requests(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database fetch failed: {str(e)}")
+
+
+# 12. APPROVE / CLEAR HR TRANSFER REQUEST
+@router.patch("/transfer-requests/{request_id}/approve")
+@router.put("/transfer-requests/{request_id}/approve")
+def approve_hr_transfer_request(
+    request_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    delegation = verify_admin_delegation(current_user, db)
+    if not delegation["is_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Clearance Denied: You lack administrative delegation to approve transfers."
+        )
+
+    try:
+        TransferModel = getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None))
+        if not TransferModel:
+            raise HTTPException(status_code=500, detail="System model for transfers is unavailable.")
+
+        target_request = db.query(TransferModel).filter(TransferModel.id == request_id).first()
+        
+        if not target_request:
+            raise HTTPException(status_code=404, detail="Transfer request not found or already purged.")
+
+        if not delegation["is_global"]:
+            user_role = (current_user.role or "").upper()
+            user_pos = (current_user.position or "").upper()
+            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
+            
+            if is_regional and current_user.region:
+                if target_request.current_region.upper() != current_user.region.upper() and target_request.requested_region.upper() != current_user.region.upper():
+                    raise HTTPException(status_code=403, detail="Delegation Denied: Transfer is outside your regional scope.")
+            elif current_user.station:
+                if target_request.current_station.upper() != current_user.station.upper() and target_request.requested_station.upper() != current_user.station.upper():
+                    raise HTTPException(status_code=403, detail="Delegation Denied: Transfer is outside your station scope.")
+
+        target_request.status = "APPROVED" 
+        db.commit()
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="ADMIN_APPROVALS",
+            target_id=f"TRANSFER_REQ_{request_id}",
+            changes_summary=f"{current_user.fnum} approved HR transfer request for officer {target_request.fnum}."
+        )
+
+        officer = db.query(models.Users).filter(models.Users.fnum == target_request.fnum).first()
+        if officer and officer.email and "@" in officer.email:
+            subject = f"✅ HR Transfer Approved: {target_request.requested_station}"
+            html_body = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h2 style="color: #16a34a; margin-top: 0;">Transfer Request Approved</h2>
+                <p>Dear {officer.rank} {officer.name},</p>
+                <p>Your deployment transfer request has been officially reviewed and <strong>APPROVED</strong> by command authority.</p>
+                <ul style="line-height: 1.6; background: #f8fafc; padding: 15px; border-radius: 6px;">
+                    <li><strong>From:</strong> {target_request.current_station} / {target_request.current_region}</li>
+                    <li><strong>To:</strong> {target_request.requested_station} / {target_request.requested_region}</li>
+                    <li><strong>Authorized By:</strong> {current_user.rank} {current_user.name} ({current_user.fnum})</li>
+                </ul>
+            </div>
+            """
+            def send_transfer_email():
+                asyncio.run(send_email_notification([officer.email], subject, html_body))
+            background_tasks.add_task(send_transfer_email)
+
+        return {"status": "success", "message": f"Transfer request for {target_request.fnum} successfully cleared."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to clear transfer request: {str(e)}")
+
+
+# 13. PENDING PASSWORD RESET REQUESTS
+@router.get("/reset-requests")
+def get_pending_password_resets(
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    delegation = verify_admin_delegation(current_user, db)
+    if not delegation["is_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Clearance Denied: You lack administrative delegation to view reset requests."
+        )
+
+    try:
+        ResetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
+        
+        if not ResetModel:
+            return []
+
+        query = db.query(ResetModel).filter(func.upper(ResetModel.status) == "PENDING")
+
+        if not delegation["is_global"]:
+            user_role = (current_user.role or "").upper()
+            user_pos = (current_user.position or "").upper()
+            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
+
+            if is_regional and current_user.region:
+                query = query.filter(func.upper(ResetModel.region) == func.upper(current_user.region))
+            elif current_user.station:
+                query = query.filter(func.upper(ResetModel.station) == func.upper(current_user.station))
+
+        requests = query.order_by(ResetModel.id.desc()).all()
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="ADMIN_APPROVALS",
+            target_id="PASSWORD_RESETS_TAB",
+            changes_summary=f"{current_user.fnum} accessed the Password Resets command queue."
+        )
+
+        return requests
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database fetch failed: {str(e)}")
+
+
+# 14. CLEAR / RESOLVE PASSWORD RESET REQUEST
+@router.patch("/reset-requests/{request_id}/clear")
+@router.put("/reset-requests/{request_id}/clear")
+def clear_password_reset_request(
+    request_id: int,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    delegation = verify_admin_delegation(current_user, db)
+    if not delegation["is_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Clearance Denied: You lack administrative delegation to clear reset requests."
+        )
+
+    try:
+        ResetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
+        if not ResetModel:
+            raise HTTPException(status_code=500, detail="System model for password resets is unavailable.")
+
+        target_request = db.query(ResetModel).filter(ResetModel.id == request_id).first()
+        
+        if not target_request:
+            raise HTTPException(status_code=404, detail="Password reset request not found or already purged.")
+
+        if not delegation["is_global"]:
+            user_role = (current_user.role or "").upper()
+            user_pos = (current_user.position or "").upper()
+            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
+            
+            if is_regional and current_user.region:
+                if target_request.region and target_request.region.upper() != current_user.region.upper():
+                    raise HTTPException(status_code=403, detail="Delegation Denied: Request is outside your regional scope.")
+            elif current_user.station:
+                if target_request.station and target_request.station.upper() != current_user.station.upper():
+                    raise HTTPException(status_code=403, detail="Delegation Denied: Request is outside your station scope.")
+
+        target_request.status = "CLEARED" 
+        db.commit()
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="ADMIN_APPROVALS",
+            target_id=f"RESET_REQ_{request_id}",
+            changes_summary=f"{current_user.fnum} cleared and resolved password reset request for officer {target_request.fnum}."
+        )
+
+        return {"status": "success", "message": f"Password reset request for {target_request.fnum} successfully cleared."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to clear reset request: {str(e)}")
