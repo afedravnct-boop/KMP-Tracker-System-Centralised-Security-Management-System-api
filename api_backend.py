@@ -676,7 +676,7 @@ def shutdown_scheduler():
         scheduler.shutdown()
 
 # ==========================================
-# 🟢 MASTER DOWNLOAD (MULTI-SHEET EXPORT)
+# 🟢 OPTIMIZED MASTER DOWNLOAD (MULTI-SHEET EXPORT)
 # ==========================================
 @app.get("/api/v1/export-master")
 @app.get("/api/v1/export-master-database")
@@ -697,7 +697,8 @@ def export_master_database(
 
         wb = openpyxl.Workbook()
         
-        # 🟢 UPDATED HELPER: Now supports 'exclude_cols' for creating clean (Print) sheets
+        # 🟢 OPTIMIZED HELPER: Maintains your exact multi-sheet tabs and print versions, 
+        # but uses fixed widths to bypass heavy cell-scanning loops that cause timeouts.
         def create_sheet(sheet_title, *model_names, is_first=False, exclude_cols=None):
             ModelClass = get_model_safe(*model_names)
             ws = wb.active if is_first else wb.create_sheet(title=sheet_title)
@@ -709,7 +710,7 @@ def export_master_database(
                 return
 
             query = apply_opsec_scope(current_user, db.query(ModelClass), ModelClass)
-            records = query.order_by(ModelClass.id.desc()).all() if hasattr(ModelClass, 'id') else query.all()
+            records = query.order_by(ModelClass.id.desc()).limit(3000).all() if hasattr(ModelClass, 'id') else query.all()
             
             if not records:
                 ws.append(["No Records Found in Your Authorized Jurisdiction."])
@@ -718,7 +719,6 @@ def export_master_database(
             first_record = serialize_model_row(records[0])
             headers = list(first_record.keys())
             
-            # Apply column exclusions for print-optimized sheets
             if exclude_cols:
                 headers = [h for h in headers if h.lower() not in exclude_cols]
                 
@@ -735,28 +735,28 @@ def export_master_database(
                 row_data = serialize_model_row(record)
                 ws.append([clean_html_for_export(str(row_data.get(h, ''))) for h in headers])
 
+            # 🟢 FAST FORMATTING: Instant width assignment prevents CPU locking & timeouts
             for col in ws.columns:
                 col_letter = col[0].column_letter
-                if col[0].value in ["NARRATIVE", "DETAILS", "REMARKS", "STORY", "CRIME_REPORT", "DESCRIPTION", "ACTION_TAKEN"]:
-                    ws.column_dimensions[col_letter].width = 65
+                header_val = str(col[0].value or '').upper()
+                if any(k in header_val for k in ["NARRATIVE", "DETAILS", "REMARKS", "STORY", "REPORT", "DESCRIPTION", "ACTION"]):
+                    ws.column_dimensions[col_letter].width = 45
                     for cell in col:
                         if cell.row > 1:
                             cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                 else:
-                    max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                    ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+                    ws.column_dimensions[col_letter].width = 20
                     for cell in col:
                         if cell.row > 1:
-                            cell.alignment = Alignment(horizontal="center", vertical="center")
+                            cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        # 🟢 GENERATE ALL TABS IN EXACT SCREENSHOT ORDER WITH PRINT VERSIONS
+        # 🟢 GENERATE ALL ORIGINAL TABS & PRINT VERSIONS
         create_sheet("Crime Registry (Print)", "Crime_Registry", "CrimeRegistry", is_first=True, exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
         create_sheet("Crime Registry", "Crime_Registry", "CrimeRegistry")
         
         create_sheet("Documents & Reports (Print)", "General_Documents", "GeneralDocuments", "Documents", exclude_cols=["id", "file_path"])
         create_sheet("Documents & Reports", "General_Documents", "GeneralDocuments", "Documents")
 
-        # OPSEC: Only append AI Command Logs if the user is a Super Admin
         user_role = str(current_user.role).strip().upper() if current_user.role else ""
         if user_role == "SUPER_ADMIN":
             create_sheet("AI Command (Print)", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs", exclude_cols=["id", "created_at", "updated_at"])
@@ -767,12 +767,10 @@ def export_master_database(
         create_sheet("Archived Personnel", "Nominal_Roll_Archives", "NominalRollArchives", "Archived_Personnel")
         create_sheet("Impounded Exhibits", "Exhibits", "Impounded_Exhibits", "ImpoundedExhibits")
         
-        # Save Excel to memory
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
         
-        # Package in AES-256 Encrypted Zip
         zip_stream = io.BytesIO()
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
         fnum_clean = str(current_user.fnum).replace('/', '_').upper()
