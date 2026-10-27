@@ -678,10 +678,14 @@ def shutdown_scheduler():
 # ==========================================
 # 🟢 MASTER DOWNLOAD (MULTI-SHEET EXPORT)
 # ==========================================
+@app.get("/api/v1/reports/export")  # 🟢 INTERCEPTS FRONTEND BUTTON
 @app.get("/api/v1/export-master")
 @app.get("/api/v1/export-master-database")
 @app.get("/api/v1/database/export")
 def export_master_database(
+    timeframe: Optional[str] = Query(None),
+    scope: Optional[str] = Query(None),
+    value: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_export_privilege)
