@@ -2229,10 +2229,10 @@ const App = () => {
     window.location.reload();
   };
 
-  const handleMasterExport = async (scope, value) => {
-    let url = `/api/v1/reports/export?timeframe=all`; 
-    if (scope && value) url += `&scope=${scope}&value=${encodeURIComponent(value)}`;
-    downloadWithAuth(url, `KMP_Master_Ledger_${value || "General"}_${new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0]}.zip`);
+  const handleMasterExport = async () => {
+    // 🟢 Strictly targets the multi-sheet encrypted master database export
+    const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
+    downloadWithAuth(`/api/v1/export-master`, `SECURE_MASTER_DATABASE_${todayStr}.zip`);
   };
 
   const handleAcknowledgeComm = (commId) => {
