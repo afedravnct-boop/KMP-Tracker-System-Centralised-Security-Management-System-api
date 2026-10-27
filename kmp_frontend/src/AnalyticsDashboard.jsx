@@ -202,7 +202,7 @@ const AnalyticsDashboard = ({
 
   const isSuperAdmin = userRoleClean === 'SUPER_ADMIN' || userRoleClean === 'ADMIN';
   const isGlobalTier = isSuperAdmin || 
-    ['ASSISTANT_SUPER_ADMIN', 'ADMIN'].includes(userRoleClean) || 
+    ['ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
     ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
     currentUser?.permissions?.view_global_roster === true ||
     !currentUser;

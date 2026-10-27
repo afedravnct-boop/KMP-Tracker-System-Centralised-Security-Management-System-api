@@ -406,7 +406,7 @@ def export_analytics_report(
             except Exception: perms = {}
 
         is_absolute_global = (
-            user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+            user_role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"] or
             "KMP COMMANDER" in user_pos or
             "DEPUTY KMP COMMANDER" in user_pos or
             "KMP ADMIN" in user_pos or

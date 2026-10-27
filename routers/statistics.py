@@ -70,7 +70,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         except Exception: perms = {}
 
     is_absolute_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        user_role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
         "KMP COMMANDER" in user_pos or
         "DEPUTY KMP COMMANDER" in user_pos or
         "KMP ADMIN" in user_pos or
