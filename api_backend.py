@@ -804,9 +804,17 @@ def external_trigger_compliance(background_tasks: BackgroundTasks, db: Session =
     if key != CRON_SECRET:
         raise HTTPException(status_code=403, detail="Unauthorized Cron Trigger")
     
-    from routers.lockup_matrix import execute_daily_compliance_sweep
-    background_tasks.add_task(execute_daily_compliance_sweep, background_tasks=background_tasks, db=db)
-    return {"status": "success", "message": "Compliance sweep queued via external cron wake-up."}
+    try:
+        from routers.lockup_matrix import execute_daily_compliance_sweep
+        # 🟢 FIX: Execute synchronously so the DB session stays open during the sweep.
+        # It will queue the actual email dispatching into the 'background_tasks' object.
+        result = execute_daily_compliance_sweep(background_tasks=background_tasks, db=db)
+        
+        return {"status": "success", "message": "Compliance sweep executed successfully.", "details": result}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Compliance sweep failed: {str(e)}")
 
 @app.get("/api/v1/cron/trigger-briefing")
 @app.post("/api/v1/cron/trigger-briefing")
@@ -814,8 +822,12 @@ def external_trigger_briefing(background_tasks: BackgroundTasks, key: str = Quer
     if key != CRON_SECRET:
         raise HTTPException(status_code=403, detail="Unauthorized Cron Trigger")
     
-    background_tasks.add_task(run_weekly_tactical_briefing_job, conf)
-    return {"status": "success", "message": "Weekly tactical briefing queued via external cron wake-up."}
+    # 🟢 FIX: Execute synchronously to prevent background queue locking issues
+    try:
+        run_weekly_tactical_briefing_job(conf)
+        return {"status": "success", "message": "Weekly tactical briefing generated and dispatched."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Briefing generation failed: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("api_backend:app", host="0.0.0.0", port=8000, reload=True)
