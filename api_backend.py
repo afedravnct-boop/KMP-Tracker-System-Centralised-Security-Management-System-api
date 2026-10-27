@@ -750,13 +750,14 @@ def export_master_database(
                         if cell.row > 1:
                             cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        # 🟢 GENERATE ALL ORIGINAL TABS & PRINT VERSIONS
-        create_sheet("Crime Registry (Print)", "Crime_Registry", "CrimeRegistry", is_first=True, exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
-        create_sheet("Crime Registry", "Crime_Registry", "CrimeRegistry")
+        # 🟢 GENERATE ALL TABS IN EXACT SCREENSHOT ORDER WITH PRINT VERSIONS
+        create_sheet("Crime Registry (Print)", "Crime_Reports", is_first=True, exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
+        create_sheet("Crime Registry", "Crime_Reports")
         
         create_sheet("Documents & Reports (Print)", "General_Documents", "GeneralDocuments", "Documents", exclude_cols=["id", "file_path"])
         create_sheet("Documents & Reports", "General_Documents", "GeneralDocuments", "Documents")
 
+        # OPSEC: Only append AI Command Logs if the user is a Super Admin
         user_role = str(current_user.role).strip().upper() if current_user.role else ""
         if user_role == "SUPER_ADMIN":
             create_sheet("AI Command (Print)", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs", exclude_cols=["id", "created_at", "updated_at"])
