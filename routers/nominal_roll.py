@@ -412,24 +412,20 @@ def parseStationHierarchy(rawStation):
 
 def getOfficialRegionForStation(station_name: str, current_region: Optional[str] = None) -> str:
     norm_reg = normalize_region_name(current_region)
-    if norm_reg != "KMP HEADQUARTERS":
-        return norm_reg
     station_norm = normalize_station_name(station_name)
+    
+    # 🟢 Explicitly map regional headquarters to their respective regions
+    if "KMP EAST" in station_norm or "KMP EAST" in norm_reg:
+        return "KMP EAST"
+    if "KMP NORTH" in station_norm or "KMP NORTH" in norm_reg:
+        return "KMP NORTH"
+    if "KMP SOUTH" in station_norm or "KMP SOUTH" in norm_reg:
+        return "KMP SOUTH"
+        
     if station_norm in STATION_GEO_MAP:
         return STATION_GEO_MAP[station_norm]["region"]
+        
     return norm_reg
-
-def auto_infer_geography(station_name, current_region=None, current_district=None):
-    station_norm = normalize_station_name(station_name)
-    inferred_region = normalize_region_name(current_region)
-    inferred_district = aggressive_clean_text(current_district)
-    if station_norm in STATION_GEO_MAP:
-        geo_info = STATION_GEO_MAP[station_norm]
-        if not inferred_region or inferred_region in ["", "NONE", "NAN", "ALL REGIONS"]:
-            inferred_region = geo_info["region"]
-        if not inferred_district or str(inferred_district).upper() in ["", "NONE", "NAN", "ALL REGIONS"]:
-            inferred_district = geo_info["district"]
-    return inferred_region or "KMP HEADQUARTERS", inferred_district or "KAMPALA"
 
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
@@ -453,7 +449,13 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     if is_absolute_global:
         return query
     elif is_regional_command:
-        return query.filter(func.upper(Model.region) == user_region)
+        # 🟢 Include both regional stations and regional headquarters names for RPC scope
+        return query.filter(
+            or_(
+                func.upper(Model.region) == user_region,
+                func.upper(Model.station).ilike(f"%{user_region}%")
+            )
+        )
     elif user_station:
         station_pattern = f"%{user_station}%"
         return query.filter(

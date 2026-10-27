@@ -577,17 +577,19 @@ def export_analytics_report(
             
             success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, classification])
 
+        # 🟢 EXHIBIT SUMMARY MAP WITH DESCRIPTION INCLUDED
         exhibit_summary_map = {}
         for ex in ex_records:
             cat = str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper()
+            desc = str(getattr(ex, 'description', getattr(ex, 'particulars', 'N/A')) or 'N/A').upper()
             reg = str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper()
             div = str(getattr(ex, 'division', getattr(ex, 'station', 'N/A')) or 'N/A').upper()
             stn = str(getattr(ex, 'station', 'N/A') or 'N/A').upper()
             status = str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper()
-            key = (cat, reg, div, stn, status)
+            key = (cat, desc, reg, div, stn, status)
             exhibit_summary_map[key] = exhibit_summary_map.get(key, 0) + 1
 
-        exhibit_summary_data = [[k[0], k[1], k[2], k[3], k[4], v] for k, v in exhibit_summary_map.items()]
+        exhibit_summary_data = [[k[0], k[1], k[2], k[3], k[4], k[5], v] for k, v in exhibit_summary_map.items()]
 
         disruptive_data = []
         region_ops_totals = {}
@@ -656,6 +658,7 @@ def export_analytics_report(
         section_font = Font(color="FFFFFF", bold=True, size=11)
 
         manpower_headers = ["Region", "Station", "Total", "Male", "Female"] + [item for r in all_ranks for item in (f"{r} (M)", f"{r} (F)")]
+        exhibit_headers = ["Category", "Description", "Region", "Division", "Station", "Status", "Total Count"]
 
         def add_individual_sheet(title, headers, rows):
             ws = wb.create_sheet(title=title)
@@ -671,7 +674,7 @@ def export_analytics_report(
         add_individual_sheet("Manpower Analysis", manpower_headers, manpower_table_rows)
         add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
         add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
-        add_individual_sheet("Exhibits Grouped", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
+        add_individual_sheet("Exhibits Grouped", exhibit_headers, exhibit_summary_data)
         add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
         
         add_individual_sheet("Detention Analysis (Weekly)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
@@ -710,7 +713,7 @@ def export_analytics_report(
         append_stacked_section("1. Manpower Analysis (Officers & NCOs breakdown)", manpower_headers, manpower_table_rows)
         append_stacked_section("2. Agricultural Crimes Breakdown", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
         append_stacked_section("3. Success Stories Breakdown", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
-        append_stacked_section("4. Exhibits Grouped Summary", ["Category", "Region", "Division", "Station", "Status", "Total Count"], exhibit_summary_data)
+        append_stacked_section("4. Exhibits Grouped Summary", exhibit_headers, exhibit_summary_data)
         append_stacked_section("5. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
         append_stacked_section("6. Cell Detentions Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
         append_stacked_section("7. Traffic Accidents Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
