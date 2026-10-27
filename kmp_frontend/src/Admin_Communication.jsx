@@ -374,7 +374,13 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           throw new Error(errorMsg);
       }
 
-      setNotification({ type: 'success', text: isTechnicalGlitch ? '✅ Technical Glitch Report dispatched directly to Super Admins, Asst. Super Admins, & KMP Commanders.' : '✅ Message successfully dispatched securely.' });
+      // 🟢 Capture response data and check for commander leave / absence advisories
+      const resData = await response.json().catch(() => ({}));
+      const successMessage = resData.absence_advisory 
+        ? `✅ Dispatched with Notice: ${resData.absence_advisory}`
+        : (isTechnicalGlitch ? '✅ Technical Glitch Report dispatched directly to Super Admins, Asst. Super Admins, & KMP Commanders.' : '✅ Message successfully dispatched securely.');
+
+      setNotification({ type: 'success', text: successMessage });
       setIsReplyingTo(false);
       setReplyingToDoc(null);
       setIsTechnicalGlitch(false);

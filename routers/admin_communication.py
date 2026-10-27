@@ -112,7 +112,7 @@ class GlitchTelemetryPayload(BaseModel):
 def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, current_user_dict: dict):
     """
     Background worker that queries Gemini for authenticated crash faults, logs the 
-    AI diagnostics to AI_Command_Logs, and dispatches the enriched technical alert.
+    AI diagnostics to AI_Command_Logs, saves to Admin Communications, and dispatches email alerts.
     """
     db_gen = get_db()
     logs_db_gen = get_logs_db()
@@ -156,7 +156,7 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             except Exception as ai_err:
                 print(f"AI Auto-Diagnosis skipped: {ai_err}")
 
-        # 1. 🟢 NEW: Save to AI Command Logs Table First
+        # 1. Save to AI Command Logs Table
         LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         if LogModel:
             new_ai_log = LogModel(
@@ -219,14 +219,44 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
         
         db.commit()
 
-        # 5. Log System Activity
+        # 🟢 5. FIX: Automatically send email dispatch to High Command for automated glitch telemetry
+        high_command_emails = [
+            email[0] for email in db.query(models.Users.email).filter(
+                models.Users.is_approved == True,
+                models.Users.email.isnot(None),
+                models.Users.role != 'REVOKED',
+                or_(
+                    models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN']),
+                    func.upper(models.Users.position).like('%KMP COMMANDER%'),
+                    func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
+                )
+            ).all() if email[0] and "@" in email[0]
+        ]
+        
+        if high_command_emails:
+            email_html = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h2 style="color: #b91c1c; margin-top: 0;">AUTOMATED TECHNICAL FAULT TELEMETRY</h2>
+                {glitch_summary}
+            </div>
+            """
+            try:
+                asyncio.run(send_command_briefing(
+                    high_command_emails,
+                    f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
+                    email_html
+                ))
+            except Exception as mail_err:
+                print(f"❌ Failed to dispatch automated glitch alert email: {mail_err}")
+
+        # 6. Log System Activity
         from routers.activity_logger import log_independent_activity
         log_independent_activity(
             logs_db=logs_db,
             fnum=current_user_dict['fnum'],
             action="DIAGNOSE_GLITCH",
             module="FRONTEND_TELEMETRY",
-            details=f"Automated AI crash diagnostic generated for page [{payload.current_page}] and routed to High Command."
+            details=f"Automated AI crash diagnostic generated for page [{payload.current_page}] and routed to High Command via database and email."
         )
 
     except Exception as e:
@@ -313,6 +343,20 @@ def create_admin_communication(
             admin_fnums = [hc[0] for hc in high_command_users if hc[0]]
             target_fnum_val = ",".join(admin_fnums)
             comm.target_audience = "SPECIFIC_USER"
+
+        # 🟢 1. Check if any targeted recipient is currently away on leave / delegation
+        absence_notices = []
+        if comm.target_audience == 'SPECIFIC_USER' and target_fnum_val:
+            target_fnums = [f.strip().upper() for f in str(target_fnum_val).split(',') if f.strip()]
+            target_users = db.query(models.Users).filter(func.upper(models.Users.fnum).in_(target_fnums)).all()
+            for tu in target_users:
+                t_perms = tu.permissions or {}
+                if isinstance(t_perms, str):
+                    try: t_perms = json.loads(t_perms)
+                    except: t_perms = {}
+                if t_perms.get("manual_delegation"):
+                    reason = t_perms.get("absence_reason", "On Official Leave")
+                    absence_notices.append(f"Notice: {tu.rank} {tu.name} ({tu.fnum}) is currently away ({reason}). Communication routed to acting delegate.")
 
         if not is_regional_admin_or_above(current_user) and comm.target_audience in ["ALL_USERS", "RPC_ONLY", "ADMINS_ONLY"]:
             if comm.target_audience not in ["SPECIFIC_REGION", "SPECIFIC_USER"]:
@@ -420,7 +464,10 @@ def create_admin_communication(
                 background_tasks.add_task(send_email_sync)
 
         assigned_id = getattr(db_comm, 'id', getattr(db_comm, 'sn', 1))
-        return {"status": "success", "id": assigned_id, "msg_ref": generated_msg_ref}
+        response_payload = {"status": "success", "id": assigned_id, "msg_ref": generated_msg_ref}
+        if absence_notices:
+            response_payload["absence_advisory"] = " | ".join(absence_notices)
+        return response_payload
     except Exception as e:
         db.rollback()
         logs_db.rollback()
@@ -876,4 +923,4 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
         has_unread = True
         break
 
-    return {"hasUnread": has_unread}
+    return {"absence_advisory": None, "hasUnread": has_unread}

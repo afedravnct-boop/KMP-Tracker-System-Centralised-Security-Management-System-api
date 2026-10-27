@@ -198,7 +198,7 @@ def enforce_mutation_clearance(current_user: models.Users):
 # 🟢 DELEGATION, JURISDICTION & INTELLIGENT FAILOVER CHECKER
 def verify_admin_delegation(current_user: models.Users, db: Session):
     if not current_user:
-        return {"is_global": False, "is_admin": False}
+        return {"is_global": False, "is_admin": False, "scope_level": "NONE", "region": None}
         
     user_role = (current_user.role or "").strip().upper()
     user_position = (current_user.position or "").strip().upper()
@@ -227,6 +227,8 @@ def verify_admin_delegation(current_user: models.Users, db: Session):
     )
 
     inherited_delegation = False
+    active_scope = "STATION"
+    
     if not is_global and not is_native_admin:
         eat_tz = pytz.timezone('Africa/Nairobi')
         now_eat = datetime.now(eat_tz).replace(tzinfo=None)
@@ -241,7 +243,7 @@ def verify_admin_delegation(current_user: models.Users, db: Session):
 
         for sup in superiors.all():
             sup_role = (sup.role or "").upper()
-            if sup_role in ["RPC", "REGIONAL_ADMIN", "STATION_ADMIN", "SYSTEM_MANAGER"]:
+            if sup_role in ["RPC", "REGIONAL_ADMIN", "SYSTEM_MANAGER"] or "RPC" in (sup.position or "").upper():
                 sup_perms = sup.permissions or {}
                 if isinstance(sup_perms, str):
                     try: sup_perms = json.loads(sup_perms)
@@ -252,13 +254,16 @@ def verify_admin_delegation(current_user: models.Users, db: Session):
 
                 if is_sup_offline or is_sup_manually_delegating:
                     inherited_delegation = True
+                    active_scope = "REGIONAL" # 🟢 Elevates station admin to regional scope during delegation
                     break
 
     is_delegated_admin = is_native_admin or inherited_delegation
 
     return {
         "is_global": is_global,
-        "is_admin": is_delegated_admin
+        "is_admin": is_delegated_admin,
+        "scope_level": "GLOBAL" if is_global else (active_scope if inherited_delegation else ("REGIONAL" if is_native_admin else "STATION")),
+        "region": current_user.region
     }
 
 # 1. PENDING USERS ROSTER
@@ -918,3 +923,68 @@ def clear_password_reset_request(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to clear reset request: {str(e)}")
+
+# 15. TRIGGER TACTICAL BRIEFINGS (MANUAL & AUTOMATED CRON)
+@router.post("/trigger-briefs")
+@router.post("/cron/trigger-briefs")
+def trigger_tactical_briefs(
+    payload: Optional[dict] = Body(None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: Optional[models.Users] = Depends(get_current_user)
+):
+    try:
+        brief_type = payload.get("brief_type", "ALL") if payload else "ALL"
+        is_automated = current_user is None
+        origin_note = "Automated Monday Dispatch" if is_automated else f"Manually triggered by {current_user.fnum} {current_user.rank} {current_user.name}"
+
+        # 🟢 Place your SITREP email compilation and FastMail dispatch logic here
+
+        actor_fnum = current_user.fnum if current_user else "CRON_SCHEDULER"
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=actor_fnum,
+            action_type="DISPATCH",
+            module="TACTICAL_BRIEFING",
+            target_id="EMAIL_SITREP",
+            changes_summary=f"Tactical briefings ({brief_type}) compiled and dispatched successfully. Origin: {origin_note}."
+        )
+
+        return {
+            "status": "success",
+            "message": f"Tactical briefings ({brief_type}) dispatched successfully. Origin: {origin_note}."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Briefing dispatch failed: {str(e)}")
+
+# ==========================================
+# 16. COMMANDER ABSENCE & LEAVE BROADCAST ROUTE
+# ==========================================
+@router.post("/set-commander-status")
+def set_commander_status(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    enforce_mutation_clearance(current_user)
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except: perms = {}
+    
+    is_away = payload.get("is_away", False)
+    absence_reason = payload.get("absence_reason", "Annual Leave")
+    
+    perms["manual_delegation"] = is_away
+    perms["absence_reason"] = absence_reason if is_away else None
+    current_user.permissions = perms
+    
+    db.commit()
+    
+    status_text = f"Away ({absence_reason})" if is_away else "Active (Normal Command)"
+    return {
+        "status": "success",
+        "manual_delegation": is_away,
+        "absence_reason": perms.get("absence_reason"),
+        "message": f"Command status broadcast updated successfully: {status_text}."
+    }

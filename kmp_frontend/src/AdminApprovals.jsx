@@ -679,8 +679,11 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
     const newPermissions = { ...(targetUser.permissions || {}), can_approve: givePower };
     try {
-      const res = await authFetch(`/api/v1/users/${encodeURIComponent(targetUser.fnum)}/access`, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
+      // 🟢 Fixed: Added '/admin/' prefix
+      const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(targetUser.fnum)}/access`, {
+        method: "PUT", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
       });
       if (!res.ok) throw new Error("Failed to update delegation.");
       alert(`✅ Delegation successfully ${givePower ? 'GRANTED' : 'REVOKED'} for ${targetUser.name} (${targetUser.fnum}).`);
@@ -1469,14 +1472,56 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
           <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl text-white">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
               <h3 className="text-sm font-extrabold uppercase flex items-center">
-                <Award className="w-4 h-4 mr-2 text-yellow-400" /> Delegate Command Approval Powers
+                <Award className="w-4 h-4 mr-2 text-yellow-400" /> Delegate Command Approval Powers & Absence Status
               </h3>
               <button onClick={() => setShowDelegationModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
             </div>
              
-            <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate authorization and matrix approval privileges.</p>
+            <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate acting approval privileges, or broadcast your official command absence status.</p>
              
-            <div className="relative flex items-center">
+            {/* 🟢 COMMANDER LEAVE / ABSENCE REASON BROADCASTER */}
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-black uppercase text-amber-400">Broadcast Commander Leave / Absence Status</h4>
+                  <p className="text-[10px] text-slate-400">If you are away (e.g., on leave or course), select a reason below to notify command nodes.</p>
+                </div>
+                <ToggleSwitch 
+                  checked={currentUser?.permissions?.manual_delegation || false} 
+                  onChange={async () => {
+                    const nextAway = !(currentUser?.permissions?.manual_delegation);
+                    const reasonSelect = document.getElementById('absenceReasonSelect')?.value || 'Annual Leave';
+                    try {
+                      const res = await authFetch('/api/v1/admin/set-commander-status', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ is_away: nextAway, absence_reason: reasonSelect })
+                      });
+                      if (res.ok) {
+                        alert("✅ Command status broadcast updated successfully.");
+                        window.location.reload(); // Refresh to sync permissions state
+                      }
+                    } catch (err) { alert("Failed to update status."); }
+                  }} 
+                />
+              </div>
+              <div className="flex items-center space-x-2 pt-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0">Absence Reason:</span>
+                <select 
+                  id="absenceReasonSelect"
+                  defaultValue={currentUser?.permissions?.absence_reason || 'Annual Leave'}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-white outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="Annual Leave">Annual Leave</option>
+                  <option value="Official Course / Training (e.g., Cairo, Egypt)">Official Course / Training (e.g., Cairo, Egypt)</option>
+                  <option value="Field Operations / Deployment">Field Operations / Deployment</option>
+                  <option value="Medical Leave / Sick Sheet">Medical Leave / Sick Sheet</option>
+                  <option value="Off Duty / Rest Days">Off Duty / Rest Days</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="relative flex items-center pt-2">
               <Search size={14} className="absolute left-3 text-slate-400" />
               <input 
                 type="text"
@@ -1488,7 +1533,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
               {delegationSearchTerm && <button onClick={() => setDelegationSearchTerm('')} className="absolute right-3 text-slate-400 hover:text-white text-xs font-bold">×</button>}
             </div>
 
-            <div className="max-h-80 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+            <div className="max-h-80 overflow-y-auto space-y-3 custom-scrollbar pr-1">
               {allSystemUsers
                 .filter(u => {
                   if (u.role === 'SUPER_ADMIN' || !canControlTargetUser(u)) return false;
@@ -1496,21 +1541,61 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
                   const term = delegationSearchTerm.trim().toLowerCase();
                   return (u.name || "").toLowerCase().includes(term) || (u.fnum || "").toLowerCase().includes(term) || (u.station || "").toLowerCase().includes(term);
                 })
-                .map(u => (
-                  <div key={u.fnum} className="bg-slate-800/90 p-3.5 rounded-xl flex items-center justify-between border border-slate-700 hover:border-indigo-500 transition-colors">
-                    <div>
-                      <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
-                      <div className="text-[10px] text-slate-400 mt-0.5">{u.station} / {u.region} • <span className="text-yellow-400 font-semibold">{u.role}</span></div>
+                .map(u => {
+                  const uPerms = u.permissions || {};
+                  return (
+                    <div key={u.fnum} className="bg-slate-800/90 p-4 rounded-xl space-y-3 border border-slate-700 hover:border-indigo-500 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">{u.station} / {u.region} • <span className="text-yellow-400 font-semibold">{u.role}</span></div>
+                        </div>
+                        <div className="space-x-2 shrink-0">
+                          {uPerms?.can_approve ? (
+                            <button onClick={() => handleToggleDelegationPower(u, false)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Revoke All Powers</button>
+                          ) : (
+                            <button onClick={() => handleToggleDelegationPower(u, true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Grant Acting Power</button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 🟢 GRANULAR ACTING POWERS CHECKLIST */}
+                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
+                        <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">Scoped Acting Powers Checklist:</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
+                          {CLEARANCE_MATRIX_COLS.map(col => {
+                            const isChecked = uPerms[col.key] === true;
+                            return (
+                              <label key={col.key} className="flex items-center space-x-1.5 cursor-pointer text-slate-300 hover:text-white truncate">
+                                <input 
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={async (e) => {
+                                    const nextPerms = { ...uPerms, [col.key]: e.target.checked, can_approve: true };
+                                    try {
+                                      // 🟢 Fixed: Included '/admin/' prefix to prevent 404 error
+                                      const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(u.fnum)}/access`, {
+                                        method: "PUT",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ role: u.role, permissions: nextPerms })
+                                      });
+                                      if (!res.ok) throw new Error("Failed to update delegation privileges.");
+                                      fetchAllSystemUsers();
+                                    } catch (err) {
+                                      alert(`❌ Error: ${err.message}`);
+                                    }
+                                  }}
+                                  className="w-3.5 h-3.5 accent-blue-600 rounded cursor-pointer shrink-0"
+                                />
+                                <span className="truncate" title={col.label}>{col.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-x-2 shrink-0">
-                      {u.permissions?.can_approve ? (
-                        <button onClick={() => handleToggleDelegationPower(u, false)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Revoke Power</button>
-                      ) : (
-                        <button onClick={() => handleToggleDelegationPower(u, true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Delegate Power</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
              
             <div className="flex justify-end pt-2 border-t border-slate-800">
