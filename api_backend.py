@@ -51,7 +51,7 @@ from app import models, schemas, database
 from app.database import engine, get_db, get_logs_db, SQLALCHEMY_DATABASE_URL
 from app.core import security
 from auth import router as auth_router, get_current_user
-from routers.activity_logger import record_neon_activity, SystemActivityMiddleware 
+from routers.activity_logger import record_neon_activity, SystemActivityMiddleware
 from routers.weekly_briefing import run_weekly_tactical_briefing_job
 
 # ==========================================
@@ -79,7 +79,7 @@ from routers import (
     exhibits,
     hr_router,
     consolidated_ledger,
-    admin_users  # 🟢 ADDED ADMIN USERS ROUTER
+    admin_users
 )
 
 # ==========================================
@@ -102,7 +102,7 @@ app.include_router(exhibits.router)
 app.include_router(hr_router.router)
 app.include_router(consolidated_ledger.router)
 app.include_router(statistics.router)
-app.include_router(admin_users.router) # 🟢 ADDED ADMIN USERS ROUTER
+app.include_router(admin_users.router)
 
 # ==========================================
 # GLOBAL EXCEPTION HANDLER
@@ -366,7 +366,7 @@ app.add_middleware(
         "https://kmp-tracker-system-centralised-secu.vercel.app",
         "https://kmp-tracker-system-centralised-security-management-adj4h23x4.vercel.app",
         "https://kmp-tracker-system-centralised-security-management-od0odfzxy.vercel.app",
-        "https://kmp-tracker-system-centr-aip-afedra-vincent-uganda-police-force.vercel.app" # Explicitly added
+        "https://kmp-tracker-system-centr-aip-afedra-vincent-uganda-police-force.vercel.app"
     ],
     allow_origin_regex=r"https://kmp-tracker.*\.vercel\.app",
     allow_credentials=True,
@@ -678,14 +678,10 @@ def shutdown_scheduler():
 # ==========================================
 # 🟢 MASTER DOWNLOAD (MULTI-SHEET EXPORT)
 # ==========================================
-@app.get("/api/v1/reports/export")  # 🟢 INTERCEPTS FRONTEND BUTTON
 @app.get("/api/v1/export-master")
 @app.get("/api/v1/export-master-database")
 @app.get("/api/v1/database/export")
 def export_master_database(
-    timeframe: Optional[str] = Query(None),
-    scope: Optional[str] = Query(None),
-    value: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_export_privilege)
