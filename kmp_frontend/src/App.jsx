@@ -182,6 +182,9 @@ export const formatEATDateTime = (dateStr) => {
 };
 
 const downloadWithAuth = async (url, filename) => {
+  // 🟢 Universal Feedback: Notify user that the secure archive is compiling
+  alert("⏳ Generating secure encrypted Master Database archive. Please keep this window open...");
+
   try {
     const response = await authFetch(url);
     if (!response.ok) {
@@ -205,9 +208,13 @@ const downloadWithAuth = async (url, filename) => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
     }, 2000);
+
+    // 🟢 Success Confirmation: Notify user download has finished
+    alert("✅ Master Database downloaded successfully! The AES-256 encrypted archive has been saved to your device.");
+
   } catch (error) {
     console.error("Download Error:", error);
-    alert(`Export Failed: ${error.message}`); 
+    alert(`❌ Export Failed: ${error.message}`); 
   }
 };
 
@@ -2229,10 +2236,15 @@ const App = () => {
     window.location.reload();
   };
 
-  const handleMasterExport = async () => {
-    // 🟢 Strictly targets the multi-sheet encrypted master database export
+  const handleMasterExport = async (scope, value) => {
+    // 🟢 Points directly to the full multi-sheet encrypted master download endpoint
+    let url = `/api/v1/export-master`; 
+    if (scope && value && scope !== 'all') {
+      url = `/api/v1/reports/export?timeframe=all&scope=${scope}&value=${encodeURIComponent(value)}`;
+    }
+    
     const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-    downloadWithAuth(`/api/v1/export-master`, `SECURE_MASTER_DATABASE_${todayStr}.zip`);
+    downloadWithAuth(url, `SECURE_MASTER_DATABASE_${todayStr}.zip`);
   };
 
   const handleAcknowledgeComm = (commId) => {
