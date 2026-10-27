@@ -675,6 +675,123 @@ def shutdown_scheduler():
     if scheduler.running:
         scheduler.shutdown()
 
+# ==========================================
+# 🟢 MASTER DOWNLOAD (MULTI-SHEET EXPORT)
+# ==========================================
+@app.get("/api/v1/export-master")
+@app.get("/api/v1/export-master-database")
+@app.get("/api/v1/database/export")
+def export_master_database(
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_export_privilege)
+):
+    try:
+        log_independent_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action="MASTER_DATABASE_EXPORT",
+            module="EXCEL_EXPORTS",
+            details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the fully encrypted multi-sheet master database."
+        )
+
+        wb = openpyxl.Workbook()
+        
+        # 🟢 UPDATED HELPER: Now supports 'exclude_cols' for creating clean (Print) sheets
+        def create_sheet(sheet_title, *model_names, is_first=False, exclude_cols=None):
+            ModelClass = get_model_safe(*model_names)
+            ws = wb.active if is_first else wb.create_sheet(title=sheet_title)
+            if not is_first:
+                ws.title = sheet_title
+            
+            if not ModelClass:
+                ws.append(["Model not found in system architecture."])
+                return
+
+            query = apply_opsec_scope(current_user, db.query(ModelClass), ModelClass)
+            records = query.order_by(ModelClass.id.desc()).all() if hasattr(ModelClass, 'id') else query.all()
+            
+            if not records:
+                ws.append(["No Records Found in Your Authorized Jurisdiction."])
+                return
+            
+            first_record = serialize_model_row(records[0])
+            headers = list(first_record.keys())
+            
+            # Apply column exclusions for print-optimized sheets
+            if exclude_cols:
+                headers = [h for h in headers if h.lower() not in exclude_cols]
+                
+            ws.append([h.upper() for h in headers])
+
+            header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+            header_font = Font(color="FFFFFF", bold=True)
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            for record in records:
+                row_data = serialize_model_row(record)
+                ws.append([clean_html_for_export(str(row_data.get(h, ''))) for h in headers])
+
+            for col in ws.columns:
+                col_letter = col[0].column_letter
+                if col[0].value in ["NARRATIVE", "DETAILS", "REMARKS", "STORY", "CRIME_REPORT", "DESCRIPTION", "ACTION_TAKEN"]:
+                    ws.column_dimensions[col_letter].width = 65
+                    for cell in col:
+                        if cell.row > 1:
+                            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                else:
+                    max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+                    ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 35)
+                    for cell in col:
+                        if cell.row > 1:
+                            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # 🟢 GENERATE ALL TABS IN EXACT SCREENSHOT ORDER WITH PRINT VERSIONS
+        create_sheet("Crime Registry (Print)", "Crime_Registry", "CrimeRegistry", is_first=True, exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
+        create_sheet("Crime Registry", "Crime_Registry", "CrimeRegistry")
+        
+        create_sheet("Documents & Reports (Print)", "General_Documents", "GeneralDocuments", "Documents", exclude_cols=["id", "file_path"])
+        create_sheet("Documents & Reports", "General_Documents", "GeneralDocuments", "Documents")
+
+        # OPSEC: Only append AI Command Logs if the user is a Super Admin
+        user_role = str(current_user.role).strip().upper() if current_user.role else ""
+        if user_role == "SUPER_ADMIN":
+            create_sheet("AI Command (Print)", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs", exclude_cols=["id", "created_at", "updated_at"])
+            create_sheet("AI Command", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs")
+
+        create_sheet("Success Stories", "Success_Stories", "SuccessStories")
+        create_sheet("Nominal Roll", "Nominal_Roll", "NominalRoll")
+        create_sheet("Archived Personnel", "Nominal_Roll_Archives", "NominalRollArchives", "Archived_Personnel")
+        create_sheet("Impounded Exhibits", "Exhibits", "Impounded_Exhibits", "ImpoundedExhibits")
+        
+        # Save Excel to memory
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+        
+        # Package in AES-256 Encrypted Zip
+        zip_stream = io.BytesIO()
+        eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
+        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
+        
+        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
+            zf.writestr(f"{fnum_clean}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
+
+        zip_stream.seek(0)
+        return StreamingResponse(
+            zip_stream, media_type="application/zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="SECURE_MASTER_DATABASE_{eat_time.strftime("%y%m%d")}.zip"', 
+                'Access-Control-Expose-Headers': 'Content-Disposition'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate master export: {str(e)}")
+
 # ====================================================================
 # 7. EXTERNAL CRON TRIGGERS (TO BYPASS RENDER SLEEP)
 # ====================================================================
