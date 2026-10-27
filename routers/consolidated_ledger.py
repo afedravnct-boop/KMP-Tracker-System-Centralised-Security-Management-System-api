@@ -99,6 +99,16 @@ def parse_safe_date(val) -> Optional[date]:
     except Exception: pass
     return None
 
+def get_row_date(row) -> Optional[date]:
+    """Inspects all possible date or timestamp attributes on a model instance."""
+    for attr in ('date', 'created_at', 'timestamp', 'created', 'updated_at'):
+        if hasattr(row, attr):
+            val = getattr(row, attr, None)
+            parsed = parse_safe_date(val)
+            if parsed:
+                return parsed
+    return None
+
 def normalize_region_name(region_str) -> str:
     if pd.isna(region_str) or not region_str: return "KMP HEADQUARTERS"
     r = clean_str(region_str)
@@ -238,131 +248,123 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS (Safe Tuple Projection using explicit columns)
+    # 🟢 1. CRIME REPORTS (Query Model Instances directly with robust date validation)
     try:
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
         if CrimeModel:
-            cols = []
-            if hasattr(CrimeModel, 'region'): cols.append(CrimeModel.region)
-            if hasattr(CrimeModel, 'station'): cols.append(CrimeModel.station)
-            if hasattr(CrimeModel, 'category'): cols.append(CrimeModel.category)
-            if hasattr(CrimeModel, 'offence'): cols.append(CrimeModel.offence)
-            if hasattr(CrimeModel, 'suspects'): cols.append(CrimeModel.suspects)
-            if hasattr(CrimeModel, 'date'): cols.append(CrimeModel.date)
-            
-            if cols:
-                query = db.query(*cols)
-                query = apply_opsec_scope(current_user, query, CrimeModel)
-                crimes = query.all()
+            query = db.query(CrimeModel)
+            query = apply_opsec_scope(current_user, query, CrimeModel)
+            crimes = query.all()
 
-                for row in crimes:
-                    raw_date = getattr(row, 'date', None)
-                    if start_dt and end_dt:
-                        row_date = parse_safe_date(raw_date)
-                        if not row_date or row_date < start_dt or row_date > end_dt:
-                            continue
+            for row in crimes:
+                row_date = get_row_date(row)
+                if start_dt and end_dt:
+                    if not row_date or row_date < start_dt or row_date > end_dt:
+                        continue
+                elif start_dt and not end_dt:
+                    if not row_date or row_date < start_dt:
+                        continue
+                elif not start_dt and end_dt:
+                    if not row_date or row_date > end_dt:
+                        continue
 
-                    stn = clean_str(getattr(row, 'station', ''))
-                    reg = fast_get_region(stn, getattr(row, 'region', ''))
+                stn = clean_str(getattr(row, 'station', ''))
+                reg = fast_get_region(stn, getattr(row, 'region', ''))
 
-                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-                    category = clean_str(getattr(row, 'category', 'GENERAL CRIMES'))
-                    offence = clean_str(getattr(row, 'offence', 'UNSPECIFIED INCIDENT'))
-                    off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
-                    if "LOCK-UP TOTAL" in off: continue
+                category = clean_str(getattr(row, 'category', 'GENERAL CRIMES'))
+                offence = clean_str(getattr(row, 'offence', 'UNSPECIFIED INCIDENT'))
+                off = f"AGRIC: {offence}" if category == 'AGRIC_CRIME' else offence
+                if "LOCK-UP TOTAL" in off: continue
 
-                    suspects = safe_int(getattr(row, 'suspects', 0))
+                suspects = safe_int(getattr(row, 'suspects', 0))
 
-                    if reg not in crime_regional: crime_regional[reg] = {}
-                    if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
-                    
-                    crime_regional[reg][off]["cases"] += 1
-                    crime_regional[reg][off]["suspects"] += suspects
+                if reg not in crime_regional: crime_regional[reg] = {}
+                if off not in crime_regional[reg]: crime_regional[reg][off] = {"cases": 0, "suspects": 0}
+                
+                crime_regional[reg][off]["cases"] += 1
+                crime_regional[reg][off]["suspects"] += suspects
 
-                    if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
-                    crime_regional_totals[reg]["cases"] += 1
-                    crime_regional_totals[reg]["suspects"] += suspects
+                if reg not in crime_regional_totals: crime_regional_totals[reg] = {"cases": 0, "suspects": 0}
+                crime_regional_totals[reg]["cases"] += 1
+                crime_regional_totals[reg]["suspects"] += suspects
 
-                    if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
-                    crime_general[off]["cases"] += 1
-                    crime_general[off]["suspects"] += suspects
+                if off not in crime_general: crime_general[off] = {"cases": 0, "suspects": 0}
+                crime_general[off]["cases"] += 1
+                crime_general[off]["suspects"] += suspects
 
-                    grand_crime_cases += 1
-                    grand_crime_suspects += suspects
+                grand_crime_cases += 1
+                grand_crime_suspects += suspects
     except Exception as e:
         print(f"CRIMES FETCH ERROR: {e}")
 
-    # 🟢 2. OPERATIONAL STATISTICS (Safe Tuple Projection)
+    # 🟢 2. OPERATIONAL STATISTICS (Query Model Instances directly with robust date validation)
     try:
         OpsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'operationl_statistics', 'Disruptive_Operations', 'Stats')
         if OpsModel:
-            cols = []
-            if hasattr(OpsModel, 'region'): cols.append(OpsModel.region)
-            if hasattr(OpsModel, 'station'): cols.append(OpsModel.station)
-            if hasattr(OpsModel, 'date'): cols.append(OpsModel.date)
+            query = db.query(OpsModel)
+            query = apply_opsec_scope(current_user, query, OpsModel)
+            stats = query.all()
             
             ops_keys = ['arrested', 'given_bond', 'cautioned', 'pending_court', 'taken_to_court', 'released', 'remanded', 'convicted']
-            for key in ops_keys:
-                if hasattr(OpsModel, key): cols.append(getattr(OpsModel, key))
 
-            if cols:
-                query = db.query(*cols)
-                query = apply_opsec_scope(current_user, query, OpsModel)
-                stats = query.all()
+            for row in stats:
+                row_date = get_row_date(row)
+                if start_dt and end_dt:
+                    if not row_date or row_date < start_dt or row_date > end_dt:
+                        continue
+                elif start_dt and not end_dt:
+                    if not row_date or row_date < start_dt:
+                        continue
+                elif not start_dt and end_dt:
+                    if not row_date or row_date > end_dt:
+                        continue
+
+                stn = clean_str(getattr(row, 'station', ''))
+                reg = fast_get_region(stn, getattr(row, 'region', ''))
+
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+
+                if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
                 
-                for row in stats:
-                    raw_date = getattr(row, 'date', None)
-                    if start_dt and end_dt:
-                        row_date = parse_safe_date(raw_date)
-                        if not row_date or row_date < start_dt or row_date > end_dt:
-                            continue
-
-                    stn = clean_str(getattr(row, 'station', ''))
-                    reg = fast_get_region(stn, getattr(row, 'region', ''))
-
-                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
-
-                    if reg not in ops_regional: ops_regional[reg] = {k: 0 for k in ops_general.keys()}
-                    
-                    for key in ops_keys:
-                        val = safe_int(getattr(row, key, 0))
-                        ops_regional[reg][key] += val
-                        ops_general[key] += val
+                for key in ops_keys:
+                    val = safe_int(getattr(row, key, 0))
+                    ops_regional[reg][key] += val
+                    ops_general[key] += val
     except Exception as e:
         print(f"OPS FETCH ERROR: {e}")
 
-    # 🟢 3. SUCCESS STORIES (Safe Tuple Projection ensures NO UndefinedColumn crashes)
+    # 🟢 3. SUCCESS STORIES (Query Model Instances directly with robust date validation)
     try:
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         if StoryModel:
-            cols = []
-            if hasattr(StoryModel, 'region'): cols.append(StoryModel.region)
-            if hasattr(StoryModel, 'station'): cols.append(StoryModel.station)
-            if hasattr(StoryModel, 'date'): cols.append(StoryModel.date)
-            
-            if cols:
-                query = db.query(*cols)
-                query = apply_opsec_scope(current_user, query, StoryModel)
-                stories = query.all()
+            query = db.query(StoryModel)
+            query = apply_opsec_scope(current_user, query, StoryModel)
+            stories = query.all()
 
-                for row in stories:
-                    raw_date = getattr(row, 'date', None)
-                    if start_dt and end_dt:
-                        row_date = parse_safe_date(raw_date)
-                        if not row_date or row_date < start_dt or row_date > end_dt:
-                            continue
+            for row in stories:
+                row_date = get_row_date(row)
+                if start_dt and end_dt:
+                    if not row_date or row_date < start_dt or row_date > end_dt:
+                        continue
+                elif start_dt and not end_dt:
+                    if not row_date or row_date < start_dt:
+                        continue
+                elif not start_dt and end_dt:
+                    if not row_date or row_date > end_dt:
+                        continue
 
-                    stn = clean_str(getattr(row, 'station', ''))
-                    reg = fast_get_region(stn, getattr(row, 'region', ''))
+                stn = clean_str(getattr(row, 'station', ''))
+                reg = fast_get_region(stn, getattr(row, 'region', ''))
 
-                    if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
-                    if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
+                if filter_region and filter_region != "ALL REGIONS" and reg != filter_region: continue
+                if filter_station and filter_station != "ALL STATIONS" and not is_station_equivalent(stn, filter_station): continue
 
-                    story_regional[reg] = story_regional.get(reg, 0) + 1
-                    grand_stories += 1
+                story_regional[reg] = story_regional.get(reg, 0) + 1
+                grand_stories += 1
     except Exception as e:
         print(f"STORIES FETCH ERROR: {e}")
 

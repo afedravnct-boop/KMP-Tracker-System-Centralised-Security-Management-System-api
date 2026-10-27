@@ -676,7 +676,7 @@ def shutdown_scheduler():
         scheduler.shutdown()
 
 # ==========================================
-# 🟢 OPTIMIZED MASTER DOWNLOAD (MULTI-SHEET EXPORT)
+# 🟢 FULLY CORRECTED MASTER DOWNLOAD (MULTI-SHEET EXPORT)
 # ==========================================
 @app.get("/api/v1/export-master")
 @app.get("/api/v1/export-master-database")
@@ -697,9 +697,7 @@ def export_master_database(
 
         wb = openpyxl.Workbook()
         
-        # 🟢 OPTIMIZED HELPER: Maintains your exact multi-sheet tabs and print versions, 
-        # but uses fixed widths to bypass heavy cell-scanning loops that cause timeouts.
-        def create_sheet(sheet_title, *model_names, is_first=False, exclude_cols=None):
+        def create_sheet(sheet_title, *model_names, is_first=False, exclude_cols=None, unlimited=False):
             ModelClass = get_model_safe(*model_names)
             ws = wb.active if is_first else wb.create_sheet(title=sheet_title)
             if not is_first:
@@ -710,7 +708,12 @@ def export_master_database(
                 return
 
             query = apply_opsec_scope(current_user, db.query(ModelClass), ModelClass)
-            records = query.order_by(ModelClass.id.desc()).limit(3000).all() if hasattr(ModelClass, 'id') else query.all()
+            
+            # 🟢 Allow full unconstrained fetching for massive tables like Nominal Roll (8,000+ records)
+            if unlimited:
+                records = query.all()
+            else:
+                records = query.order_by(ModelClass.id.desc()).limit(3000).all() if hasattr(ModelClass, 'id') else query.all()
             
             if not records:
                 ws.append(["No Records Found in Your Authorized Jurisdiction."])
@@ -735,7 +738,6 @@ def export_master_database(
                 row_data = serialize_model_row(record)
                 ws.append([clean_html_for_export(str(row_data.get(h, ''))) for h in headers])
 
-            # 🟢 FAST FORMATTING: Instant width assignment prevents CPU locking & timeouts
             for col in ws.columns:
                 col_letter = col[0].column_letter
                 header_val = str(col[0].value or '').upper()
@@ -750,22 +752,27 @@ def export_master_database(
                         if cell.row > 1:
                             cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        # 🟢 GENERATE ALL TABS IN EXACT SCREENSHOT ORDER WITH PRINT VERSIONS
+        # 🟢 GENERATE ALL TABS IN EXACT ORDER WITH SEPARATED PRINT & GENERAL INFO SHEETS
         create_sheet("Crime Registry (Print)", "Crime_Reports", is_first=True, exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
         create_sheet("Crime Registry", "Crime_Reports")
         
         create_sheet("Documents & Reports (Print)", "General_Documents", "GeneralDocuments", "Documents", exclude_cols=["id", "file_path"])
         create_sheet("Documents & Reports", "General_Documents", "GeneralDocuments", "Documents")
 
-        # OPSEC: Only append AI Command Logs if the user is a Super Admin
         user_role = str(current_user.role).strip().upper() if current_user.role else ""
         if user_role == "SUPER_ADMIN":
             create_sheet("AI Command (Print)", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs", exclude_cols=["id", "created_at", "updated_at"])
             create_sheet("AI Command", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs")
 
         create_sheet("Success Stories", "Success_Stories", "SuccessStories")
-        create_sheet("Nominal Roll", "Nominal_Roll", "NominalRoll")
-        create_sheet("Archived Personnel", "Nominal_Roll_Archives", "NominalRollArchives", "Archived_Personnel")
+        
+        # 🟢 NOMINAL ROLL (Print & Full Master with all 8,000+ records)
+        create_sheet("Nominal Roll (Print)", "Nominal_Roll", "NominalRoll", exclude_cols=["id", "profile_photo_path", "fingerprints"], unlimited=True)
+        create_sheet("Nominal Roll", "Nominal_Roll", "NominalRoll", unlimited=True)
+        
+        # 🟢 ARCHIVED PERSONNEL (Wired explicitly to NominalRollArchive)
+        create_sheet("Archived Personnel", "NominalRollArchive", "Nominal_Roll_Archives", "NominalRollArchives", "Archived_Personnel", unlimited=True)
+        
         create_sheet("Impounded Exhibits", "Exhibits", "Impounded_Exhibits", "ImpoundedExhibits")
         
         excel_stream = io.BytesIO()
