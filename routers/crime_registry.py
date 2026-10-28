@@ -813,7 +813,6 @@ def create_report(
                 data["region"] = current_user.region
                 data["station"] = current_user.station
 
-        # 🟢 Enforce strict mandatory category validation server-side
         if not data.get("category") or str(data.get("category")).strip() == "":
             raise HTTPException(status_code=400, detail="Category selection is mandatory.")
 
@@ -828,6 +827,8 @@ def create_report(
                 raise HTTPException(status_code=400, detail=f"Duplicate Rejection: Reference '{data.get('sd_ref')}' already exists for this station.")
 
         suspects_data = data.pop('suspectDetails', []) 
+        exhibits_data = data.pop('exhibitDetails', [])  # 🟢 Pop the exhibits array from payload
+
         valid_cols = [c.key for c in CrimeModel.__table__.columns]
         safe_data = {k: v for k, v in data.items() if k in valid_cols}
 
@@ -841,6 +842,7 @@ def create_report(
         if hasattr(new_record, 'sn') and hasattr(new_record, 'id'):
             new_record.sn = new_record.id 
         
+        # Save Suspects
         if SuspectModel and hasattr(new_record, 'id'):
             for s in suspects_data:
                 valid_s_cols = [c.key for c in SuspectModel.__table__.columns]
@@ -866,6 +868,30 @@ def create_report(
                 safe_s_payload = {k: v for k, v in s_payload.items() if k in valid_s_cols}
                 db.add(SuspectModel(**safe_s_payload))
             
+        # 🟢 NEW: Backend atomic creation of all attached exhibits
+        ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
+        if ExhibitModel and hasattr(new_record, 'id'):
+            for ex in exhibits_data:
+                valid_ex_cols = [c.key for c in ExhibitModel.__table__.columns]
+                ex_payload = {
+                    "category": ex.get('category', 'GENERAL PROPERTY'),
+                    "type_make": ex.get('type_make', 'UNKNOWN'),
+                    "colour": ex.get('colour'),
+                    "case_no": new_record.sd_ref,
+                    "reason": ex.get('reason'),
+                    "status": ex.get('status', 'UNDER INVESTIGATION'),
+                    "assorted_items": ex.get('assorted_items', 'NIL'),
+                    "photo_url": ex.get('photo_url'),
+                    "reg_no": 'NIL',
+                    "unit_responsible": 'CID',
+                    "region": new_record.region,
+                    "station": new_record.station,
+                    "date_impounded": new_record.date,
+                    "entered_by": new_record.last_updated_by
+                }
+                safe_ex_payload = {k: v for k, v in ex_payload.items() if k in valid_ex_cols}
+                db.add(ExhibitModel(**safe_ex_payload))
+
         db.commit()
         db.refresh(new_record)
         assigned_id = getattr(new_record, 'id', getattr(new_record, 'sn', 1))
@@ -876,7 +902,7 @@ def create_report(
             action_type="REGISTER",
             module="CRIME_REGISTRY",
             target_id=str(assigned_id),
-            changes_summary=f"New crime report registered. SD Ref: [{data.get('sd_ref', 'N/A')}], Category: [{data.get('category', 'GENERAL')}]."
+            changes_summary=f"New crime report registered with {len(suspects_data)} suspects and {len(exhibits_data)} exhibits. SD Ref: [{data.get('sd_ref', 'N/A')}]."
         )
 
         return {"status": "success", "id": assigned_id, "sn": assigned_id}

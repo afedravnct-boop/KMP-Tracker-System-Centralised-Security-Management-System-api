@@ -1,7 +1,7 @@
 // src/CrimeIncidentRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import {  
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame, Box
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -21,6 +21,7 @@ const REGIONAL_HIERARCHY = {
 };
 
 const STANDARD_OFFENCES = ["Murder", "Aggravated Robbery", "Theft", "Assault", "Burglary", "Defilement / Rape", "Traffic Accident (Fatal)", "Traffic Accident (Minor)", "Fraud / Forgery", "Drug Offenses"];
+const EXHIBIT_CATEGORIES = ['MOTOR VEHICLE', 'MOTORCYCLE', 'ELECTRONICS/COMPUTER', 'FIREARM/AMMUNITION', 'CURRENCY/MONEY', 'NARCOTICS/DRUGS', 'DOCUMENTS/VALUABLES', 'WATERCRAFT/BOAT', 'GENERAL PROPERTY'];
 
 const isStationEquivalent = (statA, statB) => {
   const a = stripHtmlTags(statA || '').trim().toUpperCase();
@@ -167,6 +168,13 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
   const [editingSuspectId, setEditingSuspectId] = useState(null);
 
+  // 🟢 Exhibit Modal States
+  const [showExhibitModal, setShowExhibitModal] = useState(false);
+  const [currentExhibitSuspectId, setCurrentExhibitSuspectId] = useState(null);
+  const [newExhibit, setNewExhibit] = useState({
+    category: 'GENERAL PROPERTY', type_make: '', colour: '', assorted_items: 'NIL', reason: '', status: 'UNDER INVESTIGATION', photo_url: ''
+  });
+
   const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
   const getDateRangeParams = (filterOption) => {
@@ -209,7 +217,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
     region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-    offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+    offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], exhibitDetails: [], updateText: ''
   });
 
   // 🟢 Synchronized Filter Toggles (Automatically updates form category)
@@ -339,7 +347,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
       region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
       date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
-      offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], updateText: ''
+      offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], exhibitDetails: [], updateText: ''
     });
     setUpdateSearch('');
   };
@@ -359,6 +367,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       category: caseData.category || '',
       customOffence: '',
       suspectDetails: caseData.suspectDetails || [], 
+      exhibitDetails: [],
       updateText: '' 
     });
   };
@@ -550,6 +559,56 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     }
   };
 
+  // 🟢 Exhibit Photo Upload Handler
+  const handleExhibitPhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setNotification("⏳ Uploading exhibit photo...");
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("category", "exhibit_photo");
+      uploadData.append("case_id", stripHtmlTags(formData.ref_number || "NEW_EXHIBIT"));
+
+      try {
+        const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
+        const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+        const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
+            method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData 
+        });
+        if (!response.ok) throw new Error("Upload failed");
+        const data = await response.json();
+        
+        if (data.full_s3_url || data.cloud_storage_path || data.url) {
+          setNewExhibit({ ...newExhibit, photo_url: stripHtmlTags(data.url || data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) });
+          setNotification("✅ Exhibit photo securely uploaded!");
+        }
+      } catch (error) {
+        setNewExhibit({ ...newExhibit, photo_url: URL.createObjectURL(file) });
+        setNotification("⚠️ API unreachable. Using local preview.");
+      }
+    }
+  };
+
+  // 🟢 Add Exhibit to Local Draft State
+  const handleAddExhibit = () => {
+    if (!newExhibit.type_make.trim() || !newExhibit.reason.trim()) return alert("Item Description and Reason are required.");
+    
+    setFormData(prev => ({
+      ...prev,
+      exhibitDetails: [...(prev.exhibitDetails || []), { ...newExhibit, linked_suspect_id: currentExhibitSuspectId, id: Date.now() }]
+    }));
+    
+    setNewExhibit({ category: 'GENERAL PROPERTY', type_make: '', colour: '', assorted_items: 'NIL', reason: '', status: 'UNDER INVESTIGATION', photo_url: '' });
+    setShowExhibitModal(false);
+  };
+
+  const handleRemoveExhibit = (id) => {
+    setFormData(prev => ({
+      ...prev,
+      exhibitDetails: prev.exhibitDetails.filter(e => e.id !== id)
+    }));
+  };
+
   const handleHqGrandTotalSubmit = async (e) => {
     e.preventDefault();
     if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
@@ -648,6 +707,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         suspects: formData.suspectDetails.length, 
         last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`, 
         suspectDetails: formData.suspectDetails,
+        exhibitDetails: formData.exhibitDetails, // 🟢 Passed right through to the backend atomically
         daily_lock_up: 0 
       };
               
@@ -657,7 +717,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected the entry.");
               
         fetchFilteredDatabaseReports();
-        setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) successfully registered!`);
+        setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) & Exhibits successfully registered!`);
         resetFormToBlank();
         setTimeout(() => setNotification(null), 5000);
       } catch (err) { 
@@ -785,6 +845,58 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         </div>
       )}
 
+      {/* 🟢 FLOATING EXHIBIT MODAL */}
+      {showExhibitModal && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-[200] flex justify-center items-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-lg border border-amber-500 overflow-hidden">
+            <div className="bg-amber-600 dark:bg-amber-700 text-white px-5 py-3 flex justify-between items-center">
+              <h3 className="font-extrabold flex items-center text-xs tracking-wider uppercase"><Camera size={16} className="mr-2"/> Log Recovered Exhibit</h3>
+              <button onClick={() => setShowExhibitModal(false)} className="hover:bg-amber-800 p-1 rounded transition"><X size={16}/></button>
+            </div>
+            
+            <div className="p-5 space-y-3 bg-slate-50 dark:bg-slate-800">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Exhibit Category</label>
+                  <select value={newExhibit.category} onChange={e => setNewExhibit({...newExhibit, category: e.target.value})} className="w-full text-xs border rounded p-1.5 font-bold text-amber-700 bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-amber-400">
+                    {EXHIBIT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Description (Make/Type) *</label>
+                  <input type="text" value={newExhibit.type_make} onChange={e => setNewExhibit({...newExhibit, type_make: e.target.value.toUpperCase()})} placeholder="e.g. DELL LAPTOP / 50K NOTES" className="w-full text-xs border rounded p-1.5 uppercase font-bold bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Colour / Features</label>
+                  <input type="text" value={newExhibit.colour} onChange={e => setNewExhibit({...newExhibit, colour: e.target.value.toUpperCase()})} placeholder="e.g. SILVER / RED" className="w-full text-xs border rounded p-1.5 uppercase bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Assorted Items</label>
+                  <input type="text" value={newExhibit.assorted_items} onChange={e => setNewExhibit({...newExhibit, assorted_items: e.target.value.toUpperCase()})} placeholder="e.g. CHARGER" className="w-full text-xs border rounded p-1.5 uppercase bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Reason / Offence Context *</label>
+                  <input type="text" value={newExhibit.reason} onChange={e => setNewExhibit({...newExhibit, reason: e.target.value.toUpperCase()})} placeholder="e.g. ROBBERY EVIDENCE" className="w-full text-xs border rounded p-1.5 uppercase font-bold bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+              </div>
+
+              <div className="bg-amber-50 dark:bg-slate-900/60 p-3 rounded-lg border border-amber-200 dark:border-amber-900/50 flex items-center space-x-3 mt-2">
+                {newExhibit.photo_url ? ( <img src={newExhibit.photo_url} alt="Exhibit" className="w-12 h-12 rounded object-cover border-2 border-amber-400 shadow-sm" /> ) : ( <div className="w-12 h-12 rounded bg-amber-100 dark:bg-amber-950 flex flex-col items-center justify-center text-amber-500 border border-dashed border-amber-300 text-center p-1 text-[8px] uppercase font-bold"><Camera size={14}/>No Photo</div> )}
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold text-amber-700 dark:text-amber-500 mb-1">Upload Photo (Optional)</label>
+                  <input type="file" accept="image/*" onChange={handleExhibitPhotoUpload} className="text-[10px] file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-bold file:bg-amber-600 file:text-white hover:file:bg-amber-700 w-full cursor-pointer dark:text-slate-300" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-3 border-t dark:border-slate-700 flex justify-end space-x-2">
+              <button onClick={() => setShowExhibitModal(false)} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-bold text-xs cursor-pointer">Cancel</button>
+              <button onClick={handleAddExhibit} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold text-xs uppercase shadow cursor-pointer">Attach Exhibit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showLockup && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] flex justify-center items-center p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh] border border-red-200 dark:border-red-900">
@@ -848,7 +960,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                   </div>
                 </div>
                 <div className="flex justify-end mt-3">
-                  <button type="button" onClick={handleAddSuspect} className={`font-bold py-1.5 px-3 rounded text-xs transition-colors flex items-center ${editingSuspectId !== null ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
+                  <button type="button" onClick={handleAddSuspect} className={`font-bold py-1.5 px-3 rounded text-xs transition-colors flex items-center cursor-pointer ${editingSuspectId !== null ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
                     <PlusCircle size={14} className="mr-1"/> {editingSuspectId !== null ? 'Update Suspect Details' : 'Add to Register'}
                   </button>
                 </div>
@@ -866,26 +978,55 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                       <div 
                         key={suspect.id} 
                         onClick={() => handleSelectSuspectToEdit(suspect)}
-                        className={`bg-white dark:bg-slate-900 border rounded-lg p-2.5 flex justify-between items-center shadow-sm cursor-pointer transition-all ${
+                        className={`bg-white dark:bg-slate-900 border rounded-lg p-3 flex flex-col gap-2 shadow-sm cursor-pointer transition-all ${
                           editingSuspectId === suspect.id ? 'border-blue-600 ring-2 ring-blue-500/20 bg-blue-50/50 dark:bg-slate-800' : 'border-red-100 dark:border-red-950 hover:border-blue-400'
                         }`}
                       >
-                        <div>
-                          <div className="font-bold text-slate-800 dark:text-slate-100 text-xs uppercase flex items-center">
-                            {index + 1}. {stripHtmlTags(suspect.name)}
-                            {editingSuspectId === suspect.id && <span className="ml-2 text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-black">Editing</span>}
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-bold text-slate-800 dark:text-slate-100 text-xs uppercase flex items-center">
+                              {index + 1}. {stripHtmlTags(suspect.name)}
+                              {editingSuspectId === suspect.id && <span className="ml-2 text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-black">Editing</span>}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                              {stripHtmlTags(suspect.sex)} • {suspect.age ? `${stripHtmlTags(String(suspect.age))}yrs` : 'Age Unknown'} • Tribe: {stripHtmlTags(suspect.tribe || 'N/A')} • Nat: {stripHtmlTags(suspect.nationality || 'N/A')} | Res: {stripHtmlTags(suspect.residence || 'N/A')} | Tel: {stripHtmlTags(suspect.contact || 'N/A')}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                            {stripHtmlTags(suspect.sex)} • {suspect.age ? `${stripHtmlTags(String(suspect.age))}yrs` : 'Age Unknown'} • Tribe: {stripHtmlTags(suspect.tribe || 'N/A')} • Nat: {stripHtmlTags(suspect.nationality || 'N/A')} | Res: {stripHtmlTags(suspect.residence || 'N/A')} | Tel: {stripHtmlTags(suspect.contact || 'N/A')}
-                          </div>
+                          <button 
+                            type="button" 
+                            onClick={(e) => { e.stopPropagation(); handleRemoveSuspect(suspect.id); }} 
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 p-1.5 rounded transition cursor-pointer"
+                          >
+                            <X size={16}/>
+                          </button>
                         </div>
-                        <button 
-                          type="button" 
-                          onClick={(e) => { e.stopPropagation(); handleRemoveSuspect(suspect.id); }} 
-                          className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 p-1.5 rounded transition"
-                        >
-                          <X size={16}/>
-                        </button>
+
+                        {/* 🟢 Attached Exhibits Mini-List inside Suspect Card */}
+                        {formData.exhibitDetails && formData.exhibitDetails.filter(e => e.linked_suspect_id === suspect.id).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1 pt-2 border-t dark:border-slate-800">
+                            {formData.exhibitDetails.filter(e => e.linked_suspect_id === suspect.id).map(ex => (
+                              <div key={ex.id} className="text-[9px] bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-900 inline-flex items-center font-bold">
+                                📦 {ex.category} - {ex.type_make}
+                                <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveExhibit(ex.id); }} className="ml-1 text-amber-500 hover:text-red-600">×</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="mt-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCurrentExhibitSuspectId(suspect.id);
+                              setShowExhibitModal(true);
+                            }}
+                            className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-1 px-2.5 rounded text-[9px] uppercase shadow-sm transition cursor-pointer"
+                          >
+                            <Camera size={10} className="mr-1" /> Add Exhibit
+                          </button>
+                        </div>
+
                       </div>
                     ))}
                   </div>
@@ -893,7 +1034,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
               </div>
             </div>
             <div className="bg-white dark:bg-slate-900 p-3 border-t border-gray-200 dark:border-slate-800 flex justify-end shrink-0">
-              <button type="button" onClick={() => setShowLockup(false)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-1.5 px-4 rounded text-xs transition">Confirm & Return to Report</button>
+              <button type="button" onClick={() => setShowLockup(false)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-1.5 px-4 rounded text-xs transition cursor-pointer">Confirm & Return to Report</button>
             </div>
           </div>
         </div>
@@ -905,7 +1046,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         <h2 className="text-[11px] text-red-300 mt-0.5 font-medium uppercase tracking-wider">Centralised Crime/Incident Compilation</h2>
      </div>
 
-      <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
+     <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
           <h4 className="text-[11px] font-extrabold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
             📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Metrics`}
@@ -949,8 +1090,8 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
               
             <div className="p-4 space-y-4">
               <div className="flex space-x-1.5 bg-gray-100 dark:bg-slate-900 p-0.5 rounded-lg">
-                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
-                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all ${operation === 'update' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all cursor-pointer ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all cursor-pointer ${operation === 'update' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
               </div>
 
               {notification && (
@@ -983,7 +1124,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                  
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Operation Category / Focus *</label>
-                  {/* 🟢 Mandatory Category Selection Dropdown (Bidirectionally Synced) */}
                   <select name="category" value={formData.category} onChange={handleInputChange} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
                     <option value="" disabled>-- Select Mandatory Category --</option>
                     <option value="GENERAL CRIMES">GENERAL CRIMES</option>
@@ -1013,13 +1153,13 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Select Region *</label>
-                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
                       {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{stripHtmlTags(userRegClean)}</option>}
                     </select>
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Station *</label>
-                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalActive || isRegionalCommand) || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalActive || isRegionalCommand) || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
                       {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : (canViewGlobalActive || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
                     </select>
                   </div>
@@ -1038,7 +1178,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
 
                 <div>
                   <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Offence / Incident Type *</label>
-                  <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500">
+                  <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
                     <option value="" disabled>-- Select Official Offence Category --</option>
                     {STANDARD_OFFENCES.map(off => (
                       <option key={off} value={off}>{off}</option>
@@ -1099,7 +1239,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Status</label>
-                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5">
+                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 cursor-pointer">
                       <option>ACTIVE INVESTIGATION</option>
                       <option>FORWARDED TO COURT</option>
                       <option>BAIL</option>
@@ -1116,14 +1256,14 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                       <div className="w-10 bg-red-100 dark:bg-red-950 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-200 font-extrabold rounded flex items-center justify-center text-xs shadow-inner">
                         {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
                       </div>
-                      <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-2 rounded shadow text-[11px] transition flex items-center justify-center">
+                      <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-2 rounded shadow text-[11px] transition flex items-center justify-center cursor-pointer">
                         <Users size={12} className="mr-1"/> Add Suspects
                       </button>
                     </div>
                   </div>
                 </div>
 
-                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2.5 px-3 rounded-lg shadow transition-colors flex justify-center items-center mt-3 text-xs">
+                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2.5 px-3 rounded-lg shadow transition-colors flex justify-center items-center mt-3 text-xs cursor-pointer">
                   {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
                 </button>
               </form>
@@ -1391,7 +1531,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                             )}
                           </div>
                           
-                          {/* 🟢 NEW: Redirect button to Exhibits Registry */}
+                          {/* 🟢 Redirect button to Exhibits Registry */}
                           <div className="mt-3 w-full sm:w-auto shrink-0 self-end sm:self-center">
                             <a 
                               href={`/exhibits?incident_ref=${encodeURIComponent(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref))}&suspect_id=${encodeURIComponent(s.id)}`}
