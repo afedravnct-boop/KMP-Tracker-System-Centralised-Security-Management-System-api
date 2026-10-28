@@ -4,7 +4,7 @@ import asyncio
 import json
 import traceback
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Union
 from urllib.parse import unquote
 
@@ -249,14 +249,15 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             except Exception as mail_err:
                 print(f"❌ Failed to dispatch automated glitch alert email: {mail_err}")
 
-        # 6. Log System Activity
-        from routers.activity_logger import log_independent_activity
-        log_independent_activity(
+        # 6. Log System Activity (Change this block)
+        from routers.activity_logger import record_neon_activity
+        record_neon_activity(
             logs_db=logs_db,
             fnum=current_user_dict['fnum'],
-            action="DIAGNOSE_GLITCH",
+            action_type="DIAGNOSE_GLITCH",
             module="FRONTEND_TELEMETRY",
-            details=f"Automated AI crash diagnostic generated for page [{payload.current_page}] and routed to High Command via database and email."
+            target_id=payload.current_page,
+            changes_summary=f"Automated AI crash diagnostic generated for page [{payload.current_page}] and routed to High Command via database and email."
         )
 
     except Exception as e:

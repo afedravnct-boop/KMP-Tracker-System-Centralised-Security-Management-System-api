@@ -213,3 +213,15 @@ class SystemActivityMiddleware(BaseHTTPMiddleware):
                     pass
 
         return response
+
+# Add this compatibility alias at the bottom of routers/activity_logger.py:
+def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
+    """Legacy wrapper mapping to record_neon_activity for backward compatibility."""
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=fnum,
+        action_type=action,
+        module=module,
+        target_id="LEGACY_ACTION",
+        changes_summary=details
+    )
