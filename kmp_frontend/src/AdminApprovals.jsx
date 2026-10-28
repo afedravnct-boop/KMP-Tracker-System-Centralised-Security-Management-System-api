@@ -685,7 +685,26 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     if (!isTopCommand) return alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
     if (!canControlTargetUser(targetUser)) return alert("SECURITY OVERRIDE DENIED: Insufficient clearance over this command tier.");
 
-    const newPermissions = { ...(targetUser.permissions || {}), can_approve: givePower };
+    let start_date = "";
+    let end_date = "";
+
+    // 🟢 Capture dates if we are granting power
+    if (givePower) {
+        start_date = window.prompt(`Enter Delegation Start Date for ${targetUser.name} (YYYY-MM-DD):`);
+        if (!start_date) return; // User cancelled
+        
+        end_date = window.prompt(`Enter Delegation End Date for ${targetUser.name} (YYYY-MM-DD):`);
+        if (!end_date) return; // User cancelled
+    }
+
+    const newPermissions = { 
+        ...(targetUser.permissions || {}), 
+        can_approve: givePower,
+        delegation_start: givePower ? start_date : null,
+        delegation_end: givePower ? end_date : null,
+        acting_for_fnum: givePower ? currentUser.fnum : null // Link back to the delegator
+    };
+
     try {
       const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(targetUser.fnum)}/access`, {
         method: "PUT", 
@@ -1515,17 +1534,46 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                   onChange={async () => {
                     const nextAway = !(currentUser?.permissions?.manual_delegation);
                     const reasonSelect = document.getElementById('absenceReasonSelect')?.value || 'Annual Leave';
+                    
+                    let delegatee_fnum = "";
+                    let start_date = "";
+                    let end_date = "";
+
+                    // 🟢 Prompt for required fields if going away
+                    if (nextAway) {
+                        delegatee_fnum = window.prompt("Enter Delegatee F/No (e.g., A/1234):");
+                        if (!delegatee_fnum) return alert("Delegation cancelled: Delegatee F/No is required.");
+                        
+                        start_date = window.prompt("Enter Delegation Start Date (YYYY-MM-DD):");
+                        if (!start_date) return alert("Delegation cancelled: Start date is required.");
+                        
+                        end_date = window.prompt("Enter Delegation End Date (YYYY-MM-DD):");
+                        if (!end_date) return alert("Delegation cancelled: End date is required.");
+                    }
+
                     try {
+                      // 🟢 THE UPDATED JSON PAYLOAD
+                      const payload = { 
+                          is_away: nextAway, 
+                          absence_reason: reasonSelect,
+                          delegatee_fnum: delegatee_fnum,
+                          delegation_start: start_date,
+                          delegation_end: end_date
+                      };
+
                       const res = await authFetch('/api/v1/admin/set-commander-status', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ is_away: nextAway, absence_reason: reasonSelect })
+                        body: JSON.stringify(payload)
                       });
                       if (res.ok) {
                         alert("✅ Command status broadcast updated successfully.");
                         window.location.reload(); // Refresh to sync permissions state
+                      } else {
+                        const errData = await res.json();
+                        alert(`❌ Failed to update status: ${errData.detail}`);
                       }
-                    } catch (err) { alert("Failed to update status."); }
+                    } catch (err) { alert("Failed to communicate with server."); }
                   }} 
                 />
               </div>

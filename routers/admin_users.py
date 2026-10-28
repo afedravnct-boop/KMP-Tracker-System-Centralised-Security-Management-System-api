@@ -20,13 +20,13 @@ router = APIRouter(prefix="/api/v1/admin", tags=["Admin Users"])
 
 # Configure Mail (pulling from environment variables)
 conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
-    MAIL_FROM=os.getenv("MAIL_FROM", os.getenv("MAIL_USERNAME", "no-reply@upf.go.ug")),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
-    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
+    MAIL_FROM=os.getenv("MAIL_FROM"),
+    MAIL_PORT=465,               # 🟢 Switch to Port 465
+    MAIL_SERVER="smtp.gmail.com",
+    MAIL_STARTTLS=False,         # 🟢 Must be False for Port 465
+    MAIL_SSL_TLS=True            # 🟢 Must be True for Port 465
 )
 
 async def send_email_notification(email_to: List[str], subject: str, html_body: str):
@@ -1056,31 +1056,97 @@ def trigger_tactical_briefs(
 # ==========================================
 # 16. COMMANDER ABSENCE & LEAVE BROADCAST ROUTE
 # ==========================================
+@router.get("/commander-status")
+def get_commander_status(current_user: models.Users = Depends(get_current_user)):
+    """Provides the active delegation state to bind the frontend modal toggle on load."""
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+    
+    return {
+        "is_away": perms.get("manual_delegation", False),
+        "absence_reason": perms.get("absence_reason", ""),
+        "delegatee_fnum": perms.get("delegatee_fnum", ""),
+        "delegation_start": perms.get("delegation_start", ""),
+        "delegation_end": perms.get("delegation_end", "")
+    }
+
 @router.post("/set-commander-status")
 def set_commander_status(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db), # 🟢 Injected logs_db for tracking
     current_user: models.Users = Depends(get_current_user)
 ):
     enforce_mutation_clearance(current_user)
     perms = current_user.permissions or {}
     if isinstance(perms, str):
         try: perms = json.loads(perms)
-        except: perms = {}
+        except Exception: perms = {}
     
     is_away = payload.get("is_away", False)
     absence_reason = payload.get("absence_reason", "Annual Leave")
+    delegatee_fnum = payload.get("delegatee_fnum", "").strip().upper()
+    start_date = payload.get("delegation_start", "")
+    end_date = payload.get("delegation_end", "")
     
+    # 🟢 Update Delegator's JSON clearance matrix
     perms["manual_delegation"] = is_away
     perms["absence_reason"] = absence_reason if is_away else None
+    perms["delegatee_fnum"] = delegatee_fnum if is_away else None
+    perms["delegation_start"] = start_date if is_away else None
+    perms["delegation_end"] = end_date if is_away else None
     current_user.permissions = perms
     
+    status_text = f"Away ({absence_reason})" if is_away else "Active (Normal Command)"
+    audit_detail = f"Command absence status set to {status_text}."
+    
+    # 🟢 Bind Acting Powers to the Delegatee and cross-log timelines
+    if is_away and delegatee_fnum:
+        delegatee = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == delegatee_fnum).first()
+        if not delegatee:
+            raise HTTPException(status_code=404, detail=f"Delegatee Officer {delegatee_fnum} not found.")
+            
+        del_perms = delegatee.permissions or {}
+        if isinstance(del_perms, str):
+            try: del_perms = json.loads(del_perms)
+            except Exception: del_perms = {}
+            
+        del_perms["acting_for_fnum"] = current_user.fnum
+        delegatee.permissions = del_perms
+        
+        audit_detail += f" Delegated command authority to {delegatee.rank} {delegatee.name} ({delegatee_fnum}) from {start_date} to {end_date}."
+        
+        # 🟢 Write to Delegatee's Dossier Audit Trail
+        append_user_audit_event(
+            delegatee, 
+            "COMMAND_DELEGATION_RECEIVED", 
+            current_user.fnum, 
+            f"Granted acting command powers for {current_user.fnum} ({absence_reason}) from {start_date} to {end_date}."
+        )
+
+    # 🟢 Write to Delegator's Dossier Audit Trail
+    if not is_away:
+        audit_detail = "Officer resumed active command. Delegation privileges revoked."
+        
+    append_user_audit_event(current_user, "COMMAND_STATUS_UPDATED", current_user.fnum, audit_detail)
     db.commit()
     
-    status_text = f"Away ({absence_reason})" if is_away else "Active (Normal Command)"
+    # 🟢 Push to global NeonDB System Activity logs
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="UPDATE",
+        module="COMMAND_DELEGATION",
+        target_id=current_user.fnum,
+        changes_summary=audit_detail
+    )
+    
     return {
         "status": "success",
         "manual_delegation": is_away,
         "absence_reason": perms.get("absence_reason"),
+        "delegatee_fnum": delegatee_fnum,
         "message": f"Command status broadcast updated successfully: {status_text}."
     }
