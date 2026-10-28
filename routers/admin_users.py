@@ -254,7 +254,7 @@ def verify_admin_delegation(current_user: models.Users, db: Session):
 
                 if is_sup_offline or is_sup_manually_delegating:
                     inherited_delegation = True
-                    active_scope = "REGIONAL" # 🟢 Elevates station admin to regional scope during delegation
+                    active_scope = "REGIONAL" 
                     break
 
     is_delegated_admin = is_native_admin or inherited_delegation
@@ -644,16 +644,75 @@ def force_password_reset(
     return {"status": "success", "message": f"Password successfully updated for {clean_fnum}."}
 
 
-# 9. SYSTEM LOCKDOWN STATUS & MAINTENANCE TOGGLE
+# 9. SYSTEM LOCKDOWN STATUS & MAINTENANCE TOGGLE (FULL DATABASE PERSISTENCE)
 @router.get("/lockdown/status")
 def get_lockdown_status(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
-    return {"system_lockdown": False, "active_regions": [], "active_stations": []}
+    try:
+        # Use SystemConfig to store system lockdowns since System_Lockdowns table does not exist
+        ConfigModel = getattr(models, 'SystemConfig', None)
+        if not ConfigModel:
+            return {"system_lockdown": False, "active_regions": [], "active_stations": []}
+            
+        active_locks = db.query(ConfigModel).filter(ConfigModel.config_key.like("LOCKDOWN_%")).all()
+        
+        system_down = any(l.config_key == 'LOCKDOWN_SYSTEM' and l.config_value == 'ACTIVE' for l in active_locks)
+        regions = [l.config_key.replace('LOCKDOWN_REGION_', '') for l in active_locks if l.config_key.startswith('LOCKDOWN_REGION_') and l.config_value == 'ACTIVE']
+        stations = [l.config_key.replace('LOCKDOWN_STATION_', '') for l in active_locks if l.config_key.startswith('LOCKDOWN_STATION_') and l.config_value == 'ACTIVE']
+        
+        return {
+            "system_lockdown": system_down, 
+            "active_regions": regions, 
+            "active_stations": stations
+        }
+    except Exception:
+        return {"system_lockdown": False, "active_regions": [], "active_stations": []}
 
 @router.post("/toggle-maintenance")
-def toggle_maintenance(payload: dict = Body(...), db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
+def toggle_maintenance(
+    payload: dict = Body(...), 
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
     if (current_user.role or "").strip().upper() != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Security Restriction: Only Super Admins can manage system lockdowns.")
-    return {"status": "success", "message": "Command maintenance executed."}
+    
+    lockdown_type = payload.get("lockdown_type", "SYSTEM").upper()
+    target_name = payload.get("target_name", "GLOBAL").upper()
+    reason = payload.get("reason", "Command Maintenance")
+
+    ConfigModel = getattr(models, 'SystemConfig', None)
+    if not ConfigModel:
+        raise HTTPException(status_code=500, detail="System Config database model not configured.")
+
+    config_key = f"LOCKDOWN_{lockdown_type}" if lockdown_type == "SYSTEM" else f"LOCKDOWN_{lockdown_type}_{target_name}"
+
+    existing = db.query(ConfigModel).filter(ConfigModel.config_key == config_key).first()
+
+    action_performed = ""
+    if existing and existing.config_value == 'ACTIVE':
+        db.delete(existing)
+        action_performed = "LIFTED"
+    else:
+        if not existing:
+            new_lock = ConfigModel(config_key=config_key, config_value="ACTIVE")
+            db.add(new_lock)
+        else:
+            existing.config_value = "ACTIVE"
+        action_performed = "ACTIVATED"
+
+    db.commit()
+
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="UPDATE",
+        module="SYSTEM_LOCKDOWN",
+        target_id=config_key,
+        changes_summary=f"Super Admin {current_user.fnum} {action_performed} lockdown for [{lockdown_type}: {target_name}]. Reason: {reason}."
+    )
+
+    return {"status": "success", "message": f"Command lockdown successfully {action_performed.lower()}."}
 
 
 # 10. USER HEARTBEAT & ONLINE STATUS
@@ -922,12 +981,14 @@ def clear_password_reset_request(
         raise
     except Exception as e:
         db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to clear reset request: {str(e)}")
 
 # 15. TRIGGER TACTICAL BRIEFINGS (MANUAL & AUTOMATED CRON)
 @router.post("/trigger-briefs")
 @router.post("/cron/trigger-briefs")
 def trigger_tactical_briefs(
+    background_tasks: BackgroundTasks, # 🟢 FIXED: Moved up and removed '= None'
     payload: Optional[dict] = Body(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
@@ -938,9 +999,42 @@ def trigger_tactical_briefs(
         is_automated = current_user is None
         origin_note = "Automated Monday Dispatch" if is_automated else f"Manually triggered by {current_user.fnum} {current_user.rank} {current_user.name}"
 
-        # 🟢 Place your SITREP email compilation and FastMail dispatch logic here
-
         actor_fnum = current_user.fnum if current_user else "CRON_SCHEDULER"
+
+        # 🟢 Extract High Command Emails for Dispatch
+        high_command_users = db.query(models.Users.email).filter(
+            models.Users.is_approved == True,
+            models.Users.email.isnot(None),
+            models.Users.role != 'REVOKED',
+            or_(
+                models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC']),
+                func.upper(models.Users.position).like('%KMP COMMANDER%'),
+                func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
+            )
+        ).all()
+        
+        target_emails = [u[0] for u in high_command_users if u[0] and "@" in u[0]]
+
+        if target_emails: # 🟢 We no longer need to check if background_tasks exists, FastAPI guarantees it
+            subject = f"TACTICAL ALERT: {brief_type.replace('_', ' ')} REPORT" if brief_type != "ALL" else "Weekly Command Briefing & Situation Report"
+            html_body = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h2 style="color: #1e3a8a; margin-top: 0;">{subject}</h2>
+                <p>This is an automated tactical dispatch generated by the KMP Centralised Security Data Management System.</p>
+                <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0;">
+                    <p><strong>Briefing Focus:</strong> {brief_type}</p>
+                    <p><strong>Dispatch Origin:</strong> {origin_note}</p>
+                    <p><strong>Timestamp:</strong> {datetime.now(pytz.timezone("Africa/Nairobi")).strftime("%Y-%m-%d %H:%M:%S EAT")}</p>
+                </div>
+                <p>Please log in to the administrative dashboard to review the full metrics and granular data.</p>
+            </div>
+            """
+            
+            def send_brief_sync():
+                asyncio.run(send_email_notification(target_emails, subject, html_body))
+            
+            background_tasks.add_task(send_brief_sync)
+
         record_neon_activity(
             logs_db=logs_db,
             fnum=actor_fnum,
@@ -952,9 +1046,11 @@ def trigger_tactical_briefs(
 
         return {
             "status": "success",
-            "message": f"Tactical briefings ({brief_type}) dispatched successfully. Origin: {origin_note}."
+            "message": f"Tactical briefings ({brief_type}) dispatched successfully to {len(target_emails)} commanders. Origin: {origin_note}."
         }
     except Exception as e:
+        db.rollback()
+        logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Briefing dispatch failed: {str(e)}")
 
 # ==========================================

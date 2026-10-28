@@ -375,6 +375,75 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
+# ==========================================
+# 🟢 STRICT SYSTEM LOCKDOWN ENFORCER
+# ==========================================
+def is_lockdown_exempt(user: models.Users) -> bool:
+    """
+    STRICT EXEMPTION: Only the exact roles and positions specified 
+    can bypass a system or regional lockdown.
+    """
+    if not user:
+        return False
+    
+    role = str(user.role or "").strip().upper()
+    pos = str(user.position or "").strip().upper()
+    
+    # 1. Exact Role Matches
+    if role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]:
+        return True
+    
+    # 2. Exact Position Matches
+    exempt_positions = [
+        "KMP COMMANDER", 
+        "DEPUTY KMP COMMANDER", 
+        "KMP ADMIN", 
+        "KMP ADMIN OFFICER",
+        "PRINCIPAL SUPER ADMIN" # Safeguard for A/2408
+    ]
+    
+    for exempt_pos in exempt_positions:
+        if exempt_pos in pos:
+            return True
+            
+    return False
+
+def enforce_system_lockdown(db: Session, current_user: models.Users):
+    """
+    Checks the SystemConfig table for active locks. If an active lockdown applies 
+    to the user's station, region, or globally, they are forcefully rejected UNLESS strictly exempt.
+    """
+    if is_lockdown_exempt(current_user):
+        return  # Supreme command cuts through the lockdown
+
+    ConfigModel = getattr(models, 'SystemConfig', None)
+    if not ConfigModel:
+        return # Skip if table doesn't exist
+
+    active_locks = db.query(ConfigModel).filter(
+        ConfigModel.config_value == 'ACTIVE',
+        or_(
+            ConfigModel.config_key == 'LOCKDOWN_SYSTEM',
+            ConfigModel.config_key == f"LOCKDOWN_REGION_{func.upper(current_user.region)}",
+            ConfigModel.config_key == f"LOCKDOWN_STATION_{func.upper(current_user.station)}"
+        )
+    ).all()
+
+    if active_locks:
+        highest_lock = active_locks[0].config_key
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"🚨 SECURITY LOCKDOWN ACTIVE: System operations for your jurisdiction are currently frozen by High Command [{highest_lock}]. Access is restricted to Supreme Command."
+        )
+
+# Create a secure wrapper to inject into your endpoints if you want global enforcement
+def get_secure_current_user(
+    db: Session = Depends(get_db), 
+    current_user: models.Users = Depends(get_current_user)
+):
+    # This automatically runs on every route that depends on it
+    enforce_system_lockdown(db, current_user)
+    return current_user
 
 # ==========================================
 # 3. CORE SYSTEM ENDPOINTS (Users, Heartbeat, Audit Logs)

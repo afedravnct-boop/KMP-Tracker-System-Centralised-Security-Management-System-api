@@ -231,7 +231,6 @@ const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdatePermiss
       return;
     }
 
-    // Pass the exact signature the parent table expects: (fnum, permissionKey, value)
     if (onUpdatePermissions) {
       onUpdatePermissions(user.fnum, permKey, !currentVal);
     }
@@ -285,7 +284,6 @@ const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdatePermiss
                 const lockInfo = clearanceLocks[key];
                 const isLockedByApex = lockInfo && lockInfo.revoked_by_fnum?.includes("A/2408");
 
-                // Enforce the same disable rules used in the table
                 const isSelf = user.fnum === currentUser?.fnum;
                 const isObserverCol = key === 'global_observer';
                 const isOpenCol = key === 'global_open';
@@ -366,8 +364,9 @@ const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdatePermiss
   );
 };
 
-const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) => {
-  const [activeTab, setActiveTab] = useState('approvals');
+const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, initialTab }) => {
+  // 🟢 FIXED: Properly initialize with null to start in a neutral state, honoring initialTab if passed
+  const [activeTab, setActiveTab] = useState(initialTab ? initialTab.toLowerCase() : null);
   const [matrixView, setMatrixView] = useState('ACTIVE');
    
   const [modRequests, setModRequests] = useState([]);
@@ -401,6 +400,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
   const [showDelegationModal, setShowDelegationModal] = useState(false);
   const [delegationSearchTerm, setDelegationSearchTerm] = useState('');
   const [revokePrompt, setRevokePrompt] = useState({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' });
+
+  // 🟢 Ensure initialTab changes are captured
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab.toLowerCase());
+    }
+  }, [initialTab]);
 
   const activeLockdownSummary = useMemo(() => {
     let list = [];
@@ -592,7 +598,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
         log_lockup: true, log_daily_lockup: true, view_exhibits: true, log_exhibits: true, view_global_roster: isGlobalAssign, global_open: isGlobalAssign, ...customPermissions
       };
 
-      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      // 🟢 FIXED: Added '/admin/' prefix
+      await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ role: assignedRole, is_approved: true, permissions: grantedPermissions, station: userToApprove.station, region: userToApprove.region })
       });
@@ -661,7 +668,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
     try {
       const defaultRole = 'STATION_USER';
       const defaultPermissions = { view_nominal_roll: true, view_crime_registry: true, log_crime: true, view_lockup: true, log_lockup: true, log_daily_lockup: true, view_exhibits: true, log_exhibits: true };
-      const res = await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/access`, {
+      // 🟢 FIXED: Added '/admin/' prefix
+      const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(fnum)}/access`, {
         method: 'PUT', headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: defaultRole, is_approved: true, permissions: defaultPermissions })
       });
@@ -679,7 +687,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
 
     const newPermissions = { ...(targetUser.permissions || {}), can_approve: givePower };
     try {
-      // 🟢 Fixed: Added '/admin/' prefix
       const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(targetUser.fnum)}/access`, {
         method: "PUT", 
         headers: { "Content-Type": "application/json" }, 
@@ -702,7 +709,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
 
     try {
-      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      // 🟢 FIXED: Added '/admin/' prefix
+      await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
       });
     } catch (err) { alert(`Bulk Update Failed: ${err.message}`); fetchAllSystemUsers(); }
@@ -723,7 +731,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
       await Promise.all(updatedUsers.map(u => {
         const uRole = (u.role || '').toUpperCase();
         if (uRole === 'SUPER_ADMIN' || uRole === 'ASSISTANT_SUPER_ADMIN') return Promise.resolve();
-        return authFetch(`/api/v1/users/${encodeURIComponent(u.fnum.trim())}/access`, {
+        // 🟢 FIXED: Added '/admin/' prefix
+        return authFetch(`/api/v1/admin/users/${encodeURIComponent(u.fnum.trim())}/access`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: u.role, permissions: u.permissions })
         });
       }));
@@ -742,7 +751,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
 
     try {
-      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      // 🟢 FIXED: Added '/admin/' prefix
+      await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
     } catch (err) { alert(`Permission Update Failed: ${err.message}`); fetchAllSystemUsers(); }
@@ -758,7 +768,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      await authFetch(`/api/v1/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
+      // 🟢 FIXED: Added '/admin/' prefix
+      await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
     } catch (err) { alert(`Role Update Failed: ${err.message}`); fetchAllSystemUsers(); }
@@ -1085,6 +1096,19 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
         </button>
       </div>
 
+      {/* 🟢 NEUTRAL LANDING STATE (NO TAB SELECTED YET) */}
+      {!activeTab && (
+        <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl p-16 text-center flex flex-col items-center justify-center min-h-[400px] shadow-sm">
+          <Shield className="w-16 h-16 text-slate-200 dark:text-slate-800 mb-4" />
+          <h3 className="text-lg font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+            Awaiting Command Selection
+          </h3>
+          <p className="text-xs font-bold text-slate-400 dark:text-slate-600 mt-2">
+            Please select an administrative module from the tabs above to securely fetch and load its data.
+          </p>
+        </div>
+      )}
+
       {activeTab === 'approvals' && (
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
           {loadingPending ? (
@@ -1280,13 +1304,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage }) 
                         <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedPendingUser(u); }} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] shadow-sm inline-flex items-center transition cursor-pointer">
                           <Eye size={12} className="mr-1.5"/> Inspect Dossier
                         </button>
-                         
+                        
                         {!isReadOnlyObserver && (
                           <button onClick={() => handleRegrantAccess(u.fnum, u.name)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                             <Unlock size={12} className="mr-1.5"/> Restore
                           </button>
                         )}
-                         
+                        
                         {isSuperAdmin && !isReadOnlyObserver ? (
                           <button onClick={() => handlePermanentDelete(u.fnum, u.name)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-bold text-[10px] shadow-sm flex items-center inline-flex transition cursor-pointer">
                             <Trash2 size={12} className="mr-1.5"/> Purge
