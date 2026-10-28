@@ -423,6 +423,7 @@ def create_exhibit(
             "unit_responsible": data.get("unit_responsible", "CID"),
             "assorted_items": data.get("assorted_items", "NIL"),
             "comment": data.get("comment", "NIL"),
+            "photo_url": data.get("photo_url"), # 🟢 Added photo_url parsing from payload
             "region": data.get("region") or getattr(current_user, 'region', 'KMP HEADQUARTERS'),
             "station": data.get("station") or getattr(current_user, 'station', 'KMP HEADQUARTERS'),
             "date_impounded": data.get("date_impounded"),

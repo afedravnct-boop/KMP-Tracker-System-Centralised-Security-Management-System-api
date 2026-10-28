@@ -576,6 +576,7 @@ class Impounded_Exhibits(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     sn = Column(Integer, index=True, autoincrement=True)
+    category = Column(String, default="GENERAL PROPERTY") # Optional: explicitly define category if needed
     reg_no = Column(String, index=True, nullable=False)
     type_make = Column(String, nullable=False)
     colour = Column(String, nullable=False)
@@ -585,6 +586,7 @@ class Impounded_Exhibits(Base):
     unit_responsible = Column(String, default="CID")
     assorted_items = Column(String, default="NIL")
     comment = Column(String, default="NIL")
+    photo_url = Column(String, nullable=True) # 🟢 NEW: Add photo_url column here
     region = Column(String, index=True, nullable=False)
     station = Column(String, index=True, nullable=False)
     date_impounded = Column(String, nullable=True)

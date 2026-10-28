@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
-  Filter, Save, Truck, Loader2, Lock, RefreshCw, Box, HardDrive
+  Filter, Save, Truck, Loader2, Lock, RefreshCw, Box, HardDrive, Camera
 } from 'lucide-react';
 import { stripHtmlTags } from './App';
 import { authFetch, hasValidSession } from './api';
@@ -111,7 +111,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
 
-  // 🟢 Custom Input Toggle States
+  // Custom Input Toggle States
   const [isCustomUnit, setIsCustomUnit] = useState(false);
   const [customUnitInput, setCustomUnitInput] = useState('');
 
@@ -170,6 +170,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     unit_responsible: 'CID',
     assorted_items: 'NIL',
     comment: 'NIL',
+    photo_url: '', // 🟢 NEW: Added photo tracking state
     region: userRegClean,
     station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
     impounded_by_fnum: stripHtmlTags(currentUser?.fnum || ''),
@@ -178,6 +179,39 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     date_cleared: '',
     entered_by: `${stripHtmlTags(currentUser?.name || '')} (${stripHtmlTags(currentUser?.fnum || '')})`
   });
+
+  // 🟢 NEW: Intercept URL parameters from CrimeIncidentRegistry cross-link
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const incidentRef = params.get('incident_ref');
+    const suspectId = params.get('suspect_id');
+
+    if (incidentRef) {
+      let extractedPrefix = '';
+      let extractedValue = incidentRef;
+      
+      const basePrefixes = ['SD REF', 'CRB', 'TAR', 'GEF', 'DEF'];
+      const matchingBase = basePrefixes.find(p => incidentRef.toUpperCase().startsWith(p));
+      
+      if (matchingBase) {
+        extractedPrefix = matchingBase + ':';
+        extractedValue = incidentRef.substring(matchingBase.length).trim();
+        if (extractedValue.startsWith(':') || extractedValue.startsWith('-')) {
+          extractedValue = extractedValue.substring(1).trim();
+        }
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        case_no_prefix: extractedPrefix,
+        case_no_value: extractedValue,
+        comment: suspectId ? `LINKED TO SUSPECT ID: ${suspectId}` : 'NIL'
+      }));
+      
+      // Clean URL to prevent re-triggering on manual refresh
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     const handler = setTimeout(() => setDebouncedSearch(searchQuery), 400);
@@ -236,6 +270,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       unit_responsible: 'CID',
       assorted_items: 'NIL',
       comment: 'NIL',
+      photo_url: '',
       region: userRegClean,
       station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
       impounded_by_fnum: stripHtmlTags(currentUser?.fnum || ''),
@@ -273,6 +308,47 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       setFormData(prev => ({ ...prev, region: clean, station: REGIONAL_HIERARCHY[clean]?.[0] || '' }));
     } else {
       setFormData(prev => ({ ...prev, [name]: clean.toUpperCase() }));
+    }
+  };
+
+  // 🟢 NEW: S3 Photo Upload handler mapped exactly to the backend /api/v1/investigation/upload
+  const handleExhibitPhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setNotification({ type: 'success', text: "⏳ Uploading exhibit photo securely to S3 Vault..." });
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("category", "exhibit_photo");
+      uploadData.append("case_id", stripHtmlTags(formData.case_no_value || "NEW_EXHIBIT"));
+
+      try {
+        const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
+        const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+          
+        const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
+            method: "POST", 
+            headers: { "Authorization": `Bearer ${token}` }, 
+            body: uploadData 
+        });
+          
+        if (!response.ok) throw new Error("Upload failed");
+          
+        const data = await response.json();
+          
+        if (data.full_s3_url || data.cloud_storage_path || data.url) {
+          setFormData(prev => ({ 
+              ...prev, 
+              photo_url: stripHtmlTags(data.url || data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) 
+          }));
+          setNotification({ type: 'success', text: "✅ Exhibit photo uploaded successfully!" });
+        } else {
+            throw new Error("Invalid response");
+        }
+      } catch (error) {
+        console.error("Upload error:", error);
+        setFormData(prev => ({ ...prev, photo_url: URL.createObjectURL(file) }));
+        setNotification({ type: 'error', text: "⚠️ API unreachable. Using temporary local preview." });
+      }
     }
   };
 
@@ -368,7 +444,8 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
       unit_responsible: isStandardUnit ? item.unit_responsible : 'CUSTOM',
       date_cleared: item.date_cleared || '',
       case_no_prefix: extractedPrefix,
-      case_no_value: extractedValue
+      case_no_value: extractedValue,
+      photo_url: item.photo_url || ''
     });
     
     if (!isStandardStatus) {
@@ -612,7 +689,30 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                   <input type="text" name="assorted_items" value={formData.assorted_items} onChange={handleInputChange} placeholder="e.g. KEYS / CHARGER" className="w-full border rounded-lg p-2 uppercase font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                {/* 🟢 NEW: Exhibit Photographic Evidence Section */}
+                <div className="bg-emerald-50 dark:bg-slate-800/60 p-3 rounded-xl border border-emerald-200 dark:border-emerald-900 space-y-2 mt-3">
+                  <label className="block text-[10px] font-bold text-emerald-800 dark:text-emerald-400 mb-1.5 flex items-center">
+                    <Camera size={14} className="mr-1.5"/> Photographic Evidence (Optional)
+                  </label>
+                  <div className="flex items-center space-x-3">
+                    {formData.photo_url ? ( 
+                      <img src={formData.photo_url} alt="Exhibit" className="w-16 h-16 rounded object-cover border-2 border-emerald-300 dark:border-emerald-800 shadow-sm" /> 
+                    ) : ( 
+                      <div className="w-16 h-16 rounded bg-emerald-100 dark:bg-emerald-950 flex flex-col items-center justify-center text-emerald-400 dark:text-emerald-500 border border-dashed border-emerald-300 dark:border-emerald-800 text-center p-1 text-[9px]">
+                        <Camera size={16} className="mb-1 opacity-60"/>
+                        No Photo
+                      </div> 
+                    )}
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handleExhibitPhotoUpload} 
+                      className="text-[11px] file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-[11px] file:font-bold file:bg-emerald-700 file:text-white hover:file:bg-emerald-800 w-full cursor-pointer text-slate-700 dark:text-slate-300" 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mt-3">
                   <div>
                     <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">Region *</label>
                     <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel} className="w-full border rounded-lg p-2 font-bold bg-white dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50">
@@ -727,6 +827,7 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 <thead className="bg-emerald-900 text-white sticky top-0 z-10 font-black text-[10px]">
                   <tr>
                     <th className="px-3 py-3 text-center w-12">S/NO</th>
+                    <th className="px-3 py-3 text-center w-12"><Camera size={14} className="mx-auto" /></th>
                     <th className="px-3 py-3 text-left">IDENTIFIER (REG/SERIAL)</th>
                     <th className="px-3 py-3 text-left">CATEGORY</th>
                     <th className="px-3 py-3 text-left">DESCRIPTION</th>
@@ -744,9 +845,9 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700 font-medium">
                   {isFetching ? (
-                    <tr><td colSpan="14" className="text-center py-8 text-slate-500 animate-pulse"><Loader2 className="w-6 h-6 mx-auto animate-spin mb-2 text-emerald-600" /> Syncing exhibit records...</td></tr>
+                    <tr><td colSpan="15" className="text-center py-8 text-slate-500 animate-pulse"><Loader2 className="w-6 h-6 mx-auto animate-spin mb-2 text-emerald-600" /> Syncing exhibit records...</td></tr>
                   ) : filteredExhibits.length === 0 ? (
-                    <tr><td colSpan="14" className="text-center py-8 text-slate-400 font-bold">No impounded fleet or exhibits found matching your filters.</td></tr>
+                    <tr><td colSpan="15" className="text-center py-8 text-slate-400 font-bold">No impounded fleet or exhibits found matching your filters.</td></tr>
                   ) : (
                     filteredExhibits.map((item, index) => {
                       
@@ -763,6 +864,16 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
                       return (
                         <tr key={item.id || item.sn || index} onClick={() => populateEditForm(item)} title="Click to edit this record" className="hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer group">
                           <td className="px-3 py-2.5 text-center font-black">{filteredExhibits.length - index}</td>
+                          
+                          {/* 🟢 NEW: Renders the photo preview directly in the table if it exists */}
+                          <td className="px-3 py-2.5 text-center">
+                            {item.photo_url ? (
+                              <img src={item.photo_url} alt="Exhibit" className="w-8 h-8 rounded object-cover border border-emerald-300 dark:border-emerald-700 shadow-sm inline-block" />
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600">-</span>
+                            )}
+                          </td>
+                          
                           <td className="px-3 py-2.5 font-extrabold text-emerald-800 dark:text-emerald-400 group-hover:text-amber-700">{stripHtmlTags(item.reg_no)}</td>
                           <td className="px-3 py-2.5 font-black text-[10px] text-slate-500">{displayCategory}</td>
                           <td className="px-3 py-2.5 font-bold uppercase">{displayType}</td>

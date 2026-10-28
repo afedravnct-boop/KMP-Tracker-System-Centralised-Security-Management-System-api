@@ -1390,10 +1390,21 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                               </div> 
                             )}
                           </div>
+                          
+                          {/* 🟢 NEW: Redirect button to Exhibits Registry */}
+                          <div className="mt-3 w-full sm:w-auto shrink-0 self-end sm:self-center">
+                            <a 
+                              href={`/exhibits?incident_ref=${encodeURIComponent(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref))}&suspect_id=${encodeURIComponent(s.id)}`}
+                              className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg shadow border border-amber-500 text-[10px] uppercase transition cursor-pointer w-full"
+                            >
+                              <Camera size={14} className="mr-1.5" />
+                              Log Exhibit
+                            </a>
+                            </div>
 
-                        </div>
-                      );
-                    })}
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               )}

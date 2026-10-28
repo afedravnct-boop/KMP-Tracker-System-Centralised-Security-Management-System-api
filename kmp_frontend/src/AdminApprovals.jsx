@@ -365,7 +365,6 @@ const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdatePermiss
 };
 
 const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, initialTab }) => {
-  // 🟢 FIXED: Properly initialize with null to start in a neutral state, honoring initialTab if passed
   const [activeTab, setActiveTab] = useState(initialTab ? initialTab.toLowerCase() : null);
   const [matrixView, setMatrixView] = useState('ACTIVE');
    
@@ -385,7 +384,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
   const [selectedModRequest, setSelectedModRequest] = useState(null);
   const [viewingPhotoModal, setViewingPhotoModal] = useState(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
-  
+ 
   const [isTriggeringBriefs, setIsTriggeringBriefs] = useState(false);
   const [showBriefingModal, setShowBriefingModal] = useState(false);
 
@@ -401,7 +400,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
   const [delegationSearchTerm, setDelegationSearchTerm] = useState('');
   const [revokePrompt, setRevokePrompt] = useState({ isOpen: false, fnum: null, actionType: null, targetValue: null, permissionKey: null, reason: '' });
 
-  // 🟢 Ensure initialTab changes are captured
+  // 🟢 Reduced State to prevent lag. Using DOM IDs for inputs instead.
+  const [activeDelegationId, setActiveDelegationId] = useState(null);
+  const [isConfiguringBroadcast, setIsConfiguringBroadcast] = useState(false);
+
   useEffect(() => {
     if (initialTab) {
       setActiveTab(initialTab.toLowerCase());
@@ -446,7 +448,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
   const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true || isReadOnlyObserver;
   const canToggleKillSwitch = isSuperAdmin || userRoleClean === 'ASSISTANT_SUPER_ADMIN' || hasDelegatedApprovalPower || currentUser?.permissions?.ai_hr_access === true;
   const canViewGlobalActive = canViewGlobal || isGlobalTier || isReadOnlyObserver;
-  
+ 
   const canTriggerBriefs = 
     ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER'].includes(userRoleClean) ||
     ['PRINCIPAL SUPER ADMIN', 'SUPER ADMIN', 'ASSISTANT SUPER ADMIN', 'SYSTEM MANAGER', 'ASSISTANT SYSTEM MANAGER', 'KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER', 'KMP CID COMMANDER', 'KMP CI COMMANDER', 'CI COMMANDER (KMP)', 'CID COMMANDER (KMP)'].some(pos => userPosClean.includes(pos)) ||
@@ -493,14 +495,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
       const response = await authFetch('/api/v1/admin/trigger-briefs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ brief_type: briefType })
+        body: JSON.stringify({ briefType })
       });
-
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.detail || 'Failed to dispatch briefs.');
       }
-
       setShowBriefingModal(false);
       alert(`✅ Tactical Briefings (${briefType}) are compiling and dispatching in the background!`);
     } catch (error) {
@@ -598,7 +598,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
         log_lockup: true, log_daily_lockup: true, view_exhibits: true, log_exhibits: true, view_global_roster: isGlobalAssign, global_open: isGlobalAssign, ...customPermissions
       };
 
-      // 🟢 FIXED: Added '/admin/' prefix
       await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify({ role: assignedRole, is_approved: true, permissions: grantedPermissions, station: userToApprove.station, region: userToApprove.region })
@@ -668,7 +667,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     try {
       const defaultRole = 'STATION_USER';
       const defaultPermissions = { view_nominal_roll: true, view_crime_registry: true, log_crime: true, view_lockup: true, log_lockup: true, log_daily_lockup: true, view_exhibits: true, log_exhibits: true };
-      // 🟢 FIXED: Added '/admin/' prefix
       const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(fnum)}/access`, {
         method: 'PUT', headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role: defaultRole, is_approved: true, permissions: defaultPermissions })
@@ -680,30 +678,39 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     finally { setIsProcessingAction(false); }
   };
 
-  const handleToggleDelegationPower = async (targetUser, givePower) => {
+  // 🟢 Optimized Delegation Method (Fast Mutation UI)
+  const handleToggleDelegationPower = async (targetUser, givePower, startDate = null, endDate = null) => {
     if (isReadOnlyObserver) return alert("Read-only clearance restricts delegation.");
     if (!isTopCommand) return alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
     if (!canControlTargetUser(targetUser)) return alert("SECURITY OVERRIDE DENIED: Insufficient clearance over this command tier.");
 
-    let start_date = "";
-    let end_date = "";
+    let newPermissions = { 
+      ...(targetUser.permissions || {}), 
+      can_approve: givePower,
+      delegation_start: startDate,
+      delegation_end: endDate,
+      acting_for_fnum: givePower ? currentUser?.fnum : null
+    };
 
-    // 🟢 Capture dates if we are granting power
     if (givePower) {
-        start_date = window.prompt(`Enter Delegation Start Date for ${targetUser.name} (YYYY-MM-DD):`);
-        if (!start_date) return; // User cancelled
-        
-        end_date = window.prompt(`Enter Delegation End Date for ${targetUser.name} (YYYY-MM-DD):`);
-        if (!end_date) return; // User cancelled
+      newPermissions._pre_delegation_snapshot = { ...(targetUser.permissions || {}) };
+      const myPerms = currentUser?.permissions || {};
+      CLEARANCE_MATRIX_COLS.forEach(col => {
+        if (myPerms[col.key] === true) newPermissions[col.key] = true;
+      });
+    } else {
+      const snapshot = newPermissions._pre_delegation_snapshot;
+      if (snapshot) {
+        CLEARANCE_MATRIX_COLS.forEach(col => {
+          newPermissions[col.key] = snapshot[col.key] === true; 
+        });
+        delete newPermissions._pre_delegation_snapshot;
+      }
     }
 
-    const newPermissions = { 
-        ...(targetUser.permissions || {}), 
-        can_approve: givePower,
-        delegation_start: givePower ? start_date : null,
-        delegation_end: givePower ? end_date : null,
-        acting_for_fnum: givePower ? currentUser.fnum : null // Link back to the delegator
-    };
+    // FAST MUTATION: Updates instantly without freezing the UI
+    targetUser.permissions = newPermissions;
+    setAllSystemUsers([...allSystemUsers]);
 
     try {
       const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(targetUser.fnum)}/access`, {
@@ -712,9 +719,37 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
         body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
       });
       if (!res.ok) throw new Error("Failed to update delegation.");
-      alert(`✅ Delegation successfully ${givePower ? 'GRANTED' : 'REVOKED'} for ${targetUser.name} (${targetUser.fnum}).`);
-      fetchAllSystemUsers();
-    } catch (err) { alert(`Delegation Error: ${err.message}`); }
+      
+      setActiveDelegationId(null);
+    } catch (err) { 
+      alert(`Delegation Error: ${err.message}`); 
+      fetchAllSystemUsers(); 
+    }
+  };
+
+  const saveBroadcast = async (isAway, reasonSelect, delegatee, start, end) => {
+    try {
+      const payload = { 
+          is_away: isAway, 
+          absence_reason: reasonSelect,
+          delegatee_fnum: delegatee,
+          delegation_start: start,
+          delegation_end: end
+      };
+
+      const res = await authFetch('/api/v1/admin/set-commander-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        alert("✅ Command status broadcast updated successfully.");
+        window.location.reload(); 
+      } else {
+        const errData = await res.json();
+        alert(`❌ Failed to update status: ${errData.detail}`);
+      }
+    } catch (err) { alert("Failed to communicate with server."); }
   };
 
   const handleBulkMatrixAction = async (fnum, setAllToTrue) => {
@@ -728,7 +763,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: newPermissions } : u));
 
     try {
-      // 🟢 FIXED: Added '/admin/' prefix
       await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
       });
@@ -750,7 +784,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
       await Promise.all(updatedUsers.map(u => {
         const uRole = (u.role || '').toUpperCase();
         if (uRole === 'SUPER_ADMIN' || uRole === 'ASSISTANT_SUPER_ADMIN') return Promise.resolve();
-        // 🟢 FIXED: Added '/admin/' prefix
         return authFetch(`/api/v1/admin/users/${encodeURIComponent(u.fnum.trim())}/access`, {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: u.role, permissions: u.permissions })
         });
@@ -767,10 +800,12 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
 
     let updatedPermissions = { ...(targetUser.permissions || {}) };
     updatedPermissions[permissionKey] = value;
-    setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, permissions: updatedPermissions } : u));
+    
+    // FAST MUTATION
+    targetUser.permissions = updatedPermissions;
+    setAllSystemUsers([...allSystemUsers]);
 
     try {
-      // 🟢 FIXED: Added '/admin/' prefix
       await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: targetUser.role, permissions: updatedPermissions })
       });
@@ -787,7 +822,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     setAllSystemUsers(allSystemUsers.map(u => u.fnum === cleanFnum ? { ...u, role: newRole, permissions: updatedPermissions } : u));
 
     try {
-      // 🟢 FIXED: Added '/admin/' prefix
       await authFetch(`/api/v1/admin/users/${encodeURIComponent(cleanFnum.trim())}/access`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: newRole, permissions: updatedPermissions })
       });
@@ -1115,13 +1149,10 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
         </button>
       </div>
 
-      {/* 🟢 NEUTRAL LANDING STATE (NO TAB SELECTED YET) */}
       {!activeTab && (
         <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl p-16 text-center flex flex-col items-center justify-center min-h-[400px] shadow-sm">
           <Shield className="w-16 h-16 text-slate-200 dark:text-slate-800 mb-4" />
-          <h3 className="text-lg font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-            
-          </h3>
+          <h3 className="text-lg font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest"></h3>
           <p className="text-xs font-bold text-slate-400 dark:text-slate-600 mt-2">
             Please select an administrative module from the tabs above to securely fetch and load its data.
           </p>
@@ -1456,7 +1487,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                   return (
                     <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800">
                       <td className="px-4 py-2.5 font-mono text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap">{log.created_at}</td>
-                       
+                        
                       <td className="px-4 py-2.5 font-extrabold text-blue-700 dark:text-blue-400 whitespace-nowrap">
                         {log.user_fnum} {log.user_name ? `- ${log.user_name}` : ''}
                       </td>
@@ -1511,101 +1542,122 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
       )}
 
       {showDelegationModal && !isReadOnlyObserver && (
-        <div className="fixed inset-0 bg-black/70 z-[999999] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl p-6 space-y-4 shadow-2xl text-white">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-extrabold uppercase flex items-center">
-                <Award className="w-4 h-4 mr-2 text-yellow-400" /> Delegate Command Approval Powers & Absence Status
-              </h3>
-              <button onClick={() => setShowDelegationModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
-            </div>
-             
-            <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate acting approval privileges, or broadcast your official command absence status.</p>
-             
-            {/* 🟢 COMMANDER LEAVE / ABSENCE REASON BROADCASTER */}
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-black uppercase text-amber-400">Broadcast Commander Leave / Absence Status</h4>
-                  <p className="text-[10px] text-slate-400">If you are away (e.g., on leave or course), select a reason below to notify command nodes.</p>
-                </div>
-                <ToggleSwitch 
-                  checked={currentUser?.permissions?.manual_delegation || false} 
-                  onChange={async () => {
-                    const nextAway = !(currentUser?.permissions?.manual_delegation);
-                    const reasonSelect = document.getElementById('absenceReasonSelect')?.value || 'Annual Leave';
-                    
-                    let delegatee_fnum = "";
-                    let start_date = "";
-                    let end_date = "";
-
-                    // 🟢 Prompt for required fields if going away
-                    if (nextAway) {
-                        delegatee_fnum = window.prompt("Enter Delegatee F/No (e.g., A/1234):");
-                        if (!delegatee_fnum) return alert("Delegation cancelled: Delegatee F/No is required.");
-                        
-                        start_date = window.prompt("Enter Delegation Start Date (YYYY-MM-DD):");
-                        if (!start_date) return alert("Delegation cancelled: Start date is required.");
-                        
-                        end_date = window.prompt("Enter Delegation End Date (YYYY-MM-DD):");
-                        if (!end_date) return alert("Delegation cancelled: End date is required.");
-                    }
-
-                    try {
-                      // 🟢 THE UPDATED JSON PAYLOAD
-                      const payload = { 
-                          is_away: nextAway, 
-                          absence_reason: reasonSelect,
-                          delegatee_fnum: delegatee_fnum,
-                          delegation_start: start_date,
-                          delegation_end: end_date
-                      };
-
-                      const res = await authFetch('/api/v1/admin/set-commander-status', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                      });
-                      if (res.ok) {
-                        alert("✅ Command status broadcast updated successfully.");
-                        window.location.reload(); // Refresh to sync permissions state
+        <div className="fixed inset-0 bg-black/80 z-[999999] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl p-6 flex flex-col h-[90vh] shadow-2xl text-white">
+            
+            <div className="shrink-0 space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h3 className="text-sm font-extrabold uppercase flex items-center">
+                  <Award className="w-4 h-4 mr-2 text-yellow-400" /> Delegate Command Approval Powers & Absence Status
+                </h3>
+                <button onClick={() => setShowDelegationModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><X size={18}/></button>
+              </div>
+                
+              <p className="text-xs text-slate-400">Search and select an officer in your command jurisdiction to delegate acting approval privileges, or broadcast your official command absence status.</p>
+                
+              <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-black uppercase text-amber-400">Broadcast Commander Leave / Absence Status</h4>
+                    <p className="text-[10px] text-slate-400">If you are away (e.g., on leave or course), select a reason below to notify command nodes.</p>
+                  </div>
+                  <ToggleSwitch 
+                    checked={currentUser?.permissions?.manual_delegation || false} 
+                    onChange={() => {
+                      const nextAway = !(currentUser?.permissions?.manual_delegation);
+                      if (nextAway) {
+                        setIsConfiguringBroadcast(true); 
                       } else {
-                        const errData = await res.json();
-                        alert(`❌ Failed to update status: ${errData.detail}`);
+                        saveBroadcast(false, null, null, null, null);
                       }
-                    } catch (err) { alert("Failed to communicate with server."); }
-                  }} 
+                    }} 
+                  />
+                </div>
+
+                {isConfiguringBroadcast && (
+                  <div className="bg-slate-900 p-3 rounded-lg border border-amber-500/50 mt-3 animate-in slide-in-from-top-2">
+                    <div className="text-[10px] text-amber-300 font-bold uppercase mb-2">Configure Absence Details</div>
+                    <div className="flex flex-col space-y-3 mb-3">
+                      
+                      <div className="flex space-x-3 items-end">
+                        <div className="flex-1">
+                          <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Absence Reason</label>
+                          <select 
+                            id="bc-absence-reason"
+                            defaultValue="Annual Leave"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-white outline-none cursor-pointer"
+                          >
+                            <option value="Annual Leave">Annual Leave</option>
+                            <option value="Official Course / Training">Official Course / Training</option>
+                            <option value="Field Operations / Deployment">Field Operations / Deployment</option>
+                            <option value="Medical Leave / Sick Sheet">Medical Leave / Sick Sheet</option>
+                            <option value="Off Duty / Rest Days">Off Duty / Rest Days</option>
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Delegatee FNum</label>
+                          <input 
+                            id="bc-delegatee-fnum"
+                            type="text" 
+                            placeholder="Type or click 'Select' below..." 
+                            className="w-full bg-slate-950 text-white text-xs p-1.5 rounded-lg border border-slate-700 outline-none" 
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex space-x-3">
+                        <div className="flex-1 relative">
+                          <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Leave Start Date</label>
+                          <input 
+                            id="bc-start-date"
+                            type="date" 
+                            onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                            className="w-full bg-slate-950 text-white text-xs p-2 rounded-lg border border-slate-700 outline-none focus:border-amber-500 cursor-pointer [color-scheme:dark]" 
+                          />
+                        </div>
+                        <div className="flex-1 relative">
+                          <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Leave End Date</label>
+                          <input 
+                            id="bc-end-date"
+                            type="date" 
+                            onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                            className="w-full bg-slate-950 text-white text-xs p-2 rounded-lg border border-slate-700 outline-none focus:border-amber-500 cursor-pointer [color-scheme:dark]" 
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end space-x-2">
+                      <button onClick={() => setIsConfiguringBroadcast(false)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold text-[10px] cursor-pointer">Cancel</button>
+                      <button onClick={() => {
+                        const reason = document.getElementById('bc-absence-reason')?.value;
+                        const delegateeFnum = document.getElementById('bc-delegatee-fnum')?.value;
+                        const startDate = document.getElementById('bc-start-date')?.value;
+                        const endDate = document.getElementById('bc-end-date')?.value;
+
+                        if (!delegateeFnum || !startDate || !endDate) return alert("Please fill out the Delegatee FNum and select dates from the calendar.");
+                        saveBroadcast(true, reason, delegateeFnum, startDate, endDate);
+                        setIsConfiguringBroadcast(false);
+                      }} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded font-bold text-[10px] flex items-center cursor-pointer"><CheckCircle size={12} className="mr-1"/> Save & Broadcast Status</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="relative flex items-center pt-2">
+                <Search size={14} className="absolute left-3 text-slate-400" />
+                <input 
+                  type="text"
+                  value={delegationSearchTerm}
+                  onChange={(e) => setDelegationSearchTerm(e.target.value)}
+                  placeholder="Search by name, F/No, or station..."
+                  className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white outline-none focus:border-indigo-500"
                 />
-              </div>
-              <div className="flex items-center space-x-2 pt-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400 shrink-0">Absence Reason:</span>
-                <select 
-                  id="absenceReasonSelect"
-                  defaultValue={currentUser?.permissions?.absence_reason || 'Annual Leave'}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-white outline-none focus:border-amber-500 cursor-pointer"
-                >
-                  <option value="Annual Leave">Annual Leave</option>
-                  <option value="Official Course / Training (e.g., Cairo, Egypt)">Official Course / Training (e.g., Cairo, Egypt)</option>
-                  <option value="Field Operations / Deployment">Field Operations / Deployment</option>
-                  <option value="Medical Leave / Sick Sheet">Medical Leave / Sick Sheet</option>
-                  <option value="Off Duty / Rest Days">Off Duty / Rest Days</option>
-                </select>
+                {delegationSearchTerm && <button onClick={() => setDelegationSearchTerm('')} className="absolute right-3 text-slate-400 hover:text-white text-xs font-bold">×</button>}
               </div>
             </div>
 
-            <div className="relative flex items-center pt-2">
-              <Search size={14} className="absolute left-3 text-slate-400" />
-              <input 
-                type="text"
-                value={delegationSearchTerm}
-                onChange={(e) => setDelegationSearchTerm(e.target.value)}
-                placeholder="Search by name, F/No, or station..."
-                className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-bold text-white outline-none focus:border-indigo-500"
-              />
-              {delegationSearchTerm && <button onClick={() => setDelegationSearchTerm('')} className="absolute right-3 text-slate-400 hover:text-white text-xs font-bold">×</button>}
-            </div>
-
-            <div className="max-h-80 overflow-y-auto space-y-3 custom-scrollbar pr-1">
+            <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2 mt-4 bg-slate-900 rounded-xl">
               {allSystemUsers
                 .filter(u => {
                   if (u.role === 'SUPER_ADMIN' || !canControlTargetUser(u)) return false;
@@ -1615,23 +1667,91 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                 })
                 .map(u => {
                   const uPerms = u.permissions || {};
+                  const isDelegated = uPerms.can_approve === true;
+
                   return (
-                    <div key={u.fnum} className="bg-slate-800/90 p-4 rounded-xl space-y-3 border border-slate-700 hover:border-indigo-500 transition-colors">
+                    <div key={u.fnum} className={`p-4 rounded-xl space-y-3 border transition-all duration-300 ${
+                      isDelegated 
+                        ? 'bg-slate-800 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.15)]' 
+                        : 'bg-slate-800/90 border-slate-700 hover:border-indigo-500'
+                    }`}>
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="font-bold text-xs">{formatOfficerHeader(u)}</div>
                           <div className="text-[10px] text-slate-400 mt-0.5">{u.station} / {u.region} • <span className="text-yellow-400 font-semibold">{u.role}</span></div>
                         </div>
-                        <div className="space-x-2 shrink-0">
-                          {uPerms?.can_approve ? (
-                            <button onClick={() => handleToggleDelegationPower(u, false)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Revoke All Powers</button>
-                          ) : (
-                            <button onClick={() => handleToggleDelegationPower(u, true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[10px] font-extrabold cursor-pointer shadow-sm">Grant Acting Power</button>
+                        
+                        <div className="flex flex-col items-end shrink-0 space-y-1.5">
+                          {isConfiguringBroadcast && (
+                            <button 
+                              onClick={() => {
+                                const input = document.getElementById('bc-delegatee-fnum');
+                                if (input) input.value = u.fnum;
+                              }}
+                              className="px-3 py-1 mb-1 rounded text-[9px] font-black uppercase transition-all cursor-pointer border bg-slate-900 text-amber-500 border-amber-500/50 hover:bg-amber-500/20"
+                            >
+                              Select as Delegatee
+                            </button>
+                          )}
+
+                          <div className="flex items-center space-x-2">
+                            <span className={`text-[10px] font-black uppercase tracking-wider ${isDelegated ? 'text-emerald-400' : 'text-slate-500'}`}>
+                              {isDelegated ? 'Acting Power: ON' : 'Acting Power: OFF'}
+                            </span>
+                            <ToggleSwitch 
+                              checked={isDelegated} 
+                              onChange={() => {
+                                if (isDelegated) {
+                                  handleToggleDelegationPower(u, false);
+                                } else {
+                                  setActiveDelegationId(u.fnum);
+                                }
+                              }} 
+                            />
+                          </div>
+                          {isDelegated && (
+                            <div className="text-[8px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/30 font-bold uppercase tracking-widest text-right">
+                              Active Delegatee
+                            </div>
                           )}
                         </div>
                       </div>
 
-                      {/* 🟢 GRANULAR ACTING POWERS CHECKLIST */}
+                      {activeDelegationId === u.fnum && !isDelegated && (
+                        <div className="bg-slate-900 p-3 rounded-lg border border-indigo-500/50 mt-3 animate-in slide-in-from-top-2">
+                          <div className="text-[10px] text-indigo-300 font-bold uppercase mb-2">Set Active Delegation Period</div>
+                          <div className="flex space-x-3 mb-3">
+                            <div className="flex-1 relative">
+                              <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Start Date</label>
+                              <input 
+                                id={`del-start-date-${u.fnum}`}
+                                type="date" 
+                                onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                                className="w-full bg-slate-950 text-white text-xs p-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500 cursor-pointer [color-scheme:dark]" 
+                              />
+                            </div>
+                            <div className="flex-1 relative">
+                              <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">End Date</label>
+                              <input 
+                                id={`del-end-date-${u.fnum}`}
+                                type="date" 
+                                onClick={(e) => e.target.showPicker && e.target.showPicker()}
+                                className="w-full bg-slate-950 text-white text-xs p-2 rounded-lg border border-slate-700 outline-none focus:border-emerald-500 cursor-pointer [color-scheme:dark]" 
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-end space-x-2">
+                            <button onClick={() => setActiveDelegationId(null)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded font-bold text-[10px] cursor-pointer">Cancel</button>
+                            <button onClick={() => {
+                              const sDate = document.getElementById(`del-start-date-${u.fnum}`)?.value;
+                              const eDate = document.getElementById(`del-end-date-${u.fnum}`)?.value;
+                              if (!sDate || !eDate) return alert("Please select both start and end dates from the calendar.");
+                              handleToggleDelegationPower(u, true, sDate, eDate);
+                            }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-bold text-[10px] flex items-center cursor-pointer"><CheckCircle size={12} className="mr-1"/> Confirm & Grant</button>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 space-y-1.5">
                         <span className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400 block">Scoped Acting Powers Checklist:</span>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
@@ -1644,17 +1764,21 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                                   checked={isChecked}
                                   onChange={async (e) => {
                                     const nextPerms = { ...uPerms, [col.key]: e.target.checked, can_approve: true };
+                                    
+                                    // FAST MUTATION
+                                    u.permissions = nextPerms;
+                                    setAllSystemUsers([...allSystemUsers]);
+
                                     try {
-                                      // 🟢 Fixed: Included '/admin/' prefix to prevent 404 error
                                       const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(u.fnum)}/access`, {
                                         method: "PUT",
                                         headers: { "Content-Type": "application/json" },
                                         body: JSON.stringify({ role: u.role, permissions: nextPerms })
                                       });
-                                      if (!res.ok) throw new Error("Failed to update delegation privileges.");
-                                      fetchAllSystemUsers();
+                                      if (!res.ok) throw new Error("Failed to update.");
                                     } catch (err) {
                                       alert(`❌ Error: ${err.message}`);
+                                      fetchAllSystemUsers(); 
                                     }
                                   }}
                                   className="w-3.5 h-3.5 accent-blue-600 rounded cursor-pointer shrink-0"
@@ -1669,15 +1793,14 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                   );
                 })}
             </div>
-             
-            <div className="flex justify-end pt-2 border-t border-slate-800">
+              
+            <div className="flex justify-end pt-4 border-t border-slate-800 shrink-0 mt-2">
               <button onClick={() => setShowDelegationModal(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs cursor-pointer">Done</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODALS */}
       <SignupDossierModal user={selectedPendingUser} onClose={() => setSelectedPendingUser(null)} setViewingPhotoModal={setViewingPhotoModal} currentUser={currentUser} isProcessingAction={isProcessingAction} handleRejectUser={handleRejectUser} handleApproveUser={handleApproveUser} handleRegrantAccess={handleRegrantAccess} handlePermanentDelete={handlePermanentDelete} isSuperAdmin={isSuperAdmin} canModifyUser={canControlTargetUser} isReadOnlyObserver={isReadOnlyObserver} />
       <UserClearanceDossierModal 
         user={allSystemUsers.find(u => u.fnum === selectedClearanceUser?.fnum) || selectedClearanceUser} 
