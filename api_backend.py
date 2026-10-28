@@ -59,7 +59,9 @@ from routers.weekly_briefing import run_weekly_tactical_briefing_job
 # ==========================================
 load_dotenv()
 
-app = FastAPI(title="KMP Centralised Security Data Management System")
+app = FastAPI(
+    title="KMP Centralised Security Data Management System"
+)
 
 # Import all modular routers
 from routers import (
@@ -129,10 +131,10 @@ conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
     MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=587,
+    MAIL_PORT=465,               
     MAIL_SERVER="smtp.gmail.com",
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False
+    MAIL_STARTTLS=False,         
+    MAIL_SSL_TLS=True            
 )
 
 s3_client = boto3.client(
@@ -441,7 +443,6 @@ def get_secure_current_user(
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
-    # This automatically runs on every route that depends on it
     enforce_system_lockdown(db, current_user)
     return current_user
 

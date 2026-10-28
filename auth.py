@@ -140,7 +140,7 @@ def get_current_user(
         detail="Could not validate credentials",
     )
     
-    # 🟢 Safely handle manual calls where token is passed as a FastAPI Depends object
+    # Safely handle manual calls where token is passed as a FastAPI Depends object
     if token is not None and not isinstance(token, str):
         token = None
 
@@ -193,7 +193,51 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Account is revoked or pending approval."
         )
+
+    # ==========================================
+    # 🟢 STRICT SYSTEM LOCKDOWN ENFORCER
+    # ==========================================
+    def is_lockdown_exempt(u: models.Users) -> bool:
+        if not u:
+            return False
+        role = str(u.role or "").strip().upper()
+        pos = str(u.position or "").strip().upper()
         
+        if role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]:
+            return True
+        
+        exempt_positions = [
+            "KMP COMMANDER", 
+            "DEPUTY KMP COMMANDER", 
+            "KMP ADMIN", 
+            "KMP ADMIN OFFICER",
+            "PRINCIPAL SUPER ADMIN"
+        ]
+        for exempt_pos in exempt_positions:
+            if exempt_pos in pos:
+                return True
+        return False
+
+    if not is_lockdown_exempt(user):
+        ConfigModel = getattr(models, 'SystemConfig', None)
+        if ConfigModel:
+            active_locks = db.query(ConfigModel).filter(
+                ConfigModel.config_value == 'ACTIVE',
+                or_(
+                    ConfigModel.config_key == 'LOCKDOWN_SYSTEM',
+                    ConfigModel.config_key == f"LOCKDOWN_REGION_{func.upper(user.region)}",
+                    ConfigModel.config_key == f"LOCKDOWN_STATION_{func.upper(user.station)}"
+                )
+            ).all()
+
+            if active_locks:
+                highest_lock = active_locks[0].config_key
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"🚨 SECURITY LOCKDOWN ACTIVE: System operations for your jurisdiction are currently frozen by High Command [{highest_lock}]. Access is restricted to Supreme Command."
+                )
+    # ==========================================
+
     return user
 
 # ====================================================================

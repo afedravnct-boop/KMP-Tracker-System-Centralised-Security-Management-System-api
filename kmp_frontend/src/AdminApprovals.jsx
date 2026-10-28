@@ -1101,7 +1101,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
         <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-xl p-16 text-center flex flex-col items-center justify-center min-h-[400px] shadow-sm">
           <Shield className="w-16 h-16 text-slate-200 dark:text-slate-800 mb-4" />
           <h3 className="text-lg font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-            Awaiting Command Selection
+            
           </h3>
           <p className="text-xs font-bold text-slate-400 dark:text-slate-600 mt-2">
             Please select an administrative module from the tabs above to securely fetch and load its data.
