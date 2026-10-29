@@ -7,7 +7,7 @@ import pytz
 import pyzipper
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
@@ -65,6 +65,76 @@ def get_official_region_for_station(station_name: str, db_region: str) -> str:
             return reg_name
 
     return clean_region or "KMP GENERAL"
+
+# 🟢 PRECISION SCOPING HELPER: Ensures Regional HQ staff roll up under their parent regions
+def apply_precise_regional_scoping(query, ModelClass, selected_region: Optional[str], selected_station: Optional[str], current_user):
+    sel_reg = (selected_region or "").strip().upper()
+    sel_stn = (selected_station or "").strip().upper()
+    
+    user_role = (current_user.role or "").strip().upper()
+    user_pos = (current_user.position or "").strip().upper()
+    user_reg = (current_user.region or "").strip().upper()
+    user_stn = (current_user.station or "").strip().upper()
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_absolute_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True or
+        user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]
+    )
+
+    # 1. Station-Level Precision Filter (Takes precedence if a specific station is chosen)
+    if sel_stn and sel_stn not in ["ALL STATIONS", "ALL STATIONS / DIVISIONS", "ALL"]:
+        conds = []
+        if hasattr(ModelClass, 'station'):
+            clean_sel_stn = sel_stn.replace(" HEADQUARTERS", "").replace(" HQ", "")
+            conds.append(
+                or_(
+                    func.upper(ModelClass.station) == sel_stn,
+                    func.upper(ModelClass.station) == f"{clean_sel_stn} HEADQUARTERS",
+                    func.upper(ModelClass.station) == f"{clean_sel_stn} HQ"
+                )
+            )
+        return query.filter(or_(*conds))
+
+    # 2. Region-Level Scoping Filter (When a region like KMP EAST or KMP NORTH is selected)
+    if sel_reg and sel_reg != "ALL REGIONS":
+        conds = []
+        if hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == sel_reg)
+        
+        if sel_reg in REGIONAL_HIERARCHY and hasattr(ModelClass, 'station'):
+            region_stations = [s.upper() for s in REGIONAL_HIERARCHY[sel_reg]]
+            conds.append(func.upper(ModelClass.station).in_(region_stations))
+
+        return query.filter(or_(*conds))
+
+    # 3. Non-Global User Fallback (Restricted to native jurisdiction)
+    if not is_absolute_global:
+        conds = []
+        if user_reg and hasattr(ModelClass, 'region'):
+            conds.append(func.upper(ModelClass.region) == user_reg)
+        if user_stn and hasattr(ModelClass, 'station'):
+            clean_user_stn = user_stn.replace(" HEADQUARTERS", "").replace(" HQ", "")
+            conds.append(
+                or_(
+                    func.upper(ModelClass.station) == user_stn,
+                    func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+                )
+            )
+        if conds:
+            return query.filter(or_(*conds))
+        return query.filter(text("1=0"))
+
+    return query
 
 def normalize_offence_category(raw_offence: str) -> str:
     if not raw_offence:
@@ -251,14 +321,34 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
     }
 
 @router.get("/dashboard-intelligence")
-def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
-    """Offloads success stories parsing, fire intelligence, manpower matrix, crime categories, and detention calendar margin audits to backend."""
+def get_dashboard_intelligence(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db), 
+    current_user = Depends(get_current_user)
+):
+    """Offloads success stories parsing, fire intelligence, manpower matrix, crime categories, detentions, exhibits, and accidents with precision regional/station filtering."""
     try:
         LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
+        ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
+        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
 
-        lockup_records = db.query(LockupModel).all() if LockupModel else []
+        def query_scoped(ModelClass):
+            if not ModelClass:
+                return []
+            q = db.query(ModelClass)
+            q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
+            return q.all()
+
+        lockup_records = query_scoped(LockupModel)
+        story_records = query_scoped(StoryModel)
+        crime_records = query_scoped(CrimeModel)
+        exhibit_records = query_scoped(ExhibitModel)
+        accidents_records = query_scoped(AccidentsModel)
+
+        # 1. DETENTIONS / LOCKUP CALENDAR & MARGIN AUDITS
         date_map = {}
         region_demo_map = {}
         region_dur_map = {}
@@ -315,7 +405,7 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
                 "status": status_note
             })
 
-        story_records = db.query(StoryModel).all() if StoryModel else []
+        # 2. SUCCESS STORIES PROCESSING
         parsed_stories = []
         for st in story_records:
             raw_narrative = getattr(st, 'narrative', getattr(st, 'title', ''))
@@ -329,7 +419,7 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
                 "parsedClassification": parsed['classification']
             })
 
-        crime_records = db.query(CrimeModel).all() if CrimeModel else []
+        # 3. FIRE INTELLIGENCE
         fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
         fire_list = []
         total_fire_deaths = 0
@@ -351,6 +441,7 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
                     "summary": strip_html_tags(narrative or offence or 'Fire incident logged.')
                 })
 
+        # 4. CRIME CATEGORIES
         crime_reg_map = {}
         for cr in crime_records:
             cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
@@ -365,6 +456,35 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
             cat_list = [{"name": c, "count": cnt} for c, cnt in sorted(obj["categories"].items(), key=lambda x: x[1], reverse=True)]
             crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
         crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
+
+        # 5. EXHIBITS DATA RETRIEVAL
+        exhibits_formatted = []
+        for ex in exhibit_records:
+            exhibits_formatted.append({
+                "id": getattr(ex, 'id', 0),
+                "category": str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper(),
+                "description": str(getattr(ex, 'description', getattr(ex, 'particulars', 'N/A')) or 'N/A').upper(),
+                "region": str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper(),
+                "station": str(getattr(ex, 'station', 'N/A') or 'N/A').upper(),
+                "status": str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper(),
+                "total": 1
+            })
+
+        # 6. ACCIDENTS DATA RETRIEVAL
+        accidents_formatted = []
+        for ac in accidents_records:
+            accidents_formatted.append({
+                "id": getattr(ac, 'id', 0),
+                "date": str(getattr(ac, 'date', 'N/A')),
+                "region": str(getattr(ac, 'region', 'KMP GENERAL')).upper(),
+                "station": str(getattr(ac, 'station', 'N/A')).upper(),
+                "nature": str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper(),
+                "minor": int(getattr(ac, 'minor', 0) or 0),
+                "serious": int(getattr(ac, 'serious', 0) or 0),
+                "fatal": int(getattr(ac, 'fatal', 0) or 0),
+                "victims": int(getattr(ac, 'victims', 0) or 0),
+                "total": int(getattr(ac, 'total', 0) or 0)
+            })
 
         return {
             "detentionCalendar": {
@@ -381,7 +501,9 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
                 "totalInjuries": total_fire_injuries,
                 "fireList": fire_list
             },
-            "crimeCategoryData": crime_category_data
+            "crimeCategoryData": crime_category_data,
+            "exhibitsData": exhibits_formatted,
+            "accidentsData": accidents_formatted
         }
     except Exception as e:
         import traceback
@@ -390,6 +512,8 @@ def get_dashboard_intelligence(db: Session = Depends(get_db), current_user = Dep
 
 @router.get("/export")
 def export_analytics_report(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user = Depends(require_export_privilege)
@@ -439,22 +563,7 @@ def export_analytics_report(
             if not ModelClass:
                 return []
             q = db.query(ModelClass)
-            if is_absolute_global or is_kmp_sys_mgr:
-                return q.all()
-            elif is_regional_command and user_reg in REGIONAL_HIERARCHY:
-                conds = []
-                if hasattr(ModelClass, 'region'):
-                    conds.append(func.upper(ModelClass.region) == user_reg)
-                if hasattr(ModelClass, 'station'):
-                    expanded_stns = set(REGIONAL_HIERARCHY[user_reg])
-                    for s in REGIONAL_HIERARCHY[user_reg]:
-                        expanded_stns.add(s)
-                        expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
-                    conds.append(func.upper(ModelClass.station).in_(list(expanded_stns)))
-                if conds: return q.filter(or_(*conds)).all()
-                return []
-            elif hasattr(ModelClass, 'station') and user_stn:
-                return q.filter(func.upper(ModelClass.station) == user_stn).all()
+            q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
             return q.all()
 
         cr_records = get_scoped_records(CrimeModel)
@@ -577,7 +686,6 @@ def export_analytics_report(
             
             success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, classification])
 
-        # 🟢 EXHIBIT SUMMARY MAP WITH DESCRIPTION INCLUDED
         exhibit_summary_map = {}
         for ex in ex_records:
             cat = str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper()

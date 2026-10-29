@@ -50,6 +50,14 @@ REGION_SORT_PRIORITY = {
     "POLICE HEADQUARTERS": 8
 }
 
+REGIONAL_HIERARCHY = {
+    "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
+    "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+    "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU"]
+}
+
 def clean_str(val) -> str:
     if not val: return ''
     return str(val).strip().upper()
@@ -414,7 +422,11 @@ def getOfficialRegionForStation(station_name: str, current_region: Optional[str]
     norm_reg = normalize_region_name(current_region)
     station_norm = normalize_station_name(station_name)
     
-    # 🟢 Explicitly map regional headquarters to their respective regions
+    # 🟢 Precision Check via REGIONAL_HIERARCHY mapping (ensures regional headquarters roll up to parent region)
+    for reg_name, stationsList in REGIONAL_HIERARCHY.items():
+        if station_norm in stationsList:
+            return reg_name
+
     if "KMP EAST" in station_norm or "KMP EAST" in norm_reg:
         return "KMP EAST"
     if "KMP NORTH" in station_norm or "KMP NORTH" in norm_reg:
@@ -426,6 +438,28 @@ def getOfficialRegionForStation(station_name: str, current_region: Optional[str]
         return STATION_GEO_MAP[station_norm]["region"]
         
     return norm_reg
+
+def auto_infer_geography(station_name: str, current_region: Optional[str] = None, current_district: Optional[str] = None):
+    station_norm = normalize_station_name(station_name)
+    region_norm = normalize_region_name(current_region)
+    district_norm = clean_str(current_district)
+
+    for reg_name, stationsList in REGIONAL_HIERARCHY.items():
+        if station_norm in stationsList:
+            region_norm = reg_name
+            break
+
+    if station_norm in STATION_GEO_MAP:
+        geo = STATION_GEO_MAP[station_norm]
+        if not region_norm or region_norm in ["KMP HEADQUARTERS", "UNKNOWN"]:
+            region_norm = geo["region"]
+        if not district_norm or district_norm in ["UNKNOWN"]:
+            district_norm = geo["district"]
+
+    if not district_norm:
+        district_norm = "KAMPALA"
+
+    return region_norm, district_norm
 
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     query = db.query(Model)
@@ -449,10 +483,12 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     if is_absolute_global:
         return query
     elif is_regional_command:
-        # 🟢 Include both regional stations and regional headquarters names for RPC scope
+        # 🟢 Gather all stations under the regional hierarchy including regional headquarters
+        allowed_stations = REGIONAL_HIERARCHY.get(user_region, [])
         return query.filter(
             or_(
                 func.upper(Model.region) == user_region,
+                func.upper(Model.station).in_([s.upper() for s in allowed_stations]),
                 func.upper(Model.station).ilike(f"%{user_region}%")
             )
         )
@@ -510,7 +546,7 @@ def get_Nominal_Rolls(
         r_dict['fnum'] = fnum_val
         r_dict['f_num'] = fnum_val
         r_dict['station'] = normalize_station_name(r_dict.get('station'))
-        r_dict['region'] = normalize_region_name(r_dict.get('region'))
+        r_dict['region'] = getOfficialRegionForStation(r_dict.get('station'), r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
         r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
@@ -538,7 +574,7 @@ def get_Nominal_Rolls(
         r_dict['fnum'] = fnum_val
         r_dict['f_num'] = fnum_val
         r_dict['station'] = normalize_station_name(r_dict.get('station'))
-        r_dict['region'] = normalize_region_name(r_dict.get('region'))
+        r_dict['region'] = getOfficialRegionForStation(r_dict.get('station'), r_dict.get('region'))
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
         r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
@@ -1850,7 +1886,6 @@ def export_filtered_nominal_roll(
             cell.border = thin_border
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # 🟢 FIX: ACTUALLY WRITE THE ROWS TO THE EXCEL SHEET!
         for idx, row in enumerate(filtered_rows):
             row_data = [
                 idx + 1, row["Force Number"], row["Rank"], row["Name"], row["Sex"], 

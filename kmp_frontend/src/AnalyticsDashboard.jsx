@@ -138,13 +138,16 @@ const AnalyticsDashboard = ({
 
       setLoading(true);
       try {
+        // 🟢 Pass selectedRegion and selectedStation parameters to backend intelligence endpoint
+        const intelParam = `?region=${encodeURIComponent(selectedRegion)}&station=${encodeURIComponent(selectedStation)}`;
+
         const [rollRes, crimeRes, statsRes, exhibitsRes, accidentsRes, intelRes] = await Promise.all([
           authFetch('/api/v1/nominal-roll').catch(() => null),
           authFetch('/api/v1/reports').catch(() => null),
           authFetch('/api/v1/stats').catch(() => null),
           authFetch('/api/v1/exhibits').catch(() => null),
           authFetch('/api/v1/accidents').catch(() => null),
-          authFetch('/api/v1/analytics/dashboard-intelligence').catch(() => null)
+          authFetch(`/api/v1/analytics/dashboard-intelligence${intelParam}`).catch(() => null)
         ]);
 
         const rollData = rollRes && rollRes.ok ? await rollRes.json() : [];
@@ -166,11 +169,15 @@ const AnalyticsDashboard = ({
               setBackendDetentionCalendar(intelData.detentionCalendar);
               if (intelData.detentionCalendar.dates?.length > 0) {
                 setSelectedDetentionDate(intelData.detentionCalendar.dates[0]);
+              } else {
+                setSelectedDetentionDate(null);
               }
             }
             if (intelData.successStoriesProcessed) setBackendSuccessStories(intelData.successStoriesProcessed);
             if (intelData.fireIntelligence) setBackendFireIntelligence(intelData.fireIntelligence);
             if (intelData.crimeCategoryData) setBackendCrimeCategories(intelData.crimeCategoryData);
+            if (intelData.exhibitsData) setFetchedExhibits(intelData.exhibitsData);
+            if (intelData.accidentsData) setFetchedAccidents(intelData.accidentsData);
           }
         }
       } catch (err) {
@@ -184,7 +191,7 @@ const AnalyticsDashboard = ({
 
     fetchData();
     return () => { isMounted = false; };
-  }, []);
+  }, [selectedRegion, selectedStation]); // 🟢 Re-fetches dynamically whenever region or station filter changes
 
   const resolvedNominalRolls = nominalRolls.length ? nominalRolls : (nominal_rolls.length ? nominal_rolls : fetchedRolls);
   const resolvedCrimeRegistry = crimeRegistry.length ? crimeRegistry : (reports.length ? reports : fetchedCrime);

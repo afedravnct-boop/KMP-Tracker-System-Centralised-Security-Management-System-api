@@ -68,18 +68,22 @@ const normalizeStationName = (stationStr) => {
     return `${base} POLICE STATION`;
 };
 
+// 🟢 PRECISION REGIONAL ROLLUP: Automatically maps regional HQ staff to their parent region
 const getOfficialRegionForStation = (stationName, dbRegion) => {
     const baseStation = getBaseName(stationName);
     const cleanDbRegion = cleanStr(dbRegion);
 
-    if (REGIONAL_HIERARCHY[cleanDbRegion]) {
-        const matches = REGIONAL_HIERARCHY[cleanDbRegion].some(s => getBaseName(s) === baseStation);
-        if (matches) return cleanDbRegion;
+    for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+        if (stationsList.some(s => getBaseName(s) === baseStation) || regionName === cleanDbRegion) {
+            return regionName;
+        }
     }
 
-    for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-        if (stationsList.some(s => getBaseName(s) === baseStation)) return regionName;
-    }
+    if (baseStation.includes("KMP EAST") || cleanDbRegion.includes("KMP EAST")) return "KMP EAST";
+    if (baseStation.includes("KMP NORTH") || cleanDbRegion.includes("KMP NORTH")) return "KMP NORTH";
+    if (baseStation.includes("KMP SOUTH") || cleanDbRegion.includes("KMP SOUTH")) return "KMP SOUTH";
+    if (baseStation.includes("KMP HQ") || baseStation.includes("KMP HEADQUARTERS")) return "KMP HEADQUARTERS";
+
     return cleanDbRegion || 'KMP GENERAL';
 };
 
@@ -219,7 +223,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
   });
 
-  // 🟢 Dynamically categorize and build lists for the dropdown
   const { majorStations, policeStations, policePosts } = useMemo(() => {
     if (!filterRegion || filterRegion === 'ALL REGIONS') {
         return { majorStations: [], policeStations: [], policePosts: [] };
@@ -311,7 +314,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 Handles Dossier's Edit Request Safely
   const handleEditFromDossier = (officer) => {
     if (!canEditRecords) {
         alert("Security Restriction: You do not have clearance to edit nominal roll records.");
@@ -322,12 +324,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     setAnalyticsSelectedOfficer(null);
     setOperation('update');
     populateUpdateForm(officer);
-    // Smooth scroll to the top where the form is located
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 🟢 NEW: Real-time filter engine for the Audit Report Modal
-  // 🟢 LOCAL FILTERS FOR AUDIT MODAL
   const [auditFilterRegion, setAuditFilterRegion] = useState('ALL REGIONS');
   const [auditFilterStation, setAuditFilterStation] = useState('ALL STATIONS');
 
@@ -345,7 +344,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     return Array.from(stations).sort();
   }, [auditPreviewData, auditFilterRegion]);
 
-  // 🟢 COMBINED ENGINE: Filters by Region, Station, and Search Term
   const filteredAuditPreviewData = useMemo(() => {
     let data = auditPreviewData;
     
@@ -531,7 +529,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 Core Engine: Handles Exact Target Identification
+  // 🟢 Core Engine: Filters records matching the active region and station via getOfficialRegionForStation
   const filterDataset = (dataset) => {
     if (!Array.isArray(dataset)) return [];
 
@@ -636,7 +634,8 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   const availableUpdateRolls = useMemo(() => {
     return (Array.isArray(Nominal_Rolls) ? Nominal_Rolls : []).filter(n => {
       const fNumVal = cleanStr(n.fnum || n.f_num);
-      if (!isGlobalTier && !canViewGlobalLevel && cleanStr(n.region) !== userRegClean) return false;
+      const officialReg = getOfficialRegionForStation(n.station, n.region);
+      if (!isGlobalTier && !canViewGlobalLevel && officialReg !== userRegClean) return false;
       if (updateSearch) {
         const query = updateSearch.toLowerCase();
         return fNumVal.toLowerCase().includes(query) || 
@@ -647,7 +646,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     });
   }, [Nominal_Rolls, userRegClean, updateSearch, isGlobalTier, canViewGlobalLevel]);
 
-  // 🟢 Specific Counts for Top Dashboard
   const metricsData = useMemo(() => {
     let maleCount = 0;
     let femaleCount = 0;
@@ -761,7 +759,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         <div className="fixed inset-0 z-[999999] bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in">
           <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl p-5 space-y-4 flex flex-col max-h-[85vh]">
             
-            {/* 🟢 MODIFIED HEADER: Now includes Local Dropdowns and Search Bar */}
             <div className="flex flex-col space-y-3 border-b pb-3 shrink-0">
               <div className="flex justify-between items-center">
                 <h3 className="text-sm font-extrabold text-slate-800 uppercase flex items-center">
@@ -781,7 +778,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 </div>
               </div>
               
-              {/* 🟢 LOCAL FILTERS: Region, Station, and Text Search */}
               <div className="flex flex-col sm:flex-row gap-2 items-center">
                 <select 
                   value={auditFilterRegion} 
@@ -836,7 +832,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
-                  {/* 🟢 MAP OVER FILTERED DATA INSTEAD OF RAW DATA */}
                   {filteredAuditPreviewData.map((row, idx) => (
                     <tr key={row.force_number || idx} className="hover:bg-amber-50/40 transition-colors">
                       <td className="px-3 py-2 font-bold">{idx + 1}</td>
@@ -1198,7 +1193,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               className="w-full text-xs py-1.5 px-2 border border-slate-300 rounded shadow-xs focus:ring-1 focus:ring-amber-500 outline-none bg-white text-slate-800"
                             />
                           </div>
-                              
+                            
                           <div>
                             <label className="block text-[10px] font-bold text-slate-700 mb-0.5 flex items-center">
                               Previous Force No. <span className="text-slate-400 font-normal ml-1">(If promoted to Gazetted File No.)</span>
@@ -1300,11 +1295,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
           )}
 
-          {/* 🟢 HIERARCHICAL DROPDOWNS & SEARCH */}
           <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
             <div className="flex flex-col sm:flex-row gap-2.5 flex-1">
               
-              {/* Region Filter */}
               <select 
                 value={filterRegion} 
                 onChange={(e) => { setFilterRegion(e.target.value); setFilterStation('ALL STATIONS'); }} 
@@ -1316,7 +1309,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 ) : <option value={userRegClean}>{userRegClean}</option>}
               </select>
 
-              {/* Station Filter (Dynamic categorized groups) */}
               <select 
                 value={filterStation} 
                 onChange={(e) => setFilterStation(e.target.value)} 
@@ -1367,7 +1359,6 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
             </div>
           </div>
 
-          {/* ANALYTICS BREAKDOWN OR TABLE LEDGER VIEW */}
           {showAnalytics ? (
             <ExpandableTableCard title="Analytics Breakdown & Filtered Ledger">
               {(expanded) => (
@@ -1409,12 +1400,11 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               className="bg-indigo-700 hover:bg-indigo-800 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer ml-2 shrink-0"
                             >
                               <Download className="w-3.5 h-3.5 mr-1" /> Download Filtered Ledger
-                          </button>
+                            </button>
                         )}
                     </div>
                   </div>
 
-                  {/* 🟢 Independent Scrollable Container (Both Vertical & Horizontal) */}
                   <div className={`flex-1 overflow-auto custom-scrollbar border border-gray-200 dark:border-slate-800 rounded-lg mt-3 relative ${expanded ? 'h-full' : ''}`}>
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 text-xs">
                         <thead className="bg-indigo-50 dark:bg-slate-950 sticky top-0 z-20 shadow-xs">
@@ -1505,13 +1495,13 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                         {bulkSelectMode && viewMode === 'active' && canEditRecords && (
                           <th className="px-2.5 py-2.5 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase whitespace-nowrap bg-gray-50 dark:bg-slate-950">
                              <input 
-                               type="checkbox" 
-                               checked={Array.isArray(selectedOfficers) && Array.isArray(filteredRolls) && selectedOfficers.length === filteredRolls.length && filteredRolls.length > 0}
-                               onChange={(e) => {
-                                   if (e.target.checked) setSelectedOfficers(Array.isArray(filteredRolls) ? filteredRolls.map(n => n.f_num || n.fnum) : []);
-                                   else setSelectedOfficers([]);
-                               }}
-                               className="w-3.5 h-3.5 cursor-pointer accent-red-600"
+                              type="checkbox" 
+                              checked={Array.isArray(selectedOfficers) && Array.isArray(filteredRolls) && selectedOfficers.length === filteredRolls.length && filteredRolls.length > 0}
+                              onChange={(e) => {
+                                  if (e.target.checked) setSelectedOfficers(Array.isArray(filteredRolls) ? filteredRolls.map(n => n.f_num || n.fnum) : []);
+                                  else setSelectedOfficers([]);
+                              }}
+                              className="w-3.5 h-3.5 cursor-pointer accent-red-600"
                              />
                           </th>
                         )}
@@ -1562,7 +1552,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                           className={`${viewMode === 'archive' ? 'bg-slate-50 dark:bg-slate-900/60 opacity-80' : bulkSelectMode && Array.isArray(selectedOfficers) && selectedOfficers.includes(n.f_num || n.fnum) ? 'bg-red-50 dark:bg-red-950/30' : 'hover:bg-blue-50 dark:hover:bg-slate-800'} transition-colors ${canEditRecords ? 'cursor-pointer' : ''}`} 
                           onClick={() => {
                               if (!canEditRecords) return;
-                               
+                              
                               if (bulkSelectMode && viewMode === 'active') {
                                 const target = n.f_num || n.fnum;
                                 if (Array.isArray(selectedOfficers) && selectedOfficers.includes(target)) {
@@ -1573,7 +1563,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                               } else {
                                 setSelectedOfficer(n);
                               }
-                          }}
+                          } }
                         >
                           {bulkSelectMode && viewMode === 'active' && canEditRecords && (
                               <td className="px-2.5 py-2 text-center" onClick={(e) => e.stopPropagation()}>
