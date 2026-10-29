@@ -1115,7 +1115,13 @@ def set_commander_status(
             try: del_perms = json.loads(del_perms)
             except Exception: del_perms = {}
             
+        # Save snapshot before delegation if not already saved
+        if "_pre_delegation_snapshot" not in del_perms:
+            del_perms["_pre_delegation_snapshot"] = {k: v for k, v in del_perms.items()}
+
         del_perms["acting_for_fnum"] = current_user.fnum
+        del_perms["can_approve"] = True
+        del_perms["global_open"] = True  # Provide open/write clearance as requested
         delegatee.permissions = del_perms
         
         audit_detail += f" Delegated command authority to {delegatee.rank} {delegatee.name} ({delegatee_fnum}) from {start_date} to {end_date}."
@@ -1127,9 +1133,32 @@ def set_commander_status(
             f"Granted acting command powers for {current_user.fnum} ({absence_reason}) from {start_date} to {end_date}."
         )
 
+    # 🟢 REVERSAL LOGIC: When delegation is turned off, restore delegatee to pre-delegation state
     if not is_away and old_delegatee_fnum:
         delegatee = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == old_delegatee_fnum).first()
-        audit_detail = "Officer resumed active command. Delegation privileges revoked."
+        if delegatee:
+            del_perms = delegatee.permissions or {}
+            if isinstance(del_perms, str):
+                try: del_perms = json.loads(del_perms)
+                except Exception: del_perms = {}
+            
+            # Restore from snapshot if available
+            snapshot = del_perms.pop("_pre_delegation_snapshot", None)
+            if snapshot:
+                delegatee.permissions = snapshot
+            else:
+                # Fallback: Strip out acting flags explicitly
+                del_perms.pop("acting_for_fnum", None)
+                del_perms["can_approve"] = False
+                delegatee.permissions = del_perms
+
+            append_user_audit_event(
+                delegatee, 
+                "COMMAND_DELEGATION_REVOKED", 
+                current_user.fnum, 
+                "Acting command powers and temporary delegations have been revoked and restored to baseline."
+            )
+        audit_detail = "Officer resumed active command. Delegation privileges revoked and delegatee restored."
 
     append_user_audit_event(current_user, "COMMAND_STATUS_UPDATED", current_user.fnum, audit_detail)
     db.commit()
@@ -1143,7 +1172,6 @@ def set_commander_status(
         changes_summary=audit_detail
     )
     
-    # 🟢 Enqueue background tasks to safely send notification emails without delaying HTTP response
     if delegatee:
         background_tasks.add_task(
             lambda: asyncio.run(notify_delegation_status(current_user, delegatee, is_away, absence_reason, start_date, end_date))
