@@ -785,19 +785,38 @@ def get_admin_transfer_requests(
 
         requests = query.order_by(TransferModel.id.desc()).all()
 
-        # Safely map officer profile details without calling missing request attributes
+        # 🟢 INDUSTRY STANDARD BATCH LOADING: Gather all force numbers in one sweep
+        fnums = []
+        for req in requests:
+            f = (getattr(req, "fnum", None) or getattr(req, "requested_fnum", "")).strip().upper()
+            if f:
+                fnums.append(f)
+
+        # Execute ONE single query to pull all corresponding user records into memory
+        users_map = {}
+        if fnums:
+            matched_users = db.query(models.Users).filter(func.upper(models.Users.fnum).in_(fnums)).all()
+            users_map = {u.fnum.strip().upper(): u for u in matched_users if u and u.fnum}
+
+        # Scan and format records sequentially from memory with zero database lag
         formatted_requests = []
         for req in requests:
-            usr = db.query(models.Users).filter(func.upper(models.Users.fnum) == func.upper(req.fnum)).first()
-            
+            target_fnum = (getattr(req, "fnum", None) or getattr(req, "requested_fnum", "")).strip().upper()
+            usr = users_map.get(target_fnum)
+
+            rank = usr.rank if (usr and usr.rank) else (getattr(req, "requested_rank", None) or "UNKNOWN")
+            name = usr.name if (usr and usr.name) else (getattr(req, "requested_name", None) or f"OFFICER {target_fnum}")
+            station = usr.station if (usr and usr.station) else "N/A"
+            region = usr.region if (usr and usr.region) else "N/A"
+
             req_dict = {
                 "id": req.id,
-                "fnum": req.fnum,
-                "requested_fnum": getattr(req, "requested_fnum", req.fnum),
-                "requested_rank": getattr(req, "requested_rank", None) or (usr.rank if usr else "UNKNOWN"),
-                "requested_name": getattr(req, "requested_name", None) or (usr.name if usr else "OFFICER UNKNOWN"),
-                "current_station": usr.station if (usr and usr.station) else "N/A",
-                "current_region": usr.region if (usr and usr.region) else "N/A",
+                "fnum": target_fnum,
+                "requested_fnum": target_fnum,
+                "requested_rank": rank,
+                "requested_name": f"{rank} {name}".strip(),
+                "current_station": station,
+                "current_region": region,
                 "requested_station": getattr(req, "requested_station", "N/A"),
                 "requested_region": getattr(req, "requested_region", "N/A"),
                 "status": getattr(req, "status", "PENDING"),
