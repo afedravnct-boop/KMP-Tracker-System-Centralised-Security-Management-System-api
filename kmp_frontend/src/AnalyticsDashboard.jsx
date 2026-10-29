@@ -112,6 +112,26 @@ const AnalyticsDashboard = ({
   const [fetchedExhibits, setFetchedExhibits] = useState([]); 
   const [fetchedAccidents, setFetchedAccidents] = useState([]);
 
+  // 🟢 Hoisted user jurisdiction state variables to prevent temporal reference errors
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
+
+  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN' || userRoleClean === 'ADMIN';
+  const isGlobalTier = isSuperAdmin || 
+    ['ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+    currentUser?.permissions?.view_global_roster === true ||
+    !currentUser;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+
+  const [selectedRegion, setSelectedRegion] = useState(canViewGlobalLevel || !currentUser ? 'ALL REGIONS' : (userRegClean || 'KMP HEADQUARTERS'));
+  const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
+
   // 🟢 Offloaded backend intelligence states
   const [backendDetentionCalendar, setBackendDetentionCalendar] = useState({ dates: [], dateMap: {}, regionDemographics: [], regionDuration: [], dailyMargins: [] });
   const [backendSuccessStories, setBackendSuccessStories] = useState([]);
@@ -138,7 +158,6 @@ const AnalyticsDashboard = ({
 
       setLoading(true);
       try {
-        // 🟢 Pass selectedRegion and selectedStation parameters to backend intelligence endpoint
         const intelParam = `?region=${encodeURIComponent(selectedRegion)}&station=${encodeURIComponent(selectedStation)}`;
 
         const [rollRes, crimeRes, statsRes, exhibitsRes, accidentsRes, intelRes] = await Promise.all([
@@ -191,7 +210,7 @@ const AnalyticsDashboard = ({
 
     fetchData();
     return () => { isMounted = false; };
-  }, [selectedRegion, selectedStation]); // 🟢 Re-fetches dynamically whenever region or station filter changes
+  }, [selectedRegion, selectedStation]);
 
   const resolvedNominalRolls = nominalRolls.length ? nominalRolls : (nominal_rolls.length ? nominal_rolls : fetchedRolls);
   const resolvedCrimeRegistry = crimeRegistry.length ? crimeRegistry : (reports.length ? reports : fetchedCrime);
@@ -202,35 +221,6 @@ const AnalyticsDashboard = ({
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedCrimeCategory, setSelectedCrimeCategory] = useState('ALL');
   const [dateFilter, setDateFilter] = useState('ALL'); 
-   
-  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
-  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
-  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
-
-  const isSuperAdmin = userRoleClean === 'SUPER_ADMIN' || userRoleClean === 'ADMIN';
-  const isGlobalTier = isSuperAdmin || 
-    ['ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
-    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
-    currentUser?.permissions?.view_global_roster === true ||
-    !currentUser;
-
-  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
-  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
-
-  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
-
-  const [selectedRegion, setSelectedRegion] = useState('ALL REGIONS');
-  const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
-
-  useEffect(() => {
-    if (canViewGlobalLevel || !currentUser) {
-      setSelectedRegion('ALL REGIONS');
-      setSelectedStation('ALL STATIONS');
-    } else {
-      setSelectedRegion(userRegClean || 'KMP HEADQUARTERS');
-      setSelectedStation('ALL STATIONS');
-    }
-  }, [canViewGlobalLevel, userRegClean, currentUser]);
 
   const timeFilteredData = (list) => {
     const now = new Date();
@@ -632,8 +622,8 @@ const AnalyticsDashboard = ({
                <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                   <thead className="sticky top-0 z-20">
                      <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                       <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '75%' }}>Command Region</th>
-                       <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '25%' }}>Total Crimes Recorded</th>
+                        <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '75%' }}>Command Region</th>
+                        <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '25%' }}>Total Crimes Recorded</th>
                      </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2d6c3]">
@@ -1059,13 +1049,13 @@ const AnalyticsDashboard = ({
                <table className="min-w-full divide-y divide-[#e2d6c3]">
                   <thead className="sticky top-0 z-20">
                      <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b border-[#d3c2a8]">
-                       <th rowSpan={2} className="px-3 py-2 text-left text-[10px] uppercase tracking-wide sticky left-0 bg-[#f4eee2] z-10 w-48 border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Command Region / Station</th>
-                       <th rowSpan={2} className="px-3 py-2 text-center text-[10px] font-black uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Total Personnel</th>
-                       <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-[#596E47] uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Active Deployable</th>
-                       <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-red-700 uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Inactive (Sick/Leave)</th>
-                       {manpowerAnalysis.allRanks.map(rank => (
-                         <th key={rank} colSpan={2} className="px-2 py-1.5 text-center text-[9px] font-extrabold uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">{rank}</th>
-                       ))}
+                        <th rowSpan={2} className="px-3 py-2 text-left text-[10px] uppercase tracking-wide sticky left-0 bg-[#f4eee2] z-10 w-48 border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Command Region / Station</th>
+                        <th rowSpan={2} className="px-3 py-2 text-center text-[10px] font-black uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Total Personnel</th>
+                        <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-[#596E47] uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Active Deployable</th>
+                        <th rowSpan={2} className="px-2 py-2 text-center text-[10px] font-bold text-red-700 uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Inactive (Sick/Leave)</th>
+                        {manpowerAnalysis.allRanks.map(rank => (
+                          <th key={rank} colSpan={2} className="px-2 py-1.5 text-center text-[9px] font-extrabold uppercase border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">{rank}</th>
+                        ))}
                      </tr>
                      <tr className="bg-gradient-to-b from-[#e6dfd1] to-[#ded6c8]">
                         {manpowerAnalysis.allRanks.map(rank => (

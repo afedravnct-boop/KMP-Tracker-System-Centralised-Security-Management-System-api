@@ -1,7 +1,7 @@
 // src/components/ErrorBoundary.jsx
 import React from 'react';
 import { authFetch } from './api';
-import { AlertTriangle, Home, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Home, RefreshCw, Compass } from 'lucide-react';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -23,7 +23,6 @@ class ErrorBoundary extends React.Component {
       network_errors: []
     };
 
-    // Silently dispatch telemetry and trigger a private Super Admin communication dispatch
     authFetch('/api/v1/ai/report-crash', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -31,54 +30,68 @@ class ErrorBoundary extends React.Component {
     }).catch(err => console.error("Crash telemetry transmission failed:", err));
   }
 
-  // 🟢 Functional handler to clear cached faulty states and navigate to the home dashboard
-  handleReturnHome = () => {
+  // 🟢 FORCE RESET: Clears corrupted states and forces navigation away from the fault
+  handleForceNavigation = (targetModule = 'home') => {
     try {
+      // Purge cached active module / tab states causing the crash loop
       localStorage.removeItem('active_module');
       localStorage.removeItem('active_tab');
+      localStorage.setItem('kmp_preferred_module', targetModule);
     } catch (e) {}
 
+    // Reset local error boundary state first
     this.setState({ hasError: false, errorDetails: null }, () => {
-      if (this.props.onReset) {
+      if (typeof this.props.onReset === 'function') {
         this.props.onReset();
       } else {
-        window.location.href = '/';
+        // Force hard browser relocation to clear component stack memory
+        window.location.replace(window.location.origin + window.location.pathname);
       }
     });
-  };
-
-  // 🟢 Functional handler to attempt re-rendering the module
-  handleRetry = () => {
-    this.setState({ hasError: false, errorDetails: null });
   };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="p-6 md:p-12 max-w-2xl mx-auto mt-12 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border-2 border-red-500/40 text-center animate-in fade-in duration-300">
-          <div className="w-16 h-16 bg-red-100 dark:bg-red-950 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-200 dark:border-red-900 shadow-inner">
-            <AlertTriangle size={32} />
-          </div>
-          <h2 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-wider mb-2">
-            Technical Glitch Registered on This Page
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-medium mb-6">
-            This operational module has encountered a temporary runtime disturbance and has been safely isolated. High Command and System Administrators have been automatically notified. 
-            <strong className="block text-amber-600 dark:text-amber-400 mt-2">Please proceed with other system modules using the navigation menu.</strong>
-          </p>
-          <div className="flex justify-center gap-3">
-            <button 
-              onClick={this.handleReturnHome}
-              className="px-5 py-2.5 bg-slate-900 hover:bg-black dark:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow cursor-pointer transition flex items-center gap-2"
-            >
-              <Home size={14} /> Return to Home Dashboard
-            </button>
-            <button 
-              onClick={this.handleRetry}
-              className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs uppercase tracking-wider transition flex items-center gap-2 cursor-pointer"
-            >
-              <RefreshCw size={14} /> Retry Module
-            </button>
+        <div className="fixed inset-0 z-[999999] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="p-6 md:p-10 max-w-xl w-full bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border-2 border-red-500/50 text-center space-y-5">
+            <div className="w-16 h-16 bg-red-100 dark:bg-red-950 text-red-600 rounded-full flex items-center justify-center mx-auto border border-red-200 dark:border-red-900 shadow-inner">
+              <AlertTriangle size={32} />
+            </div>
+            
+            <div>
+              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white uppercase tracking-wider mb-1">
+                Technical Glitch Registered on This Module
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                This operational module encountered a runtime disturbance and has been isolated. High Command telemetry has been automatically dispatched.
+              </p>
+            </div>
+
+            <div className="bg-amber-50 dark:bg-slate-800 p-3 rounded-xl border border-amber-200 dark:border-slate-700 text-left">
+              <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300 uppercase mb-1 flex items-center">
+                <Compass size={13} className="mr-1.5" /> Emergency Navigation Recovery:
+              </p>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                Clicking the button below will forcefully reset your workspace session and redirect you to a stable dashboard view.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-center gap-2.5 pt-2">
+              <button 
+                onClick={() => this.handleForceNavigation('home')}
+                className="px-4 py-2.5 bg-slate-900 hover:bg-black dark:bg-slate-800 dark:hover:bg-slate-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow cursor-pointer transition flex items-center justify-center gap-2"
+              >
+                <Home size={14} /> Force Return to Dashboard
+              </button>
+              
+              <button 
+                onClick={() => window.location.reload()}
+                className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <RefreshCw size={14} /> Retry Module
+              </button>
+            </div>
           </div>
         </div>
       );
