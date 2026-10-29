@@ -737,9 +737,10 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
 
 
 # 11. HR MODIFICATION & TRANSFER REQUESTS (COMMAND APPROVALS)
-@router.get("/requests")
-@router.get("/transfer-requests")
-def get_admin_transfer_requests(
+@router.post("/requests")
+@router.post("/transfer-requests")
+def create_admin_transfer_request(
+    payload: dict = Body(...),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -748,53 +749,39 @@ def get_admin_transfer_requests(
     if not delegation["is_admin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Clearance Denied: You lack administrative delegation to view transfer requests."
+            detail="Clearance Denied: You lack administrative delegation to submit requests."
         )
 
     try:
         TransferModel = getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None))
-        
         if not TransferModel:
-            return [] 
+            raise HTTPException(status_code=500, detail="Transfer model not configured.")
 
-        query = db.query(TransferModel)
-
-        # 🟢 Apply regional/station scope locks (OR logic for both losing and gaining command)
-        if not delegation["is_global"]:
-            user_role = (current_user.role or "").upper()
-            user_pos = (current_user.position or "").upper()
-            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
-
-            if is_regional and current_user.region:
-                query = query.filter(
-                    or_(
-                        func.upper(TransferModel.current_region) == func.upper(current_user.region),
-                        func.upper(TransferModel.requested_region) == func.upper(current_user.region)
-                    )
-                )
-            elif current_user.station:
-                query = query.filter(
-                    or_(
-                        func.upper(TransferModel.current_station) == func.upper(current_user.station),
-                        func.upper(TransferModel.requested_station) == func.upper(current_user.station)
-                    )
-                )
-
-        requests = query.order_by(TransferModel.id.desc()).all()
+        new_req = TransferModel(
+            fnum=payload.get("fnum", current_user.fnum),
+            current_station=payload.get("current_station", current_user.station),
+            current_region=payload.get("current_region", current_user.region),
+            requested_station=payload.get("requested_station"),
+            requested_region=payload.get("requested_region"),
+            status="PENDING"
+        )
+        db.add(new_req)
+        db.commit()
+        db.refresh(new_req)
 
         record_neon_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
-            action_type="VIEW",
+            action_type="CREATE",
             module="ADMIN_APPROVALS",
-            target_id="HR_TRANSFERS_TAB",
-            changes_summary=f"{current_user.fnum} accessed the HR Transfer Requests command queue."
+            target_id=f"TRANSFER_REQ_{new_req.id}",
+            changes_summary=f"{current_user.fnum} submitted a new transfer/HR request."
         )
 
-        return requests
-
+        return {"status": "success", "message": "Request submitted successfully.", "id": new_req.id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database fetch failed: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to submit request: {str(e)}")
 
 
 # 12. APPROVE / CLEAR HR TRANSFER REQUEST
