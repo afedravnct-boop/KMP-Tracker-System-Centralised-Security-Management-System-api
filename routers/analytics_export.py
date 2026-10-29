@@ -320,12 +320,14 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         "annual": format_rows(sorted(annual_map.keys()), annual_map)
     }
 
-@router.get("/dashboard-intelligence", response_model=None)def get_dashboard_intelligence(
+@router.get("/dashboard-intelligence", response_model=None)
+def get_dashboard_intelligence(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
+
     """Offloads success stories parsing, fire intelligence, manpower matrix, crime categories, detentions, exhibits, and accidents with precision regional/station filtering."""
     try:
         LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
