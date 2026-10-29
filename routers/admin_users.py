@@ -759,10 +759,7 @@ def get_admin_transfer_requests(
         if not TransferModel:
             return [] 
 
-        # 🟢 Join with Users table to fetch current station and region dynamically
-        results = db.query(TransferModel, models.Users).outerjoin(
-            models.Users, func.upper(TransferModel.fnum) == func.upper(models.Users.fnum)
-        )
+        query = db.query(TransferModel)
 
         user_role = (current_user.role or "").strip().upper()
         is_god_mode = user_role == "SUPER_ADMIN" or check_master_clearance(current_user)
@@ -772,37 +769,39 @@ def get_admin_transfer_requests(
             is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
 
             if is_regional and current_user.region:
-                results = results.filter(
+                query = query.filter(
                     or_(
                         func.upper(TransferModel.requested_region) == func.upper(current_user.region),
                         func.upper(TransferModel.fnum) == func.upper(current_user.fnum)
                     )
                 )
             elif current_user.station:
-                results = results.filter(
+                query = query.filter(
                     or_(
                         func.upper(TransferModel.requested_station) == func.upper(current_user.station),
                         func.upper(TransferModel.fnum) == func.upper(current_user.fnum)
                     )
                 )
 
-        rows = results.order_by(TransferModel.id.desc()).all()
-        
-        # Format response to fallback to user profile details if request columns are empty/N/A
+        requests = query.order_by(TransferModel.id.desc()).all()
+
+        # Safely map officer profile details without calling missing request attributes
         formatted_requests = []
-        for req, usr in rows:
+        for req in requests:
+            usr = db.query(models.Users).filter(func.upper(models.Users.fnum) == func.upper(req.fnum)).first()
+            
             req_dict = {
                 "id": req.id,
                 "fnum": req.fnum,
-                "requested_fnum": req.requested_fnum,
-                "requested_rank": req.requested_rank or (usr.rank if usr else "UNKNOWN"),
-                "requested_name": req.requested_name or (usr.name if usr else "OFFICER UNKNOWN"),
-                "current_station": req.current_station or (usr.station if usr else "N/A"),
-                "current_region": req.current_region or (usr.region if usr else "N/A"),
-                "requested_station": req.requested_station,
-                "requested_region": req.requested_region,
-                "status": req.status,
-                "created_at": req.created_at
+                "requested_fnum": getattr(req, "requested_fnum", req.fnum),
+                "requested_rank": getattr(req, "requested_rank", None) or (usr.rank if usr else "UNKNOWN"),
+                "requested_name": getattr(req, "requested_name", None) or (usr.name if usr else "OFFICER UNKNOWN"),
+                "current_station": usr.station if (usr and usr.station) else "N/A",
+                "current_region": usr.region if (usr and usr.region) else "N/A",
+                "requested_station": getattr(req, "requested_station", "N/A"),
+                "requested_region": getattr(req, "requested_region", "N/A"),
+                "status": getattr(req, "status", "PENDING"),
+                "created_at": getattr(req, "created_at", None)
             }
             formatted_requests.append(req_dict)
 
@@ -842,13 +841,16 @@ def create_admin_transfer_request(
         if not TransferModel:
             raise HTTPException(status_code=500, detail="Transfer model not configured.")
 
+        target_fnum = payload.get("fnum", current_user.fnum)
+        target_user = db.query(models.Users).filter(func.upper(models.Users.fnum) == func.upper(target_fnum)).first()
+
         new_req = TransferModel(
-            fnum=payload.get("fnum", current_user.fnum),
-            requested_fnum=payload.get("requested_fnum", current_user.fnum),
-            requested_rank=payload.get("requested_rank", current_user.rank),
-            requested_name=payload.get("requested_name", current_user.name),
-            requested_station=payload.get("requested_station", current_user.station),
-            requested_region=payload.get("requested_region", current_user.region),
+            fnum=target_fnum,
+            requested_fnum=target_fnum,
+            requested_rank=payload.get("requested_rank", target_user.rank if target_user else current_user.rank),
+            requested_name=payload.get("requested_name", target_user.name if target_user else current_user.name),
+            requested_station=payload.get("requested_station"),
+            requested_region=payload.get("requested_region"),
             status="PENDING"
         )
         db.add(new_req)
@@ -861,7 +863,7 @@ def create_admin_transfer_request(
             action_type="CREATE",
             module="ADMIN_APPROVALS",
             target_id=f"TRANSFER_REQ_{new_req.id}",
-            changes_summary=f"{current_user.fnum} submitted a new transfer/HR request."
+            changes_summary=f"{current_user.fnum} submitted a new transfer/HR request for {target_fnum}."
         )
 
         return {"status": "success", "message": "Request submitted successfully.", "id": new_req.id}
