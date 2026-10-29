@@ -759,7 +759,10 @@ def get_admin_transfer_requests(
         if not TransferModel:
             return [] 
 
-        query = db.query(TransferModel)
+        # 🟢 Join with Users table to fetch current station and region dynamically
+        results = db.query(TransferModel, models.Users).outerjoin(
+            models.Users, func.upper(TransferModel.fnum) == func.upper(models.Users.fnum)
+        )
 
         user_role = (current_user.role or "").strip().upper()
         is_god_mode = user_role == "SUPER_ADMIN" or check_master_clearance(current_user)
@@ -769,21 +772,39 @@ def get_admin_transfer_requests(
             is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
 
             if is_regional and current_user.region:
-                query = query.filter(
+                results = results.filter(
                     or_(
                         func.upper(TransferModel.requested_region) == func.upper(current_user.region),
                         func.upper(TransferModel.fnum) == func.upper(current_user.fnum)
                     )
                 )
             elif current_user.station:
-                query = query.filter(
+                results = results.filter(
                     or_(
                         func.upper(TransferModel.requested_station) == func.upper(current_user.station),
                         func.upper(TransferModel.fnum) == func.upper(current_user.fnum)
                     )
                 )
 
-        requests = query.order_by(TransferModel.id.desc()).all()
+        rows = results.order_by(TransferModel.id.desc()).all()
+        
+        # Format response to fallback to user profile details if request columns are empty/N/A
+        formatted_requests = []
+        for req, usr in rows:
+            req_dict = {
+                "id": req.id,
+                "fnum": req.fnum,
+                "requested_fnum": req.requested_fnum,
+                "requested_rank": req.requested_rank or (usr.rank if usr else "UNKNOWN"),
+                "requested_name": req.requested_name or (usr.name if usr else "OFFICER UNKNOWN"),
+                "current_station": req.current_station or (usr.station if usr else "N/A"),
+                "current_region": req.current_region or (usr.region if usr else "N/A"),
+                "requested_station": req.requested_station,
+                "requested_region": req.requested_region,
+                "status": req.status,
+                "created_at": req.created_at
+            }
+            formatted_requests.append(req_dict)
 
         record_neon_activity(
             logs_db=logs_db,
@@ -794,7 +815,7 @@ def get_admin_transfer_requests(
             changes_summary=f"{current_user.fnum} accessed the HR Transfer Requests command queue."
         )
 
-        return requests
+        return formatted_requests
 
     except Exception as e:
         print(f"❌ CRITICAL ERROR in get_admin_transfer_requests: {str(e)}")
