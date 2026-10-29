@@ -11,7 +11,7 @@ const API_URL = import.meta.env.VITE_API_URL || "https://kmp-ops-data.onrender.c
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
   "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
   "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
@@ -204,7 +204,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
   
   const [signupData, setSignupData] = useState({
     fnum: '', ipps: '', nin: '', name: '', rank: '', sex: 'MALE', 
-    region: 'KMP NORTH', station: 'KAWEMPE', position: '', email: '', 
+    region: 'KMP NORTH', station: REGIONAL_HIERARCHY['KMP NORTH'][0], position: '', email: '', 
     phone: '', password: '', profile_photo_path: '', policy_accepted: false
   });
   const [photoFile, setPhotoFile] = useState(null);
@@ -260,7 +260,9 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
     if (name === 'policy_accepted') {
       setSignupData({ ...signupData, policy_accepted: checked });
     } else if (name === 'region') {
-      setSignupData({ ...signupData, region: value, station: REGIONAL_HIERARCHY[value]?.[0] || '', position: '' });
+      // 🟢 Automatically pick the first station of the newly selected region
+      const firstStation = REGIONAL_HIERARCHY[value]?.[0] || '';
+      setSignupData({ ...signupData, region: value, station: firstStation, position: '' });
     } else if (name === 'station') {
       setSignupData({ ...signupData, station: value, position: '' });
     } else if (name === 'fnum' || name === 'nin' || name === 'rank') {
@@ -531,7 +533,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Gender / Sex *</label>
-                      <select name="sex" value={signupData.sex} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                      <select name="sex" value={signupData.sex} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">
                         <option value="MALE">MALE</option>
                         <option value="FEMALE">FEMALE</option>
                       </select>
@@ -547,20 +549,20 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
-                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">
                         {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">
                         {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
                       </select>
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
-                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm">
+                    <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">
                       <option value="">-- Select Official Title --</option>
                       {availablePositions.map(pos => <option key={pos} value={pos}>{pos}</option>)}
                     </select>
@@ -609,7 +611,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                       <button 
                         type="button" 
                         onClick={() => setShowPassword(!showPassword)} 
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors cursor-pointer"
                         title={showPassword ? "Hide Password" : "Show Password"}
                       >
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -669,7 +671,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                         <button 
                           type="button" 
                           onClick={() => setShowPassword(!showPassword)} 
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 focus:outline-none transition-colors cursor-pointer"
                           title={showPassword ? "Hide Password" : "Show Password"}
                         >
                           {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -857,7 +859,7 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                 value={glitchDesc}
                 onChange={(e) => setGlitchDesc(e.target.value)}
                 placeholder="E.g., I tried to click Sign Up but the button froze..."
-                className="w-full h-24 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm resize-none"
+                className="w-full h-24 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none text-sm resize-none bg-white"
               ></textarea>
               
               <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 flex items-start gap-2">

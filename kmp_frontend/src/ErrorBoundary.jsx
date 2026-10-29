@@ -31,6 +31,27 @@ class ErrorBoundary extends React.Component {
     }).catch(err => console.error("Crash telemetry transmission failed:", err));
   }
 
+  // 🟢 Functional handler to clear cached faulty states and navigate to the home dashboard
+  handleReturnHome = () => {
+    try {
+      localStorage.removeItem('active_module');
+      localStorage.removeItem('active_tab');
+    } catch (e) {}
+
+    this.setState({ hasError: false, errorDetails: null }, () => {
+      if (this.props.onReset) {
+        this.props.onReset();
+      } else {
+        window.location.href = '/';
+      }
+    });
+  };
+
+  // 🟢 Functional handler to attempt re-rendering the module
+  handleRetry = () => {
+    this.setState({ hasError: false, errorDetails: null });
+  };
+
   render() {
     if (this.state.hasError) {
       return (
@@ -47,13 +68,13 @@ class ErrorBoundary extends React.Component {
           </p>
           <div className="flex justify-center gap-3">
             <button 
-              onClick={() => window.location.href = '/'}
+              onClick={this.handleReturnHome}
               className="px-5 py-2.5 bg-slate-900 hover:bg-black dark:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow cursor-pointer transition flex items-center gap-2"
             >
-              <Home size={14} /> Return to Dashboard
+              <Home size={14} /> Return to Home Dashboard
             </button>
             <button 
-              onClick={() => window.location.reload()}
+              onClick={this.handleRetry}
               className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs uppercase tracking-wider transition flex items-center gap-2 cursor-pointer"
             >
               <RefreshCw size={14} /> Retry Module
