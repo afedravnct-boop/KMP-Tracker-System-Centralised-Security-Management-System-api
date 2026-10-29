@@ -506,60 +506,84 @@ const LoginScreen = ({ onLogin, onForgot, onSignup, pendingUsers = [], activeUse
                   )}
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
-                      <input 
-                        type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" 
-                        placeholder="e.g. A/2408 or 63034"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
-                      <input 
-                        type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
-                        placeholder="123456"
-                      />
-                    </div>
-                                        
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">National ID (NIN) *</label>
-                      <input 
-                        type="text" name="nin" required maxLength="14" value={signupData.nin} onChange={handleSignupChange} 
-                        className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm font-mono" 
-                        placeholder="e.g. CM900000000000"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Gender / Sex *</label>
-                      <select name="sex" value={signupData.sex} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">
-                        <option value="MALE">MALE</option>
-                        <option value="FEMALE">FEMALE</option>
-                      </select>
-                    </div>
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">File/Force Number *</label>
+        <input 
+          type="text" name="fnum" required value={signupData.fnum} onChange={handleSignupChange} 
+          className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm" 
+          placeholder="e.g. A/2408 or 63034"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">IPPS Number *</label>
+        <input 
+          type="text" name="ipps" required maxLength="6" value={signupData.ipps} onChange={handleSignupChange} 
+          className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm" 
+          placeholder="123456"
+        />
+      </div>
+                        
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">National ID (NIN) *</label>
+        <input 
+          type="text" name="nin" required maxLength="14" value={signupData.nin} onChange={handleSignupChange} 
+          className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 uppercase text-sm font-mono" 
+          placeholder="e.g. CM900000000000"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">Gender / Sex *</label>
+        <select name="sex" value={signupData.sex} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer bg-white">
+          <option value="MALE">MALE</option>
+          <option value="FEMALE">FEMALE</option>
+        </select>
+      </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
-                      <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
-                      <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase" placeholder="e.g. AIP, IP, ASP, PC" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
-                      <select name="region" value={signupData.region} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">
-                        {Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
-                      <select name="station" value={signupData.station} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">
-                        {REGIONAL_HIERARCHY[signupData.region]?.map(stat => <option key={stat} value={stat}>{stat}</option>)}
-                      </select>
-                    </div>
-                  </div>
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">Full Name *</label>
+        <input type="text" name="name" required value={signupData.name} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase bg-white" />
+      </div>
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">Rank *</label>
+        <input type="text" name="rank" required value={signupData.rank} onChange={handleSignupChange} className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm uppercase bg-white" placeholder="e.g. AIP, IP, ASP, PC" />
+      </div>
+      
+      {/* 🟢 FULLY EXPLICIT REGION DROPDOWN */}
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">Region *</label>
+        <select 
+          name="region" 
+          value={signupData.region} 
+          onChange={handleSignupChange} 
+          required 
+          className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer bg-white"
+        >
+          {Object.keys(REGIONAL_HIERARCHY).map(regKey => (
+            <option key={regKey} value={regKey}>
+              {regKey}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 🟢 FULLY EXPLICIT STATION DROPDOWN */}
+      <div>
+        <label className="block text-xs font-bold text-gray-700 mb-1">Station *</label>
+        <select 
+          name="station" 
+          value={signupData.station} 
+          onChange={handleSignupChange} 
+          required 
+          className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer bg-white"
+        >
+          {(REGIONAL_HIERARCHY[signupData.region] || REGIONAL_HIERARCHY["KMP NORTH"]).map(stationName => (
+            <option key={stationName} value={stationName}>
+              {stationName}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-700 mb-1">Position / Title *</label>
                     <select name="position" value={signupData.position} onChange={handleSignupChange} required className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 text-sm cursor-pointer">

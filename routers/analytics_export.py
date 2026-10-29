@@ -320,8 +320,7 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         "annual": format_rows(sorted(annual_map.keys()), annual_map)
     }
 
-@router.get("/dashboard-intelligence")
-def get_dashboard_intelligence(
+@router.get("/dashboard-intelligence", response_model=None)def get_dashboard_intelligence(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
