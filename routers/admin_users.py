@@ -736,7 +736,71 @@ def get_online_users(db: Session = Depends(get_db), current_user: models.Users =
     return [{"fnum": u.fnum, "name": u.name, "station": u.station, "profile_photo_path": u.profile_photo_path} for u in active_users]
 
 
-# 11. HR MODIFICATION & TRANSFER REQUESTS (COMMAND APPROVALS)
+# ==========================================
+# 11. HR MODIFICATION & TRANSFER REQUESTS (GET & POST)
+# ==========================================
+@router.get("/requests")
+@router.get("/transfer-requests")
+def get_admin_transfer_requests(
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    delegation = verify_admin_delegation(current_user, db)
+    if not delegation["is_admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Clearance Denied: You lack administrative delegation to view transfer requests."
+        )
+
+    try:
+        TransferModel = getattr(models, 'Modification_Requests', getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None)))
+        
+        if not TransferModel:
+            return [] 
+
+        query = db.query(TransferModel)
+
+        user_role = (current_user.role or "").strip().upper()
+        is_god_mode = user_role == "SUPER_ADMIN" or check_master_clearance(current_user)
+
+        if not is_god_mode and not delegation["is_global"]:
+            user_pos = (current_user.position or "").upper()
+            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
+
+            if is_regional and current_user.region:
+                query = query.filter(
+                    or_(
+                        func.upper(TransferModel.requested_region) == func.upper(current_user.region),
+                        func.upper(TransferModel.fnum) == func.upper(current_user.fnum)
+                    )
+                )
+            elif current_user.station:
+                query = query.filter(
+                    or_(
+                        func.upper(TransferModel.requested_station) == func.upper(current_user.station),
+                        func.upper(TransferModel.fnum) == func.upper(current_user.fnum)
+                    )
+                )
+
+        requests = query.order_by(TransferModel.id.desc()).all()
+
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="VIEW",
+            module="ADMIN_APPROVALS",
+            target_id="HR_TRANSFERS_TAB",
+            changes_summary=f"{current_user.fnum} accessed the HR Transfer Requests command queue."
+        )
+
+        return requests
+
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR in get_admin_transfer_requests: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database fetch failed: {str(e)}")
+
+
 @router.post("/requests")
 @router.post("/transfer-requests")
 def create_admin_transfer_request(
@@ -753,16 +817,17 @@ def create_admin_transfer_request(
         )
 
     try:
-        TransferModel = getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None))
+        TransferModel = getattr(models, 'Modification_Requests', getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None)))
         if not TransferModel:
             raise HTTPException(status_code=500, detail="Transfer model not configured.")
 
         new_req = TransferModel(
             fnum=payload.get("fnum", current_user.fnum),
-            current_station=payload.get("current_station", current_user.station),
-            current_region=payload.get("current_region", current_user.region),
-            requested_station=payload.get("requested_station"),
-            requested_region=payload.get("requested_region"),
+            requested_fnum=payload.get("requested_fnum", current_user.fnum),
+            requested_rank=payload.get("requested_rank", current_user.rank),
+            requested_name=payload.get("requested_name", current_user.name),
+            requested_station=payload.get("requested_station", current_user.station),
+            requested_region=payload.get("requested_region", current_user.region),
             status="PENDING"
         )
         db.add(new_req)

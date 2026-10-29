@@ -598,3 +598,4 @@ class Impounded_Exhibits(Base):
     created_at = Column(DateTime, default=get_eat_time)
 
 ImpoundedExhibits = Impounded_Exhibits
+
