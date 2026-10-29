@@ -322,8 +322,8 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 
 @router.get("/dashboard-intelligence", response_model=None)
 def get_dashboard_intelligence(
-    region: Optional[str] = Query(default=None),
-    station: Optional[str] = Query(default=None),
+    region: str | None = None,
+    station: str | None = None,
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
