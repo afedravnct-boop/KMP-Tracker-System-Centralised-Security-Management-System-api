@@ -882,15 +882,18 @@ def approve_hr_transfer_request(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    # Enforce strict command tier or admin delegation check
     delegation = verify_admin_delegation(current_user, db)
-    if not delegation["is_admin"]:
+    actor_tier = get_command_tier(current_user)
+    
+    if not delegation["is_admin"] and actor_tier < 1:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Clearance Denied: You lack administrative delegation to approve transfers."
+            detail="Clearance Denied: You lack command authorization to approve transfers."
         )
 
     try:
-        TransferModel = getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None))
+        TransferModel = getattr(models, 'Modification_Requests', getattr(models, 'HR_Requests', getattr(models, 'Transfer_Requests', None)))
         if not TransferModel:
             raise HTTPException(status_code=500, detail="System model for transfers is unavailable.")
 
@@ -899,19 +902,11 @@ def approve_hr_transfer_request(
         if not target_request:
             raise HTTPException(status_code=404, detail="Transfer request not found or already purged.")
 
-        if not delegation["is_global"]:
-            user_role = (current_user.role or "").upper()
-            user_pos = (current_user.position or "").upper()
-            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
-            
-            if is_regional and current_user.region:
-                if target_request.current_region.upper() != current_user.region.upper() and target_request.requested_region.upper() != current_user.region.upper():
-                    raise HTTPException(status_code=403, detail="Delegation Denied: Transfer is outside your regional scope.")
-            elif current_user.station:
-                if target_request.current_station.upper() != current_user.station.upper() and target_request.requested_station.upper() != current_user.station.upper():
-                    raise HTTPException(status_code=403, detail="Delegation Denied: Transfer is outside your station scope.")
-
-        target_request.status = "APPROVED" 
+        # Explicitly set status to APPROVED and log the reviewing commander
+        target_request.status = "APPROVED"
+        target_request.reviewed_by = f"{current_user.rank} {current_user.name} ({current_user.fnum})"
+        target_request.reviewed_at = datetime.now(pytz.timezone('Africa/Nairobi')).replace(tzinfo=None)
+        
         db.commit()
 
         record_neon_activity(
@@ -920,35 +915,16 @@ def approve_hr_transfer_request(
             action_type="UPDATE",
             module="ADMIN_APPROVALS",
             target_id=f"TRANSFER_REQ_{request_id}",
-            changes_summary=f"{current_user.fnum} approved HR transfer request for officer {target_request.fnum}."
+            changes_summary=f"Command authority {current_user.fnum} explicitly approved transfer request #{request_id}."
         )
 
-        officer = db.query(models.Users).filter(models.Users.fnum == target_request.fnum).first()
-        if officer and officer.email and "@" in officer.email:
-            subject = f"✅ HR Transfer Approved: {target_request.requested_station}"
-            html_body = f"""
-            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                <h2 style="color: #16a34a; margin-top: 0;">Transfer Request Approved</h2>
-                <p>Dear {officer.rank} {officer.name},</p>
-                <p>Your deployment transfer request has been officially reviewed and <strong>APPROVED</strong> by command authority.</p>
-                <ul style="line-height: 1.6; background: #f8fafc; padding: 15px; border-radius: 6px;">
-                    <li><strong>From:</strong> {target_request.current_station} / {target_request.current_region}</li>
-                    <li><strong>To:</strong> {target_request.requested_station} / {target_request.requested_region}</li>
-                    <li><strong>Authorized By:</strong> {current_user.rank} {current_user.name} ({current_user.fnum})</li>
-                </ul>
-            </div>
-            """
-            def send_transfer_email():
-                asyncio.run(send_email_notification([officer.email], subject, html_body))
-            background_tasks.add_task(send_transfer_email)
-
-        return {"status": "success", "message": f"Transfer request for {target_request.fnum} successfully cleared."}
+        return {"status": "success", "message": f"Transfer request #{request_id} successfully authorized and cleared."}
 
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to clear transfer request: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to authorize transfer request: {str(e)}")
 
 
 # 13. PENDING PASSWORD RESET REQUESTS

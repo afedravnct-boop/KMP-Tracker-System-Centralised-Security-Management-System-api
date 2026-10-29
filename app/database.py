@@ -11,14 +11,21 @@ LOGS_DATABASE_URL = os.getenv("LOGS_DATABASE_URL")
 if not SQLALCHEMY_DATABASE_URL or not LOGS_DATABASE_URL:
     raise ValueError("Database URLs are missing! Check your .env file or Render environment variables.")
 
-# 🟢 PRODUCTION SAFE LIMITS: 10 Base + 15 Overflow = 25 concurrent per engine
+# 🟢 BULLETPROOF ENGINE CONFIG: Added connect_args keepalives & strict SSL for Neon
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     pool_pre_ping=True,
-    pool_recycle=300,
-    pool_size=30,        
-    max_overflow=50,    
-    pool_timeout=60
+    pool_recycle=300,       # Recycled every 5 minutes to prevent stale socket drops
+    pool_size=20,           
+    max_overflow=30,        
+    pool_timeout=30,
+    connect_args={
+        "sslmode": "require",
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5
+    }
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -26,9 +33,16 @@ logs_engine = create_engine(
     LOGS_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=300,
-    pool_size=10,        
-    max_overflow=15,    
-    pool_timeout=30
+    pool_size=10,         
+    max_overflow=15,     
+    pool_timeout=30,
+    connect_args={
+        "sslmode": "require",
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5
+    }
 )
 LogsSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=logs_engine)
 
