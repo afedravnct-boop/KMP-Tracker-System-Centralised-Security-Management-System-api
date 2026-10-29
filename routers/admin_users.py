@@ -988,7 +988,7 @@ def clear_password_reset_request(
 @router.post("/trigger-briefs")
 @router.post("/cron/trigger-briefs")
 def trigger_tactical_briefs(
-    background_tasks: BackgroundTasks, # 🟢 FIXED: Moved up and removed '= None'
+    background_tasks: BackgroundTasks,
     payload: Optional[dict] = Body(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
@@ -1001,7 +1001,7 @@ def trigger_tactical_briefs(
 
         actor_fnum = current_user.fnum if current_user else "CRON_SCHEDULER"
 
-        # 🟢 Extract High Command Emails for Dispatch
+        # Extract High Command Emails for Dispatch
         high_command_users = db.query(models.Users.email).filter(
             models.Users.is_approved == True,
             models.Users.email.isnot(None),
@@ -1015,7 +1015,12 @@ def trigger_tactical_briefs(
         
         target_emails = [u[0] for u in high_command_users if u[0] and "@" in u[0]]
 
-        if target_emails: # 🟢 We no longer need to check if background_tasks exists, FastAPI guarantees it
+        # 🟢 TESTING INCLUSION: Always append the current dispatching user's email if they are logged in and have an email
+        if current_user and current_user.email and "@" in current_user.email:
+            if current_user.email not in target_emails:
+                target_emails.append(current_user.email)
+
+        if target_emails:
             subject = f"TACTICAL ALERT: {brief_type.replace('_', ' ')} REPORT" if brief_type != "ALL" else "Weekly Command Briefing & Situation Report"
             html_body = f"""
             <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -1046,7 +1051,7 @@ def trigger_tactical_briefs(
 
         return {
             "status": "success",
-            "message": f"Tactical briefings ({brief_type}) dispatched successfully to {len(target_emails)} commanders. Origin: {origin_note}."
+            "message": f"Tactical briefings ({brief_type}) dispatched successfully to {len(target_emails)} recipients ( including your account ). Origin: {origin_note}."
         }
     except Exception as e:
         db.rollback()
