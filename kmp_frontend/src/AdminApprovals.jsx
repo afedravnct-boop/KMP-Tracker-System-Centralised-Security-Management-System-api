@@ -680,52 +680,54 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
 
   // 🟢 Optimized Delegation Method (Fast Mutation UI)
   const handleToggleDelegationPower = async (targetUser, givePower, startDate = null, endDate = null) => {
-    if (isReadOnlyObserver) return alert("Read-only clearance restricts delegation.");
-    if (!isTopCommand) return alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
-    if (!canControlTargetUser(targetUser)) return alert("SECURITY OVERRIDE DENIED: Insufficient clearance over this command tier.");
+  if (isReadOnlyObserver) return alert("Read-only clearance restricts delegation.");
+  if (!isTopCommand) return alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
+  if (!canControlTargetUser(targetUser)) return alert("SECURITY OVERRIDE DENIED: Insufficient clearance over this command tier.");
 
-    let newPermissions = { 
-      ...(targetUser.permissions || {}), 
-      can_approve: givePower,
-      delegation_start: startDate,
-      delegation_end: endDate,
-      acting_for_fnum: givePower ? currentUser?.fnum : null
-    };
-
-    if (givePower) {
-      newPermissions._pre_delegation_snapshot = { ...(targetUser.permissions || {}) };
-      const myPerms = currentUser?.permissions || {};
-      CLEARANCE_MATRIX_COLS.forEach(col => {
-        if (myPerms[col.key] === true) newPermissions[col.key] = true;
-      });
-    } else {
-      const snapshot = newPermissions._pre_delegation_snapshot;
-      if (snapshot) {
-        CLEARANCE_MATRIX_COLS.forEach(col => {
-          newPermissions[col.key] = snapshot[col.key] === true; 
-        });
-        delete newPermissions._pre_delegation_snapshot;
-      }
-    }
-
-    // FAST MUTATION: Updates instantly without freezing the UI
-    targetUser.permissions = newPermissions;
-    setAllSystemUsers([...allSystemUsers]);
-
-    try {
-      const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(targetUser.fnum)}/access`, {
-        method: "PUT", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
-      });
-      if (!res.ok) throw new Error("Failed to update delegation.");
-      
-      setActiveDelegationId(null);
-    } catch (err) { 
-      alert(`Delegation Error: ${err.message}`); 
-      fetchAllSystemUsers(); 
-    }
+  let newPermissions = { 
+    ...(targetUser.permissions || {}), 
+    can_approve: givePower,
+    delegation_start: startDate,
+    delegation_end: endDate,
+    acting_for_fnum: givePower ? currentUser?.fnum : null,
+    global_open: givePower ? true : (targetUser.permissions?.global_open || false) // Corrected from read-only to open/write access for delegated tier
   };
+
+  if (givePower) {
+    newPermissions._pre_delegation_snapshot = { ...(targetUser.permissions || {}) };
+    const myPerms = currentUser?.permissions || {};
+    CLEARANCE_MATRIX_COLS.forEach(col => {
+      // Ensure delegatee only receives permissions up to the delegator's level, not exceeding
+      if (myPerms[col.key] === true) newPermissions[col.key] = true;
+    });
+  } else {
+    const snapshot = newPermissions._pre_delegation_snapshot;
+    if (snapshot) {
+      CLEARANCE_MATRIX_COLS.forEach(col => {
+        newPermissions[col.key] = snapshot[col.key] === true; 
+      });
+      delete newPermissions._pre_delegation_snapshot;
+    }
+  }
+
+  // FAST MUTATION: Updates instantly without freezing the UI
+  targetUser.permissions = newPermissions;
+  setAllSystemUsers([...allSystemUsers]);
+
+  try {
+    const res = await authFetch(`/api/v1/admin/users/${encodeURIComponent(targetUser.fnum)}/access`, {
+      method: "PUT", 
+      headers: { "Content-Type": "application/json" }, 
+      body: JSON.stringify({ role: targetUser.role, permissions: newPermissions })
+    });
+    if (!res.ok) throw new Error("Failed to update delegation.");
+      
+    setActiveDelegationId(null);
+  } catch (err) { 
+    alert(`Delegation Error: ${err.message}`); 
+    fetchAllSystemUsers(); 
+  }
+};
 
   const saveBroadcast = async (isAway, reasonSelect, delegatee, start, end) => {
     try {
@@ -1583,16 +1585,17 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                         <div className="flex-1">
                           <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Absence Reason</label>
                           <select 
-                            id="bc-absence-reason"
-                            defaultValue="Annual Leave"
-                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-white outline-none cursor-pointer"
-                          >
-                            <option value="Annual Leave">Annual Leave</option>
-                            <option value="Official Course / Training">Official Course / Training</option>
-                            <option value="Field Operations / Deployment">Field Operations / Deployment</option>
-                            <option value="Medical Leave / Sick Sheet">Medical Leave / Sick Sheet</option>
-                            <option value="Off Duty / Rest Days">Off Duty / Rest Days</option>
-                          </select>
+  id="bc-absence-reason"
+  defaultValue="Annual Leave"
+  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-white outline-none cursor-pointer"
+>
+  <option value="Annual Leave">Annual Leave</option>
+  <option value="Pass Leave">Pass Leave</option>
+  <option value="Official Course / Training">Official Course / Training</option>
+  <option value="Duty Out / Mission Deployment">Duty Out / Mission Deployment</option>
+  <option value="Medical Leave/ Maternity Leave / Sick Sheet">Medical Leave/Maternity Leave / Sick Sheet</option>
+  <option value="Off Duty / Rest Days">Off Duty / Rest Days</option>
+</select>
                         </div>
                         <div className="flex-1">
                           <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Delegatee FNum</label>

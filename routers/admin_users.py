@@ -1075,8 +1075,9 @@ def get_commander_status(current_user: models.Users = Depends(get_current_user))
 @router.post("/set-commander-status")
 def set_commander_status(
     payload: dict = Body(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db), # 🟢 Injected logs_db for tracking
+    logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
     enforce_mutation_clearance(current_user)
@@ -1091,7 +1092,8 @@ def set_commander_status(
     start_date = payload.get("delegation_start", "")
     end_date = payload.get("delegation_end", "")
     
-    # 🟢 Update Delegator's JSON clearance matrix
+    old_delegatee_fnum = perms.get("delegatee_fnum")
+    
     perms["manual_delegation"] = is_away
     perms["absence_reason"] = absence_reason if is_away else None
     perms["delegatee_fnum"] = delegatee_fnum if is_away else None
@@ -1102,7 +1104,7 @@ def set_commander_status(
     status_text = f"Away ({absence_reason})" if is_away else "Active (Normal Command)"
     audit_detail = f"Command absence status set to {status_text}."
     
-    # 🟢 Bind Acting Powers to the Delegatee and cross-log timelines
+    delegatee = None
     if is_away and delegatee_fnum:
         delegatee = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == delegatee_fnum).first()
         if not delegatee:
@@ -1118,7 +1120,6 @@ def set_commander_status(
         
         audit_detail += f" Delegated command authority to {delegatee.rank} {delegatee.name} ({delegatee_fnum}) from {start_date} to {end_date}."
         
-        # 🟢 Write to Delegatee's Dossier Audit Trail
         append_user_audit_event(
             delegatee, 
             "COMMAND_DELEGATION_RECEIVED", 
@@ -1126,14 +1127,13 @@ def set_commander_status(
             f"Granted acting command powers for {current_user.fnum} ({absence_reason}) from {start_date} to {end_date}."
         )
 
-    # 🟢 Write to Delegator's Dossier Audit Trail
-    if not is_away:
+    if not is_away and old_delegatee_fnum:
+        delegatee = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == old_delegatee_fnum).first()
         audit_detail = "Officer resumed active command. Delegation privileges revoked."
-        
+
     append_user_audit_event(current_user, "COMMAND_STATUS_UPDATED", current_user.fnum, audit_detail)
     db.commit()
     
-    # 🟢 Push to global NeonDB System Activity logs
     record_neon_activity(
         logs_db=logs_db,
         fnum=current_user.fnum,
@@ -1142,6 +1142,12 @@ def set_commander_status(
         target_id=current_user.fnum,
         changes_summary=audit_detail
     )
+    
+    # 🟢 Enqueue background tasks to safely send notification emails without delaying HTTP response
+    if delegatee:
+        background_tasks.add_task(
+            lambda: asyncio.run(notify_delegation_status(current_user, delegatee, is_away, absence_reason, start_date, end_date))
+        )
     
     return {
         "status": "success",
