@@ -6,13 +6,13 @@ import {
 import { stripHtmlTags } from './App';
 import { REGIONAL_HIERARCHY } from './adminUtils';
 
-// 🟢 HELPER: Inline UI Toggle Switch component
-export const ToggleSwitch = ({ checked, onChange }) => (
+// 🟢 HELPER: Inline UI Toggle Switch component with disabled/loading state support
+export const ToggleSwitch = ({ checked, onChange, disabled }) => (
   <div
-    onClick={onChange}
-    className={`w-10 h-5 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 shadow-inner ${
-      checked ? 'bg-red-600' : 'bg-slate-300'
-    }`}
+    onClick={!disabled ? onChange : undefined}
+    className={`w-10 h-5 flex items-center rounded-full p-1 transition-colors duration-300 shadow-inner ${
+      disabled ? 'opacity-50 cursor-not-allowed animate-pulse' : 'cursor-pointer'
+    } ${checked ? 'bg-red-600' : 'bg-slate-300'}`}
   >
     <div 
       className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform duration-300 ${
@@ -148,7 +148,6 @@ export const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdate
   const isPrincipalSuperAdmin = "A/2408" in actorFnum || currentUser?.role === "SUPER_ADMIN";
 
   const handleToggleBox = (permKey, currentVal) => {
-    // Check if locked by principal super admin or higher tier
     const lockInfo = clearanceLocks[permKey];
     if (lockInfo && lockInfo.revoked_by_fnum?.includes("A/2408") && !isPrincipalSuperAdmin) {
       alert("Security Restriction: This clearance was revoked by Principal Super Admin A/2408. Only A/2408 can reinstate it.");
@@ -173,7 +172,6 @@ export const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdate
 
         <div className="p-6 overflow-y-auto space-y-6 custom-scrollbar flex-1 bg-slate-50 text-xs">
           
-          {/* PROFILE SUMMARY HEADER */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <div className="w-14 h-14 rounded-full bg-slate-100 border-2 border-emerald-500 overflow-hidden shrink-0 flex items-center justify-center shadow-sm">
@@ -196,7 +194,6 @@ export const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdate
             </div>
           </div>
 
-          {/* GRANULAR CLEARANCES (6 BOXES PER ROW) */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
             <h4 className="font-extrabold text-slate-800 uppercase tracking-wider flex items-center text-xs border-b pb-2">
               <Lock size={14} className="mr-1.5 text-blue-600"/> Granular Access Clearances Matrix (6 Per Row)
@@ -238,7 +235,6 @@ export const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdate
             </div>
           </div>
 
-          {/* ADMINISTRATIVE ACTION TIMELINE & AUDIT TRAIL */}
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
             <h4 className="font-extrabold text-slate-800 uppercase tracking-wider flex items-center text-xs border-b pb-2">
               <History size={14} className="mr-1.5 text-indigo-600"/> Administrative History & Audit Trail Timeline
@@ -386,9 +382,23 @@ export const HRModificationModal = ({ req, onClose, isProcessingAction, handleRe
   );
 };
 
-// 🟢 LOCKDOWN MATRIX MODAL
+// 🟢 LOCKDOWN MATRIX MODAL with Click Lock and State Feedback
 export const LockdownMatrixModal = ({ isOpen, onClose, activeLockdownSummary, lockdownData, handleToggleLockdown, lockdownRegionFilter, setLockdownRegionFilter }) => {
+  const [processingKey, setProcessingKey] = useState(null);
+
   if (!isOpen) return null;
+
+  const handleToggleAction = async (type, name, currentVal) => {
+    const key = `${type}_${name}`;
+    if (processingKey) return; // Prevent spam-clicking while a request is in flight
+
+    setProcessingKey(key);
+    try {
+      await handleToggleLockdown(type, name, currentVal);
+    } finally {
+      setProcessingKey(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
@@ -428,7 +438,11 @@ export const LockdownMatrixModal = ({ isOpen, onClose, activeLockdownSummary, lo
               <h4 className="text-sm font-extrabold text-slate-900 flex items-center"><Power className="w-4 h-4 mr-2 text-red-600" /> Force-Wide System Lockdown</h4>
               <p className="text-xs text-slate-500 mt-1 max-w-lg">Activating this will instantly freeze the entire application. All active users (except Super Admins) will be forcefully logged out.</p>
             </div>
-            <ToggleSwitch checked={lockdownData.system} onChange={() => handleToggleLockdown('SYSTEM', 'GLOBAL', lockdownData.system)} />
+            <ToggleSwitch 
+              checked={lockdownData.system} 
+              disabled={processingKey === 'SYSTEM_GLOBAL'}
+              onChange={() => handleToggleAction('SYSTEM', 'GLOBAL', lockdownData.system)} 
+            />
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -448,18 +462,29 @@ export const LockdownMatrixModal = ({ isOpen, onClose, activeLockdownSummary, lo
                   <h5 className="text-xs font-black text-amber-900 uppercase">Lock Entire Region: {lockdownRegionFilter}</h5>
                   <p className="text-[10px] text-amber-700 mt-0.5">Suspends access for ALL stations within this region immediately.</p>
                 </div>
-                <ToggleSwitch checked={!!lockdownData.regions[lockdownRegionFilter]} onChange={() => handleToggleLockdown('REGION', lockdownRegionFilter, !!lockdownData.regions[lockdownRegionFilter])} />
+                <ToggleSwitch 
+                  checked={!!lockdownData.regions[lockdownRegionFilter]} 
+                  disabled={processingKey === `REGION_${lockdownRegionFilter}`}
+                  onChange={() => handleToggleAction('REGION', lockdownRegionFilter, !!lockdownData.regions[lockdownRegionFilter])} 
+                />
               </div>
 
               <div>
                 <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 border-b pb-2">Individual Station Lockdowns ({lockdownRegionFilter})</h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {REGIONAL_HIERARCHY[lockdownRegionFilter]?.map(station => (
-                    <div key={station} className="flex items-center justify-between border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
-                      <span className="text-xs font-bold text-slate-700 uppercase truncate pr-2">{station}</span>
-                      <ToggleSwitch checked={!!lockdownData.stations[station]} onChange={() => handleToggleLockdown('STATION', station, !!lockdownData.stations[station])} />
-                    </div>
-                  ))}
+                  {REGIONAL_HIERARCHY[lockdownRegionFilter]?.map(station => {
+                    const stnKey = `STATION_${station}`;
+                    return (
+                      <div key={station} className="flex items-center justify-between border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition-colors">
+                        <span className="text-xs font-bold text-slate-700 uppercase truncate pr-2">{station}</span>
+                        <ToggleSwitch 
+                          checked={!!lockdownData.stations[station]} 
+                          disabled={processingKey === stnKey}
+                          onChange={() => handleToggleAction('STATION', station, !!lockdownData.stations[station])} 
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

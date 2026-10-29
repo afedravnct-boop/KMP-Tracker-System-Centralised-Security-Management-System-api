@@ -687,32 +687,38 @@ def toggle_maintenance(
 
     config_key = f"LOCKDOWN_{lockdown_type}" if lockdown_type == "SYSTEM" else f"LOCKDOWN_{lockdown_type}_{target_name}"
 
-    existing = db.query(ConfigModel).filter(ConfigModel.config_key == config_key).first()
+    try:
+        existing = db.query(ConfigModel).filter(ConfigModel.config_key == config_key).first()
 
-    action_performed = ""
-    if existing and existing.config_value == 'ACTIVE':
-        db.delete(existing)
-        action_performed = "LIFTED"
-    else:
-        if not existing:
-            new_lock = ConfigModel(config_key=config_key, config_value="ACTIVE")
-            db.add(new_lock)
+        action_performed = ""
+        if existing and existing.config_value == 'ACTIVE':
+            db.delete(existing)
+            action_performed = "LIFTED"
         else:
-            existing.config_value = "ACTIVE"
-        action_performed = "ACTIVATED"
+            new_lock = ConfigModel(config_key=config_key, config_value="ACTIVE")
+            db.merge(new_lock)
+            action_performed = "ACTIVATED"
 
-    db.commit()
+        db.commit()
 
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="UPDATE",
-        module="SYSTEM_LOCKDOWN",
-        target_id=config_key,
-        changes_summary=f"Super Admin {current_user.fnum} {action_performed} lockdown for [{lockdown_type}: {target_name}]. Reason: {reason}."
-    )
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="SYSTEM_LOCKDOWN",
+            target_id=config_key,
+            changes_summary=f"Super Admin {current_user.fnum} {action_performed} lockdown for [{lockdown_type}: {target_name}]. Reason: {reason}."
+        )
 
-    return {"status": "success", "message": f"Command lockdown successfully {action_performed.lower()}."}
+        return {"status": "success", "message": f"Command lockdown successfully {action_performed.lower()}."}
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ DATABASE ERROR in toggle_maintenance: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="A secure database error occurred while updating system lockdown status. Please try again."
+        )
 
 
 # 10. USER HEARTBEAT & ONLINE STATUS
