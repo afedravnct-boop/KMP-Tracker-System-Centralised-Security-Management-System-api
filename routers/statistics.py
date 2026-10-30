@@ -137,11 +137,15 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
                 )
             )
 
-    if start_date and hasattr(ModelClass, 'date'):
-        query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) >= start_date)
+    invalid_date_strings = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
+    try:
+        if start_date and start_date.upper() not in invalid_date_strings and hasattr(ModelClass, 'date'):
+            query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) >= start_date)
     
-    if end_date and hasattr(ModelClass, 'date'):
-        query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) <= end_date)
+        if end_date and end_date.upper() not in invalid_date_strings and hasattr(ModelClass, 'date'):
+            query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) <= end_date)
+    except Exception:
+        pass
 
     if search:
         term = f"%{search.strip().upper()}%"
