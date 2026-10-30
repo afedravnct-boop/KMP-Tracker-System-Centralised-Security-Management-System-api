@@ -362,7 +362,7 @@ def get_dashboard_intelligence(
         accidents_records = query_scoped(AccidentsModel)
         fire_records = query_scoped(FireModel)
 
-        # 1. DETENTIONS / LOCKUP CALENDAR & MARGIN AUDITS (Strictly Numerical)
+        # 1. DETENTIONS / LOCKUP CALENDAR & MARGIN AUDITS (Resilient Fallback)
         date_map = {}
         region_demo_map = {}
         region_dur_map = {}
@@ -370,13 +370,13 @@ def get_dashboard_intelligence(
 
         for r in lockup_records:
             d_str = str(getattr(r, 'date', getattr(r, 'created_at', ''))).split('T')[0]
-            if not d_str:
+            if not d_str or d_str == 'None':
                 continue
 
             stn = str(getattr(r, 'station', 'UNKNOWN')).upper()
             reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
             
-            suspects = safe_int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', 0)))
+            suspects = safe_int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', getattr(r, 'total_suspects', 0))))
             m_ad = safe_int(getattr(r, 'male_count', getattr(r, 'male', 0)))
             m_juv = safe_int(getattr(r, 'male_juvenile_count', 0))
             f_ad = safe_int(getattr(r, 'female_count', getattr(r, 'female', 0)))
@@ -406,11 +406,11 @@ def get_dashboard_intelligence(
             region_dur_map[reg]["day2"] += safe_int(getattr(r, 'detention_2days', 0))
             region_dur_map[reg]["over3Days"] += d3_over
 
-        sorted_dates = sorted(date_map.keys())
+        sorted_dates = sorted(date_map.keys(), reverse=True)
         daily_margins = []
         for i, dt in enumerate(sorted_dates):
             curr_total = daily_totals[dt]
-            prev_total = daily_totals[sorted_dates[i - 1]] if i > 0 else curr_total
+            prev_total = daily_totals[sorted_dates[i + 1]] if i + 1 < len(sorted_dates) else curr_total
             margin = curr_total - prev_total
             status_note = 'DECREASE (Check Bails/Remands/Releases)' if margin < 0 else ('INCREASE (New Admissions)' if margin > 0 else 'STABLE')
             daily_margins.append({
@@ -420,77 +420,39 @@ def get_dashboard_intelligence(
                 "status": status_note
             })
 
-        # 2. SUCCESS STORIES METRICS (Purely Structured Metadata)
-        processed_stories = []
-        for st in story_records:
-            processed_stories.append({
-                "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
-                "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
-                "suspects": safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0)),
-                "date": str(getattr(st, 'date', 'N/A'))
-            })
-
-        # 3. FIRE INTELLIGENCE (Directly From Dedicated Fire Statistics Table)
-        total_fire_incidents = len(fire_records)
-        total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
-        total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
-        fire_list = []
-        for f in fire_records:
-            fire_list.append({
-                "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
-                "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
-                "date": str(getattr(f, 'date', 'N/A')),
-                "classification": str(getattr(f, 'nature_of_fire', 'GENERAL FIRE')).upper(),
-                "minorOutbreaks": safe_int(getattr(f, 'minor_outbreaks', 0)),
-                "majorDisasters": safe_int(getattr(f, 'major_disasters', 0)),
-                "fatalFires": safe_int(getattr(f, 'fatal_fires', 0)),
-                "victims": safe_int(getattr(f, 'victims', 0)),
-                "total": safe_int(getattr(f, 'total', 0))
-            })
-
-        # 4. CRIME CATEGORIES (Structured Metrics)
-        crime_reg_map = {}
-        for cr in crime_records:
-            cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
-            reg = get_official_region_for_station(getattr(cr, 'station', ''), getattr(cr, 'region', ''))
-            if reg not in crime_reg_map:
-                crime_reg_map[reg] = {"region": reg, "totalCrimes": 0, "categories": {}}
-            crime_reg_map[reg]["totalCrimes"] += 1
-            crime_reg_map[reg]["categories"][cat] = crime_reg_map[reg]["categories"].get(cat, 0) + 1
-
-        crime_category_data = []
-        for reg, obj in crime_reg_map.items():
-            cat_list = [{"name": c, "count": cnt} for c, cnt in sorted(obj["categories"].items(), key=lambda x: x[1], reverse=True)]
-            crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
-        crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
-
-        # 5. EXHIBITS DATA RETRIEVAL (Purely Categorical & Numerical)
+        # 5. EXHIBITS DATA RETRIEVAL (Resilient Field Mapping)
         exhibits_formatted = []
         for ex in exhibit_records:
             exhibits_formatted.append({
-                "id": safe_int(getattr(ex, 'id', 0)),
-                "category": str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper(),
-                "description": str(getattr(ex, 'description', getattr(ex, 'particulars', 'N/A')) or 'N/A').upper(),
+                "id": safe_int(getattr(ex, 'id', getattr(ex, 'sn', 0))),
+                "category": str(getattr(ex, 'category', getattr(ex, 'exhibit_category', 'GENERAL')) or 'GENERAL').upper(),
+                "description": str(getattr(ex, 'description', getattr(ex, 'particulars', getattr(ex, 'type_make', 'N/A'))) or 'N/A').upper(),
                 "region": str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper(),
-                "station": str(getattr(ex, 'station', 'N/A') or 'N/A').upper(),
+                "station": str(getattr(ex, 'station', getattr(ex, 'division', 'N/A')) or 'N/A').upper(),
                 "status": str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper(),
                 "total": 1
             })
 
-        # 6. ACCIDENTS DATA RETRIEVAL (Structured Telemetry)
+        # 6. ACCIDENTS DATA RETRIEVAL (Resilient Field Mapping)
         accidents_formatted = []
         for ac in accidents_records:
+            minor_c = safe_int(getattr(ac, 'minor', 0))
+            serious_c = safe_int(getattr(ac, 'serious', 0))
+            fatal_c = safe_int(getattr(ac, 'fatal', 0))
+            victims_c = safe_int(getattr(ac, 'victims', 0))
+            total_c = safe_int(getattr(ac, 'total', minor_c + serious_c + fatal_c))
+            
             accidents_formatted.append({
-                "id": safe_int(getattr(ac, 'id', 0)),
+                "id": safe_int(getattr(ac, 'id', getattr(ac, 'sn', 0))),
                 "date": str(getattr(ac, 'date', 'N/A')),
                 "region": str(getattr(ac, 'region', 'KMP GENERAL')).upper(),
                 "station": str(getattr(ac, 'station', 'N/A')).upper(),
                 "nature": str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper(),
-                "minor": safe_int(getattr(ac, 'minor', 0)),
-                "serious": safe_int(getattr(ac, 'serious', 0)),
-                "fatal": safe_int(getattr(ac, 'fatal', 0)),
-                "victims": safe_int(getattr(ac, 'victims', 0)),
-                "total": safe_int(getattr(ac, 'total', 0))
+                "minor": minor_c,
+                "serious": serious_c,
+                "fatal": fatal_c,
+                "victims": victims_c,
+                "total": total_c
             })
 
         return {
