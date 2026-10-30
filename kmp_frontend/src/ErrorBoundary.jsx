@@ -33,10 +33,14 @@ class ErrorBoundary extends React.Component {
   // 🟢 FORCE RESET: Clears corrupted states and forces navigation away from the fault
   handleForceNavigation = (targetModule = 'home') => {
     try {
-      // Purge cached active module / tab states causing the crash loop
+      // 🟢 THE FIX: Purge the exact session keys used by App.jsx to remember the crashed page
+      sessionStorage.removeItem('kmp_currentPage');
+      localStorage.removeItem('kmp_currentPage');
+      
+      // Legacy fallbacks
       localStorage.removeItem('active_module');
       localStorage.removeItem('active_tab');
-      localStorage.setItem('kmp_preferred_module', targetModule);
+      sessionStorage.setItem('kmp_preferred_module', targetModule);
     } catch (e) {}
 
     // Reset local error boundary state first
@@ -44,7 +48,7 @@ class ErrorBoundary extends React.Component {
       if (typeof this.props.onReset === 'function') {
         this.props.onReset();
       } else {
-        // Force hard browser relocation to clear component stack memory
+        // Force hard browser relocation to clear component stack memory and land on Home
         window.location.replace(window.location.origin + window.location.pathname);
       }
     });

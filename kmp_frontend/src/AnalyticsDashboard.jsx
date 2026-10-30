@@ -17,6 +17,7 @@ const PIE_COLORS = ['#596E47', '#A97142'];
 const PIE_STATUS_COLORS = ['#3a3225', '#b8ab97'];
 
 const isLockupLog = (item) => {
+  if (!item) return false;
   return item.is_hq_general_total || 
          (item.station || '').includes('HEADQUARTERS GENERAL TOTAL') || 
          (item.daily_lock_up !== undefined && item.daily_lock_up !== null && Number(item.daily_lock_up) > 0);
@@ -60,10 +61,12 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
 };
 
 const aggregateTimeSeries = (records, dateField, valueFields) => {
+    if (!Array.isArray(records)) return { weekly: [], monthly: [] };
     const weeklyMap = {};
     const monthlyMap = {};
 
     records.forEach(r => {
+        if (!r) return;
         const dStr = r[dateField];
         if (!dStr) return;
         try {
@@ -100,19 +103,24 @@ const AnalyticsDashboard = ({
   crimeRegistry = [], 
   reports = [], 
   successStories = [], 
+  impoundedExhibits = [], 
+  lockupMatrix = [], 
+  accidents = [], 
+  fireIncidents = [], 
   operationalStats = [], 
   stats = [], 
-  impoundedExhibits = [], 
   currentUser, 
   canViewGlobal = false 
 }) => {
+  // 🟢 Defensive Hooks: Pre-initialize all arrays to prevent undefined crashes
   const [fetchedRolls, setFetchedRolls] = useState([]);
   const [fetchedCrime, setFetchedCrime] = useState([]);
   const [fetchedOps, setFetchedOps] = useState([]);
   const [fetchedExhibits, setFetchedExhibits] = useState([]); 
   const [fetchedAccidents, setFetchedAccidents] = useState([]);
+  const [fetchedSuccessStories, setFetchedSuccessStories] = useState([]);
+  const [fetchedFireIncidents, setFetchedFireIncidents] = useState([]);
 
-  // 🟢 Hoisted user jurisdiction state variables to prevent temporal reference errors
   const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
   const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
   const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
@@ -132,30 +140,24 @@ const AnalyticsDashboard = ({
   const [selectedRegion, setSelectedRegion] = useState(canViewGlobalLevel || !currentUser ? 'ALL REGIONS' : (userRegClean || 'KMP HEADQUARTERS'));
   const [selectedStation, setSelectedStation] = useState('ALL STATIONS');
 
-  // 🟢 Offloaded backend intelligence states
+  // 🟢 Safe Intelligence Defaults
   const [backendDetentionCalendar, setBackendDetentionCalendar] = useState({ dates: [], dateMap: {}, regionDemographics: [], regionDuration: [], dailyMargins: [] });
   const [backendSuccessStories, setBackendSuccessStories] = useState([]);
   const [backendFireIntelligence, setBackendFireIntelligence] = useState({ totalFires: 0, totalDeaths: 0, totalInjuries: 0, fireList: [] });
   const [backendCrimeCategories, setBackendCrimeCategories] = useState([]);
 
   const [loading, setLoading] = useState(false);
-
   const [expandedManpowerRegion, setExpandedManpowerRegion] = useState(null);
   const [expandedCrimeRegion, setExpandedCrimeRegion] = useState(null);
   const [selectedDetentionDate, setSelectedDetentionDate] = useState(null);
 
-  const toggleManpowerRegion = (regionName) => {
-    setExpandedManpowerRegion(prev => (prev === regionName ? null : regionName));
-  };
-  const toggleCrimeRegion = (regionName) => {
-    setExpandedCrimeRegion(prev => (prev === regionName ? null : regionName));
-  };
+  const toggleManpowerRegion = (regionName) => setExpandedManpowerRegion(prev => (prev === regionName ? null : regionName));
+  const toggleCrimeRegion = (regionName) => setExpandedCrimeRegion(prev => (prev === regionName ? null : regionName));
 
   useEffect(() => {
     let isMounted = true;
     const fetchData = async () => {
       if (!hasValidSession()) return;
-
       setLoading(true);
       try {
         const intelParam = `?region=${encodeURIComponent(selectedRegion)}&station=${encodeURIComponent(selectedStation)}`;
@@ -185,24 +187,38 @@ const AnalyticsDashboard = ({
 
           if (intelData) {
             if (intelData.detentionCalendar) {
-              setBackendDetentionCalendar(intelData.detentionCalendar);
-              if (intelData.detentionCalendar.dates?.length > 0) {
+              setBackendDetentionCalendar({
+                dates: Array.isArray(intelData.detentionCalendar.dates) ? intelData.detentionCalendar.dates : [],
+                dateMap: intelData.detentionCalendar.dateMap || {},
+                regionDemographics: Array.isArray(intelData.detentionCalendar.regionDemographics) ? intelData.detentionCalendar.regionDemographics : [],
+                regionDuration: Array.isArray(intelData.detentionCalendar.regionDuration) ? intelData.detentionCalendar.regionDuration : [],
+                dailyMargins: Array.isArray(intelData.detentionCalendar.dailyMargins) ? intelData.detentionCalendar.dailyMargins : []
+              });
+              if (Array.isArray(intelData.detentionCalendar.dates) && intelData.detentionCalendar.dates.length > 0) {
                 setSelectedDetentionDate(intelData.detentionCalendar.dates[0]);
               } else {
                 setSelectedDetentionDate(null);
               }
             }
-            if (intelData.successStoriesProcessed) setBackendSuccessStories(intelData.successStoriesProcessed);
-            if (intelData.fireIntelligence) setBackendFireIntelligence(intelData.fireIntelligence);
-            if (intelData.crimeCategoryData) setBackendCrimeCategories(intelData.crimeCategoryData);
-            if (intelData.exhibitsData) setFetchedExhibits(intelData.exhibitsData);
-            if (intelData.accidentsData) setFetchedAccidents(intelData.accidentsData);
+            if (Array.isArray(intelData.successStoriesProcessed)) {
+              setBackendSuccessStories(intelData.successStoriesProcessed);
+              setFetchedSuccessStories(intelData.successStoriesProcessed);
+            }
+            if (intelData.fireIntelligence) {
+              setBackendFireIntelligence({
+                totalFires: intelData.fireIntelligence.totalFires || 0,
+                totalDeaths: intelData.fireIntelligence.totalDeaths || 0,
+                totalInjuries: intelData.fireIntelligence.totalInjuries || 0,
+                fireList: Array.isArray(intelData.fireIntelligence.fireList) ? intelData.fireIntelligence.fireList : []
+              });
+            }
+            if (Array.isArray(intelData.crimeCategoryData)) setBackendCrimeCategories(intelData.crimeCategoryData);
+            if (Array.isArray(intelData.exhibitsData)) setFetchedExhibits(intelData.exhibitsData);
+            if (Array.isArray(intelData.accidentsData)) setFetchedAccidents(intelData.accidentsData);
           }
         }
       } catch (err) {
-        if (err.message !== 'UNAUTHORIZED') {
-          console.error("Failed to fetch analytics data from NeonDB:", err);
-        }
+        if (err.message !== 'UNAUTHORIZED') console.error("Failed to fetch analytics data from NeonDB:", err);
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -212,19 +228,24 @@ const AnalyticsDashboard = ({
     return () => { isMounted = false; };
   }, [selectedRegion, selectedStation]);
 
-  const resolvedNominalRolls = nominalRolls.length ? nominalRolls : (nominal_rolls.length ? nominal_rolls : fetchedRolls);
-  const resolvedCrimeRegistry = crimeRegistry.length ? crimeRegistry : (reports.length ? reports : fetchedCrime);
-  const resolvedOperationalStats = operationalStats.length ? operationalStats : (stats.length ? stats : fetchedOps);
-  const resolvedExhibits = impoundedExhibits.length ? impoundedExhibits : fetchedExhibits;
+  // 🟢 Guaranteed Arrays: Eliminating 'undefined' prop crashes
+  const resolvedNominalRolls = (Array.isArray(nominalRolls) && nominalRolls.length) ? nominalRolls : ((Array.isArray(nominal_rolls) && nominal_rolls.length) ? nominal_rolls : fetchedRolls);
+  const resolvedCrimeRegistry = (Array.isArray(crimeRegistry) && crimeRegistry.length) ? crimeRegistry : ((Array.isArray(reports) && reports.length) ? reports : fetchedCrime);
+  const resolvedOperationalStats = (Array.isArray(operationalStats) && operationalStats.length) ? operationalStats : ((Array.isArray(stats) && stats.length) ? stats : fetchedOps);
+  const resolvedExhibits = (Array.isArray(impoundedExhibits) && impoundedExhibits.length) ? impoundedExhibits : fetchedExhibits;
+  const resolvedSuccessStories = (Array.isArray(successStories) && successStories.length) ? successStories : backendSuccessStories;
+  const resolvedAccidents = (Array.isArray(accidents) && accidents.length) ? accidents : fetchedAccidents;
 
   const [activeDomain, setActiveDomain] = useState('SUCCESS');
   const [selectedMonth, setSelectedMonth] = useState('ALL');
-  const [selectedCrimeCategory, setSelectedCrimeCategory] = useState('ALL');
   const [dateFilter, setDateFilter] = useState('ALL'); 
 
+  // 🟢 Defensive Array Map Fix
   const timeFilteredData = (list) => {
+    if (!Array.isArray(list)) return [];
     const now = new Date();
     return list.filter(item => {
+      if (!item) return false;
       const itemDateStr = item.date || item.createdAt || item.timestamp || item.date_impounded;
       if (!itemDateStr) return true; 
       const itemDate = new Date(itemDateStr);
@@ -252,14 +273,17 @@ const AnalyticsDashboard = ({
     let baseData = [];
     if (activeDomain === 'CRIME' || activeDomain === 'CRIME_SUMMARY') baseData = resolvedCrimeRegistry.filter(r => !isLockupLog(r)); 
     else if (activeDomain === 'MANPOWER_DEEP') baseData = resolvedNominalRolls;
-    else if (activeDomain === 'SUCCESS') baseData = successStories;
+    else if (activeDomain === 'SUCCESS') baseData = resolvedSuccessStories;
     else if (activeDomain === 'OPERATIONS') baseData = resolvedOperationalStats;
     else if (activeDomain === 'EXHIBITS') baseData = resolvedExhibits;
-    else if (activeDomain === 'ACCIDENTS') baseData = fetchedAccidents;
-    else if (activeDomain === 'FIRES') baseData = resolvedCrimeRegistry;
+    else if (activeDomain === 'ACCIDENTS') baseData = resolvedAccidents;
+    else if (activeDomain === 'FIRES') baseData = backendFireIntelligence.fireList || [];
     else baseData = resolvedCrimeRegistry;
 
+    if (!Array.isArray(baseData)) return [];
+
     return baseData.filter(item => {
+      if (!item) return false;
       let stn = stripHtmlTags(item.station || '').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
       const reg = getOfficialRegionForStation(stn, item.region);
@@ -270,15 +294,15 @@ const AnalyticsDashboard = ({
 
       const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
       const belongsToRegion = activeTargetRegion === 'ALL REGIONS' || 
-                            reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
-                            (item.region && item.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
-                            (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
+                              reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
+                              (item.region && item.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
+                              (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
 
       if (!belongsToRegion) return false;
       if (selectedStation !== 'ALL STATIONS' && !isStationEquivalent(stn, selectedStation)) return false;
       return true;
     });
-  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, successStories, resolvedOperationalStats, resolvedExhibits, fetchedAccidents, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
+  }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, resolvedAccidents, backendFireIntelligence.fireList, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
 
   const accidentsTimeSeriesData = useMemo(() => {
       return aggregateTimeSeries(timeFilteredDataset, 'date', ['minor', 'serious', 'fatal', 'victims', 'total']);
@@ -308,6 +332,7 @@ const AnalyticsDashboard = ({
     regionMap["GENERAL / OTHER"] = { region: "GENERAL / OTHER", totalDeployable: 0, stations: {} };
 
     rolls.forEach(o => {
+      if (!o) return;
       let stn = stripHtmlTags(o.station || 'UNKNOWN').toUpperCase();
       if (stn === "KIRA DIVISION" || stn === "KIRA DIV" || stn === "KIRA") stn = "KIRA DIV";
       const reg = getOfficialRegionForStation(stn, o.region);
@@ -364,6 +389,7 @@ const AnalyticsDashboard = ({
     const tf = timeFilteredData(resolvedExhibits);
     const map = {};
     tf.forEach(ex => {
+      if (!ex) return;
       const cat = (ex.category || 'GENERAL').toUpperCase();
       const reg = (ex.region || 'KMP GENERAL').toUpperCase();
       const div = (ex.division || ex.station || 'N/A').toUpperCase();
@@ -390,24 +416,24 @@ const AnalyticsDashboard = ({
 
   const summaryAggregates = useMemo(() => {
     const ops = timeFilteredData(resolvedOperationalStats);
-    const ss = backendSuccessStories;
+    const ss = Array.isArray(backendSuccessStories) ? backendSuccessStories : [];
     const cr = timeFilteredData(resolvedCrimeRegistry).filter(r => !isLockupLog(r));
     const ex = timeFilteredData(resolvedExhibits);
-    const nom = resolvedNominalRolls;
-    const acc = timeFilteredData(fetchedAccidents);
+    const nom = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
+    const acc = timeFilteredData(resolvedAccidents);
 
     return {
       disruptiveOps: ops.length,
       manpowerTotal: nom.length,
       successOccasions: ss.length,
       totalExhibits: ex.length,
-      totalDetentions: Object.values(backendDetentionCalendar.dateMap || {}).reduce((acc, curr) => acc + curr.total, 0),
+      totalDetentions: Object.values(backendDetentionCalendar.dateMap || {}).reduce((acc, curr) => acc + (curr.total || 0), 0),
       totalAccidents: acc.length,
-      totalFires: backendFireIntelligence.totalFires,
+      totalFires: backendFireIntelligence.totalFires || 0,
       totalArrests: ops.reduce((acc, curr) => acc + (Number(curr.arrests || curr.suspects || curr.arrested) || 0), 0),
       totalCrimes: cr.length
     };
-  }, [resolvedOperationalStats, backendSuccessStories, resolvedCrimeRegistry, resolvedExhibits, resolvedNominalRolls, backendDetentionCalendar, fetchedAccidents, backendFireIntelligence, selectedMonth, dateFilter]);
+  }, [resolvedOperationalStats, backendSuccessStories, resolvedCrimeRegistry, resolvedExhibits, resolvedNominalRolls, backendDetentionCalendar, resolvedAccidents, backendFireIntelligence, selectedMonth, dateFilter]);
 
   const opsChartData = useMemo(() => {
     const regMap = {};
@@ -415,6 +441,7 @@ const AnalyticsDashboard = ({
     const tfCrimes = timeFilteredData(resolvedCrimeRegistry).filter(r => !isLockupLog(r));
 
     tfOps.forEach(o => {
+      if (!o) return;
       const reg = getOfficialRegionForStation(o.station, o.region);
       if (canViewGlobalLevel && selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return;
       if (!regMap[reg]) regMap[reg] = { name: reg, Arrests: 0, Crimes: 0 };
@@ -422,6 +449,7 @@ const AnalyticsDashboard = ({
     });
 
     tfCrimes.forEach(c => {
+      if (!c) return;
       const reg = getOfficialRegionForStation(c.station, c.region);
       if (canViewGlobalLevel && selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return;
       if (!regMap[reg]) regMap[reg] = { name: reg, Arrests: 0, Crimes: 0 };
@@ -448,7 +476,7 @@ const AnalyticsDashboard = ({
   };
 
   const RADIAN = Math.PI / 180;
-  const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, index }) => {
+  const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
@@ -576,18 +604,18 @@ const AnalyticsDashboard = ({
                         <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">
                           {st.station}<br/><span className="text-[9px] text-[#736450] font-medium">{st.region}</span>
                         </td>
-                        <td className="px-3 py-2 text-center font-bold text-[#596E47] text-[10px] border-r border-[#e2d6c3] whitespace-normal break-words">{st.parsedSuspects}</td>
+                        <td className="px-3 py-2 text-center font-bold text-[#596E47] text-[10px] border-r border-[#e2d6c3] whitespace-normal break-words">{st.parsedSuspects || 0}</td>
                         <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase border-r border-[#e2d6c3] whitespace-normal break-words">
                           {st.parsedClassification}
                         </td>
                         <td className="px-3 py-2 text-[10px] text-[#594d3c] font-bold border-r border-[#e2d6c3] whitespace-normal break-words">
-                          {st.parsedRecoveries.split('||').map((item, i) => (
+                          {st.parsedRecoveries ? st.parsedRecoveries.split('||').map((item, i) => (
                             <div key={i} className="bg-white/60 px-2 py-0.5 my-0.5 rounded border border-[#e2d6c3] shadow-2xs whitespace-normal break-words">{item.trim()}</div>
-                          ))}
+                          )) : '-'}
                         </td>
                         <td className="px-3 py-2 text-center whitespace-normal break-words">
                           <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-[#3a3225] text-[#f4eee2] uppercase tracking-wide shadow-xs inline-block">
-                            {st.parsedLegalStatus}
+                            {st.parsedLegalStatus || '-'}
                           </span>
                         </td>
                       </tr>
@@ -638,7 +666,7 @@ const AnalyticsDashboard = ({
                                </td>
                                <td className="px-3 py-2 text-[10px] text-center font-black text-amber-800">{reg.totalCrimes}</td>
                             </tr>
-                            {isExpanded && reg.categoryList.map((cat, cIdx) => (
+                            {isExpanded && Array.isArray(reg.categoryList) && reg.categoryList.map((cat, cIdx) => (
                                <tr key={`cat-${cIdx}`} className="bg-white align-top">
                                   <td className="px-3 py-1.5 pl-7 text-[10px] font-semibold text-[#594d3c] uppercase border-r border-[#e2d6c3] whitespace-normal break-words">— {cat.name}</td>
                                   <td className="px-3 py-1.5 text-[10px] text-center font-bold text-amber-700">{cat.count}</td>
@@ -721,7 +749,7 @@ const AnalyticsDashboard = ({
                     </tr>
                   </thead>
                   <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                    {selectedDayLockup.stations.length > 0 ? (
+                    {Array.isArray(selectedDayLockup.stations) && selectedDayLockup.stations.length > 0 ? (
                       selectedDayLockup.stations.map((stnRow, i) => (
                         <tr key={i} className="hover:bg-[#e9eedf]/30 align-top">
                           <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">
@@ -867,15 +895,15 @@ const AnalyticsDashboard = ({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
              <div className="bg-amber-900 text-white p-3 rounded-xl shadow-sm border border-amber-950 flex flex-col justify-between">
                 <span className="text-[9px] font-extrabold uppercase tracking-widest text-amber-200">Total Fire Incidents</span>
-                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalFires}</div>
+                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalFires || 0}</div>
              </div>
              <div className="bg-red-900 text-white p-3 rounded-xl shadow-sm border border-red-950 flex flex-col justify-between">
                 <span className="text-[9px] font-extrabold uppercase tracking-widest text-red-200">Total Fire Deaths</span>
-                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalDeaths}</div>
+                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalDeaths || 0}</div>
              </div>
              <div className="bg-orange-800 text-white p-3 rounded-xl shadow-sm border border-orange-950 flex flex-col justify-between">
                 <span className="text-[9px] font-extrabold uppercase tracking-widest text-orange-200">Total Fire Injuries</span>
-                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalInjuries}</div>
+                <div className="text-2xl font-black mt-1">{backendFireIntelligence.totalInjuries || 0}</div>
              </div>
           </div>
 
@@ -892,7 +920,7 @@ const AnalyticsDashboard = ({
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
-                  {backendFireIntelligence.fireList.length > 0 ? (
+                  {Array.isArray(backendFireIntelligence.fireList) && backendFireIntelligence.fireList.length > 0 ? (
                     backendFireIntelligence.fireList.map((f, idx) => (
                       <tr key={idx} className="hover:bg-[#e9eedf]/30 align-top">
                         <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">
