@@ -150,7 +150,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
     const pad = (n) => n.toString().padStart(2, '0');
     const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     
-    // For "TODAY", start and end are the same day
     if (filterOption === 'TODAY') return { start: format(start), end: format(start) };
     
     return { start: format(start), end: format(end) };
@@ -208,7 +207,6 @@ const ExhibitsRegistry = ({ currentUser, canViewGlobal = false, setSidebarOpen =
         comment: suspectId ? `LINKED TO SUSPECT ID: ${suspectId}` : 'NIL'
       }));
       
-      // Clean URL to prevent re-triggering on manual refresh
       window.history.replaceState(null, '', window.location.pathname);
     }
   }, []);

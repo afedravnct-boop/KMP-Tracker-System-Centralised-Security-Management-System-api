@@ -349,7 +349,7 @@ def export_exhibits_secure(
         # --- 🟢 2. Build Headers ---
         headers = ["ID", "IDENTIFIER (REG/SERIAL)", "CATEGORY", "DESCRIPTION", "COLOUR/FEATURES", 
                    "DATE IMPOUNDED", "CASE NO", "REASON", "STATUS", "UNIT RESPONSIBLE", 
-                   "ASSORTED ITEMS", "IMPOUNDED BY", "ENTERED BY", "COMMENT"]
+                   "ASSORTED ITEMS", "IMPOUNDED BY", "ENTERED BY", "COMMENT", "PHOTO URL"]
         
         for col_num, h in enumerate(headers, 1):
             c = ws.cell(row=1, column=col_num, value=h)
@@ -386,13 +386,14 @@ def export_exhibits_secure(
                 getattr(r, 'assorted_items', ''),
                 impounded_by_str.strip(),
                 getattr(r, 'entered_by', ''),
-                getattr(r, 'comment', '')
+                getattr(r, 'comment', ''),
+                getattr(r, 'photo_url', '') # 🟢 photo_url explicitly included in exports
             ]
 
             for col_num, val in enumerate(row_data, 1):
                 c = ws.cell(row=row_idx, column=col_num, value=val)
                 c.border = thin_border
-                c.alignment = Alignment(vertical="center", horizontal="left" if col_num in [4, 8, 11, 14] else "center")
+                c.alignment = Alignment(vertical="center", horizontal="left" if col_num in [4, 8, 11, 14, 15] else "center")
 
         # Auto-adjust column widths
         for col in ws.columns:
