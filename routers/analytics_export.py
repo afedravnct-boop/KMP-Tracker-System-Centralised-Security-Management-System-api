@@ -424,14 +424,25 @@ def get_dashboard_intelligence(
                 "date": dt, "total": curr_total, "margin": margin, "status": status_note
             })
 
-        # 2. SUCCESS STORIES METRICS
+        # 2. SUCCESS STORIES METRICS (🟢 FIX: Integrated backend intelligent parser)
         processed_stories = []
         for st in story_records:
             try:
+                raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
+                parsed = parse_success_story_backend(raw_narrative)
+                
+                suspects = safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or parsed['suspects'])
+                recoveries = str(getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or parsed['recoveries'])
+                legal_status = str(getattr(st, 'legal_status', '') or parsed['legalStatus'])
+                classification = str(parsed['classification'])
+
                 processed_stories.append({
                     "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
                     "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
-                    "suspects": safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0)),
+                    "suspects": suspects,
+                    "recoveries": recoveries,
+                    "legalStatus": legal_status,
+                    "classification": classification,
                     "date": str(getattr(st, 'date', 'N/A'))
                 })
             except Exception:
