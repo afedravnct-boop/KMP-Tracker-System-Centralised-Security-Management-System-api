@@ -126,6 +126,7 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
         if hasattr(ModelClass, 'region'):
             query = query.filter(func.upper(ModelClass.region) == region.upper())
             
+    # 🟢 FIX: Properly define clean_stn right here before using it in filters
     if station and station.upper() not in ["ALL STATIONS", "ALL"]:
         if hasattr(ModelClass, 'station'):
             clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
@@ -139,10 +140,10 @@ def build_filtered_query(query, ModelClass, region, station, start_date, end_dat
 
     invalid_date_strings = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
     try:
-        if start_date and start_date.upper() not in invalid_date_strings and hasattr(ModelClass, 'date'):
+        if start_date and str(start_date).strip().upper() not in invalid_date_strings and hasattr(ModelClass, 'date'):
             query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) >= start_date)
     
-        if end_date and end_date.upper() not in invalid_date_strings and hasattr(ModelClass, 'date'):
+        if end_date and str(end_date).strip().upper() not in invalid_date_strings and hasattr(ModelClass, 'date'):
             query = query.filter(func.cast(ModelClass.date, text("VARCHAR")) <= end_date)
     except Exception:
         pass
