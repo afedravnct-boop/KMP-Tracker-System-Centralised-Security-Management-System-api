@@ -10,6 +10,13 @@ from sqlalchemy import func, or_
 from app.database import engine
 from app import models
 
+# 🟢 FIX: Moved Number() helper to the top so it is available globally throughout the module
+def Number(val):
+    try:
+        return int(val or 0)
+    except Exception:
+        return 0
+
 def get_model_safe(*names):
     """Safely fetch a model regardless of slight naming variations."""
     for name in names:
@@ -139,14 +146,14 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
                     lq = lq.filter(func.upper(LockupModel.station) == station)
                 lockup_list = lq.all()
                 for lck in lockup_list:
-                    d3Plus = Number(getattr(lck, 'detention_3days_over', 0) or 0)
+                    d3Plus = Number(getattr(lck, 'detention_3days_over', 0))
                     if d3Plus > 0:
                         overstayed_detainees += d3Plus
                         stn_name = getattr(lck, 'station', 'UNKNOWN STATION')
                         overstayed_details_list.append(f"• {stn_name}: {d3Plus} overstayed suspect(s)")
 
-                    female_custody_total += Number(getattr(lck, 'female_count', 0) or 0) + Number(getattr(lck, 'female_juvenile_count', 0) or 0)
-                    juveniles_custody_total += Number(getattr(lck, 'female_juvenile_count', 0) or 0) + Number(getattr(lck, 'male_juvenile_count', 0) or 0)
+                    female_custody_total += Number(getattr(lck, 'female_count', 0)) + Number(getattr(lck, 'female_juvenile_count', 0))
+                    juveniles_custody_total += Number(getattr(lck, 'female_juvenile_count', 0)) + Number(getattr(lck, 'male_juvenile_count', 0))
 
             overstayed_location_breakdown = "<br/>".join(overstayed_details_list) if overstayed_details_list else "None recorded across stations."
 
@@ -158,8 +165,8 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
                 acc_list = acc_q.all()
                 total_crashes = len(acc_list)
                 for acc in acc_list:
-                    fatal_crashes += Number(getattr(acc, 'fatal', 0) or 0)
-                    accident_victims += Number(getattr(acc, 'victims', 0) or 0)
+                    fatal_crashes += Number(getattr(acc, 'fatal', 0))
+                    accident_victims += Number(getattr(acc, 'victims', 0))
 
             dispatch_type_label = "AUTOMATED MONDAY DISPATCH"
             email_subject = f"Weekly Command Briefing & Situation Report: {station}"
@@ -249,14 +256,11 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
             except Exception as mail_err:
                 print(f"❌ Failed to dispatch brief to {payload['email']}: {mail_err}")
 
+    # 🟢 BULLETPROOF ASYNC EVENT-LOOP RUNNER FOR CRON OR MANUAL DISPATCHES
     try:
-        loop = asyncio.get_running_loop()
-        asyncio.run_coroutine_threadsafe(send_all_emails(), loop)
-    except RuntimeError:
-        asyncio.run(send_all_emails())
-
-def Number(val):
-    try:
-        return int(val or 0)
-    except Exception:
-        return 0
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(send_all_emails())
+        loop.close()
+    except Exception as run_err:
+        print(f"❌ Failed to execute briefing email batch loop: {run_err}")

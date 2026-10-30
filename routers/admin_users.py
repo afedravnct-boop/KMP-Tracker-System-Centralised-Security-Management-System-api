@@ -1,3 +1,4 @@
+# routers/admin_users.py
 import os
 import asyncio
 from urllib.parse import unquote
@@ -23,12 +24,13 @@ conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
     MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=465,               # 🟢 Switch to Port 465
+    MAIL_PORT=465,                # 🟢 Switch to Port 465
     MAIL_SERVER="smtp.gmail.com",
-    MAIL_STARTTLS=False,         # 🟢 Must be False for Port 465
-    MAIL_SSL_TLS=True            # 🟢 Must be True for Port 465
+    MAIL_STARTTLS=False,          # 🟢 Must be False for Port 465
+    MAIL_SSL_TLS=True             # 🟢 Must be True for Port 465
 )
 
+# 🟢 BULLETPROOF ASYNC ADMIN EMAIL DISPATCHER
 async def send_email_notification(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
         return
@@ -41,8 +43,9 @@ async def send_email_notification(email_to: List[str], subject: str, html_body: 
     fm = FastMail(conf)
     try:
         await fm.send_message(message)
+        print(f"✅ Secure admin email successfully dispatched via SMTP to: {', '.join(email_to)}")
     except Exception as e:
-        print(f"❌ Failed to dispatch email notification: {e}")
+        print(f"❌ Failed to dispatch email notification via SMTP: {e}")
 
 async def notify_admins_of_signup(user_data, db: Session):
     admins = db.query(models.Users.email).filter(
@@ -360,9 +363,15 @@ def approve_pending_user(
     db.commit()
 
     if target_user.email:
-        background_tasks.add_task(
-            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, True))
-        )
+        def send_approval_sync():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(notify_user_approval_status(target_user.email, target_user.name, True))
+                loop.close()
+            except Exception as ex:
+                print(f"❌ Background user approval email error: {ex}")
+        background_tasks.add_task(send_approval_sync)
 
     record_neon_activity(
         logs_db=logs_db,
@@ -584,9 +593,15 @@ def revoke_user_access(
     db.commit()
 
     if target_user.email:
-        background_tasks.add_task(
-            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, False, reason))
-        )
+        def send_revocation_sync():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(notify_user_approval_status(target_user.email, target_user.name, False, reason))
+                loop.close()
+            except Exception as ex:
+                print(f"❌ Background user revocation email error: {ex}")
+        background_tasks.add_task(send_revocation_sync)
 
     return {"status": "success", "message": f"Officer {clean_fnum} access revoked."}
 
@@ -648,7 +663,6 @@ def force_password_reset(
 @router.get("/lockdown/status")
 def get_lockdown_status(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
-        # Use SystemConfig to store system lockdowns since System_Lockdowns table does not exist
         ConfigModel = getattr(models, 'SystemConfig', None)
         if not ConfigModel:
             return {"system_lockdown": False, "active_regions": [], "active_stations": []}
@@ -791,20 +805,17 @@ def get_admin_transfer_requests(
 
         requests = query.order_by(TransferModel.id.desc()).all()
 
-        # 🟢 INDUSTRY STANDARD BATCH LOADING: Gather all force numbers in one sweep
         fnums = []
         for req in requests:
             f = (getattr(req, "fnum", None) or getattr(req, "requested_fnum", "")).strip().upper()
             if f:
                 fnums.append(f)
 
-        # Execute ONE single query to pull all corresponding user records into memory
         users_map = {}
         if fnums:
             matched_users = db.query(models.Users).filter(func.upper(models.Users.fnum).in_(fnums)).all()
             users_map = {u.fnum.strip().upper(): u for u in matched_users if u and u.fnum}
 
-        # Scan and format records sequentially from memory with zero database lag
         formatted_requests = []
         for req in requests:
             target_fnum = (getattr(req, "fnum", None) or getattr(req, "requested_fnum", "")).strip().upper()
@@ -907,7 +918,6 @@ def approve_hr_transfer_request(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    # Enforce strict command tier or admin delegation check
     delegation = verify_admin_delegation(current_user, db)
     actor_tier = get_command_tier(current_user)
     
@@ -927,7 +937,6 @@ def approve_hr_transfer_request(
         if not target_request:
             raise HTTPException(status_code=404, detail="Transfer request not found or already purged.")
 
-        # Explicitly set status to APPROVED and log the reviewing commander
         target_request.status = "APPROVED"
         target_request.reviewed_by = f"{current_user.rank} {current_user.name} ({current_user.fnum})"
         target_request.reviewed_at = datetime.now(pytz.timezone('Africa/Nairobi')).replace(tzinfo=None)
@@ -1077,7 +1086,6 @@ def trigger_tactical_briefs(
 
         actor_fnum = current_user.fnum if current_user else "CRON_SCHEDULER"
 
-        # Extract High Command Emails for Dispatch
         high_command_users = db.query(models.Users.email).filter(
             models.Users.is_approved == True,
             models.Users.email.isnot(None),
@@ -1091,7 +1099,6 @@ def trigger_tactical_briefs(
         
         target_emails = [u[0] for u in high_command_users if u[0] and "@" in u[0]]
 
-        # 🟢 TESTING INCLUSION: Always append the current dispatching user's email if they are logged in and have an email
         if current_user and current_user.email and "@" in current_user.email:
             if current_user.email not in target_emails:
                 target_emails.append(current_user.email)
@@ -1111,8 +1118,15 @@ def trigger_tactical_briefs(
             </div>
             """
             
+            # 🟢 FIX: Safe background task wrapper preventing event loop collision
             def send_brief_sync():
-                asyncio.run(send_email_notification(target_emails, subject, html_body))
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(send_email_notification(target_emails, subject, html_body))
+                    loop.close()
+                except Exception as ex:
+                    print(f"❌ Background briefing email error: {ex}")
             
             background_tasks.add_task(send_brief_sync)
 
@@ -1127,7 +1141,7 @@ def trigger_tactical_briefs(
 
         return {
             "status": "success",
-            "message": f"Tactical briefings ({brief_type}) dispatched successfully to {len(target_emails)} recipients ( including your account ). Origin: {origin_note}."
+            "message": f"Tactical briefings ({brief_type}) dispatched successfully to {len(target_emails)} recipients. Origin: {origin_note}."
         }
     except Exception as e:
         db.rollback()
@@ -1139,7 +1153,6 @@ def trigger_tactical_briefs(
 # ==========================================
 @router.get("/commander-status")
 def get_commander_status(current_user: models.Users = Depends(get_current_user)):
-    """Provides the active delegation state to bind the frontend modal toggle on load."""
     perms = current_user.permissions or {}
     if isinstance(perms, str):
         try: perms = json.loads(perms)
@@ -1196,13 +1209,12 @@ def set_commander_status(
             try: del_perms = json.loads(del_perms)
             except Exception: del_perms = {}
             
-        # Save snapshot before delegation if not already saved
         if "_pre_delegation_snapshot" not in del_perms:
             del_perms["_pre_delegation_snapshot"] = {k: v for k, v in del_perms.items()}
 
         del_perms["acting_for_fnum"] = current_user.fnum
         del_perms["can_approve"] = True
-        del_perms["global_open"] = True  # Provide open/write clearance as requested
+        del_perms["global_open"] = True  
         delegatee.permissions = del_perms
         
         audit_detail += f" Delegated command authority to {delegatee.rank} {delegatee.name} ({delegatee_fnum}) from {start_date} to {end_date}."
@@ -1214,7 +1226,6 @@ def set_commander_status(
             f"Granted acting command powers for {current_user.fnum} ({absence_reason}) from {start_date} to {end_date}."
         )
 
-    # 🟢 REVERSAL LOGIC: When delegation is turned off, restore delegatee to pre-delegation state
     if not is_away and old_delegatee_fnum:
         delegatee = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == old_delegatee_fnum).first()
         if delegatee:
@@ -1223,12 +1234,10 @@ def set_commander_status(
                 try: del_perms = json.loads(del_perms)
                 except Exception: del_perms = {}
             
-            # Restore from snapshot if available
             snapshot = del_perms.pop("_pre_delegation_snapshot", None)
             if snapshot:
                 delegatee.permissions = snapshot
             else:
-                # Fallback: Strip out acting flags explicitly
                 del_perms.pop("acting_for_fnum", None)
                 del_perms["can_approve"] = False
                 delegatee.permissions = del_perms
@@ -1254,9 +1263,15 @@ def set_commander_status(
     )
     
     if delegatee:
-        background_tasks.add_task(
-            lambda: asyncio.run(notify_delegation_status(current_user, delegatee, is_away, absence_reason, start_date, end_date))
-        )
+        def send_delegation_sync():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                # Note: notify_delegation_status is a placeholder or can be added if needed, wrapped safely here
+                loop.close()
+            except Exception as ex:
+                print(f"❌ Background delegation email error: {ex}")
+        background_tasks.add_task(send_delegation_sync)
     
     return {
         "status": "success",

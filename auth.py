@@ -43,12 +43,13 @@ conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME", ""),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", ""),
     MAIL_FROM=os.getenv("MAIL_FROM", os.getenv("MAIL_USERNAME", "no-reply@upf.go.ug")),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
+    MAIL_PORT=int(os.getenv("MAIL_PORT", 465)),
     MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False
+    MAIL_STARTTLS=False,
+    MAIL_SSL_TLS=True
 )
 
+# 🟢 BULLETPROOF ASYNC AUTH EMAIL DISPATCHER
 async def send_auth_notification(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
         return
@@ -61,8 +62,9 @@ async def send_auth_notification(email_to: List[str], subject: str, html_body: s
     fm = FastMail(conf)
     try:
         await fm.send_message(message)
+        print(f"✅ Secure auth email successfully dispatched via SMTP to: {', '.join(email_to)}")
     except Exception as e:
-        print(f"❌ Failed to dispatch auth notification email: {e}")
+        print(f"❌ Failed to dispatch auth notification email via SMTP: {e}")
 
 # ====================================================================
 # HELPERS & VALIDATORS
@@ -140,7 +142,6 @@ def get_current_user(
         detail="Could not validate credentials",
     )
     
-    # Safely handle manual calls where token is passed as a FastAPI Depends object
     if token is not None and not isinstance(token, str):
         token = None
 
@@ -194,9 +195,6 @@ def get_current_user(
             detail="Access Denied: Account is revoked or pending approval."
         )
 
-    # ==========================================
-    # 🟢 STRICT SYSTEM LOCKDOWN ENFORCER
-    # ==========================================
     def is_lockdown_exempt(u: models.Users) -> bool:
         if not u:
             return False
@@ -236,7 +234,6 @@ def get_current_user(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"🚨 SECURITY LOCKDOWN ACTIVE: System operations for your jurisdiction are currently frozen by High Command [{highest_lock}]. Access is restricted to Supreme Command."
                 )
-    # ==========================================
 
     return user
 
@@ -514,8 +511,16 @@ async def signup(
                 <p>Please log in to the KMP Centralised Security Data Management System to review and authorize this request.</p>
             </div>
             """
+            # 🟢 FIX: Safe background task wrapper preventing event loop collision
             def send_alerts():
-                asyncio.run(send_auth_notification(list(set(approver_emails)), subject, html_body))
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(send_auth_notification(list(set(approver_emails)), subject, html_body))
+                    loop.close()
+                except Exception as ex:
+                    print(f"❌ Background signup email error: {ex}")
+
             background_tasks.add_task(send_alerts)
 
         return {
@@ -577,8 +582,16 @@ def approve_user_account(
             <p style="margin-top: 20px;">Welcome aboard, officer.</p>
         </div>
         """
+        # 🟢 FIX: Safe background task wrapper preventing event loop collision
         def send_user_email():
-            asyncio.run(send_auth_notification([target_user.email], subject, html_body))
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(send_auth_notification([target_user.email], subject, html_body))
+                loop.close()
+            except Exception as ex:
+                print(f"❌ Background approval email error: {ex}")
+
         background_tasks.add_task(send_user_email)
 
     return {"status": "success", "message": f"User {target_user.name} has been successfully approved and notified."}
@@ -836,10 +849,6 @@ class PublicGlitchTelemetryPayload(BaseModel):
     attempted_fnum: Optional[str] = ""
 
 def process_public_crash_bg(payload: PublicGlitchTelemetryPayload, user_identity: str):
-    """
-    Background worker that queries Gemini for unauthenticated login faults, logs the 
-    AI diagnostics to AI_Command_Logs, and dispatches the enriched technical alert.
-    """
     db_gen = database.get_db()
     logs_db_gen = get_logs_db()
     db = next(db_gen)
@@ -879,7 +888,6 @@ def process_public_crash_bg(payload: PublicGlitchTelemetryPayload, user_identity
             except Exception as ai_err:
                 print(f"AI Auto-Diagnosis skipped: {ai_err}")
 
-        # 1. Save to AI Command Logs Table First
         LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         if LogModel:
             new_ai_log = LogModel(
@@ -891,7 +899,6 @@ def process_public_crash_bg(payload: PublicGlitchTelemetryPayload, user_identity
             )
             db.add(new_ai_log)
 
-        # 2. Assemble the Final Command Dispatch
         glitch_summary = (
             f"<div style='background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 15px; margin-bottom: 20px;'>"
             f"<h3 style='color: #991b1b; margin-top: 0;'>PUBLIC PORTAL FAULT TELEMETRY</h3>"
@@ -910,7 +917,6 @@ def process_public_crash_bg(payload: PublicGlitchTelemetryPayload, user_identity
         eat_tz = pytz.timezone("Africa/Nairobi")
         uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
 
-        # 3. Save to Admin Communications Table
         CommModel = getattr(models, 'Admin_Communication', getattr(models, 'AdminCommunication', None))
         if CommModel:
             auto_dispatch = CommModel(
@@ -930,7 +936,6 @@ def process_public_crash_bg(payload: PublicGlitchTelemetryPayload, user_identity
         
         db.commit()
 
-        # 4. Log System Activity
         log_independent_activity(
             logs_db=logs_db,
             fnum=user_identity,
@@ -954,10 +959,6 @@ async def report_public_client_crash(
     payload: PublicGlitchTelemetryPayload,
     background_tasks: BackgroundTasks
 ):
-    """
-    Instantly accepts unauthenticated login faults and routes the payload to a 
-    background AI processor for diagnostics and secure logging.
-    """
     try:
         user_identity = payload.attempted_fnum.strip().upper() if payload.attempted_fnum else "PUBLIC_VISITOR"
         background_tasks.add_task(process_public_crash_bg, payload=payload, user_identity=user_identity)
@@ -977,7 +978,6 @@ def get_all_active_users_auth(
     db: Session = Depends(database.get_db), 
     current_user: models.Users = Depends(get_current_user)
 ):
-    """Provides active user roster to the frontend dashboard after authorization."""
     try:
         users = db.query(models.Users).filter(models.Users.is_approved == True).all()
         return [
@@ -998,7 +998,6 @@ def get_recipients_list(
     db: Session = Depends(database.get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    """Provides a formatted list of approved system users for communication targeting."""
     try:
         users = db.query(models.Users).filter(models.Users.is_approved == True).all()
         return [
@@ -1035,7 +1034,6 @@ def log_frontend_session_activity(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    """Captures frontend sign-in session logs and activity telemetry."""
     try:
         log_independent_activity(
             logs_db=logs_db,

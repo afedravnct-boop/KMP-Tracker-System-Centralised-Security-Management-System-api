@@ -24,7 +24,6 @@ from routers.activity_logger import record_neon_activity
 
 router = APIRouter(prefix="/api/v1", tags=["Admin Communications"])
 
-# 🟢 Enriched hierarchy ensuring both "REGION HEADQUARTERS" and "REGION" designations exist
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
@@ -33,15 +32,14 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
-# Configure Mail (pulling from environment variables)
 conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
     MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=465,               
+    MAIL_PORT=465,                
     MAIL_SERVER="smtp.gmail.com",
-    MAIL_STARTTLS=False,         
-    MAIL_SSL_TLS=True            
+    MAIL_STARTTLS=False,          
+    MAIL_SSL_TLS=True             
 )
 
 def get_comm_model():
@@ -57,7 +55,6 @@ def get_reads_model():
     return model
 
 def get_fnum_col(model_class):
-    """Dynamically locates the fnum column to prevent TypeError crashes."""
     return getattr(model_class, 'fnum', getattr(model_class, 'f_num', getattr(model_class, 'user_fnum', None)))
 
 def check_global_view(user):
@@ -84,6 +81,7 @@ def is_regional_admin_or_above(user):
     pos = str(user.position or "").strip().upper()
     return role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or "COMMANDER" in pos or "RPC" in pos
 
+# 🟢 BULLETPROOF ASYNC EMAIL DISPATCHER (Safe for BackgroundTasks)
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
         return
@@ -96,8 +94,9 @@ async def send_command_briefing(email_to: List[str], subject: str, html_body: st
     fm = FastMail(conf)
     try:
         await fm.send_message(message)
+        print(f"✅ Secure email successfully dispatched via SMTP to: {', '.join(email_to)}")
     except Exception as e:
-        print(f"❌ Failed to dispatch command email: {e}")
+        print(f"❌ Failed to dispatch command email via SMTP: {e}")
 
 class GlitchTelemetryPayload(BaseModel):
     console_logs: Optional[List[str]] = []
@@ -110,10 +109,6 @@ class GlitchTelemetryPayload(BaseModel):
     description: Optional[str] = "Automated telemetry capture"
 
 def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, current_user_dict: dict):
-    """
-    Background worker that queries Gemini for authenticated crash faults, logs the 
-    AI diagnostics to AI_Command_Logs, saves to Admin Communications, and dispatches email alerts.
-    """
     db_gen = get_db()
     logs_db_gen = get_logs_db()
     db = next(db_gen)
@@ -156,7 +151,6 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             except Exception as ai_err:
                 print(f"AI Auto-Diagnosis skipped: {ai_err}")
 
-        # 1. Save to AI Command Logs Table
         LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         if LogModel:
             new_ai_log = LogModel(
@@ -168,7 +162,6 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             )
             db.add(new_ai_log)
 
-        # 2. Assemble the Final Command Dispatch
         glitch_summary = (
             f"<div style='background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 15px; margin-bottom: 20px;'>"
             f"<h3 style='color: #991b1b; margin-top: 0;'>AUTOMATED TECHNICAL FAULT TELEMETRY</h3>"
@@ -188,7 +181,6 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
         eat_tz = pytz.timezone("Africa/Nairobi")
         uganda_now = datetime.now(eat_tz).replace(tzinfo=None)
 
-        # 3. Identify High Command for targeting
         high_command_users = db.query(models.Users.fnum).filter(
             models.Users.is_approved == True,
             or_(
@@ -200,7 +192,6 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
         admin_fnums = [hc[0] for hc in high_command_users if hc[0]]
         target_fnum_val = ",".join(admin_fnums)
 
-        # 4. Save to Admin Communications Table
         CommModel = get_comm_model()
         if CommModel:
             auto_dispatch = CommModel(
@@ -219,7 +210,7 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
         
         db.commit()
 
-        # 🟢 5. FIX: Automatically send email dispatch to High Command for automated glitch telemetry
+        # 🟢 5. FIX: Dispatch email asynchronously using create_task without blocking event loop
         high_command_emails = [
             email[0] for email in db.query(models.Users.email).filter(
                 models.Users.is_approved == True,
@@ -241,15 +232,17 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             </div>
             """
             try:
-                asyncio.run(send_command_briefing(
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(send_command_briefing(
                     high_command_emails,
                     f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
                     email_html
                 ))
+                loop.close()
             except Exception as mail_err:
                 print(f"❌ Failed to dispatch automated glitch alert email: {mail_err}")
 
-        # 6. Log System Activity (Change this block)
         from routers.activity_logger import record_neon_activity
         record_neon_activity(
             logs_db=logs_db,
@@ -275,10 +268,6 @@ def diagnose_client_glitch(
     background_tasks: BackgroundTasks,
     current_user: models.Users = Depends(get_current_user)
 ):
-    """
-    Instantly accepts authenticated fault telemetry and routes the payload to a 
-    background AI processor for diagnostics, secure logging, and dispatch.
-    """
     try:
         current_user_dict = {
             "fnum": current_user.fnum,
@@ -345,7 +334,6 @@ def create_admin_communication(
             target_fnum_val = ",".join(admin_fnums)
             comm.target_audience = "SPECIFIC_USER"
 
-        # 🟢 1. Check if any targeted recipient is currently away on leave / delegation
         absence_notices = []
         if comm.target_audience == 'SPECIFIC_USER' and target_fnum_val:
             target_fnums = [f.strip().upper() for f in str(target_fnum_val).split(',') if f.strip()]
@@ -459,8 +447,15 @@ def create_admin_communication(
                 </div>
                 """
                  
+                # 🟢 FIX: Safe background task wrapper preventing async loop collisions
                 def send_email_sync():
-                    asyncio.run(send_command_briefing(emails, comm.subject, html_body))
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(send_command_briefing(emails, comm.subject, html_body))
+                        loop.close()
+                    except Exception as ex:
+                        print(f"❌ Background email task error: {ex}")
                  
                 background_tasks.add_task(send_email_sync)
 

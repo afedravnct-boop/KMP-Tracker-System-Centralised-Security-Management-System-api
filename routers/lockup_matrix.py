@@ -1,3 +1,4 @@
+# routers/lockup_matrix.py
 import json
 import csv
 import io
@@ -7,11 +8,15 @@ import zipfile
 import pyzipper
 import pandas as pd
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, text
+import pytz
+import asyncio
+
+from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 
 from app import models, schemas
 from app.database import get_db, get_logs_db
@@ -27,6 +32,33 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
+
+# Configure Mail for Compliance Alerts
+conf = ConnectionConfig(
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
+    MAIL_FROM=os.getenv("MAIL_FROM"),
+    MAIL_PORT=465,                
+    MAIL_SERVER="smtp.gmail.com",
+    MAIL_STARTTLS=False,          
+    MAIL_SSL_TLS=True             
+)
+
+async def send_compliance_email(email_to: List[str], subject: str, html_body: str):
+    if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
+        return
+    message = MessageSchema(
+        subject=subject,
+        recipients=email_to,
+        body=html_body,
+        subtype="html"
+    )
+    fm = FastMail(conf)
+    try:
+        await fm.send_message(message)
+        print(f"✅ Compliance alert email successfully dispatched via SMTP to: {', '.join(email_to)}")
+    except Exception as e:
+        print(f"❌ Failed to dispatch compliance email via SMTP: {e}")
 
 def get_officer_signature(user):
     if not user:
@@ -53,7 +85,6 @@ def is_station_equivalent(stat_a: str, stat_b: str) -> bool:
     clean_b = b.replace(" HEADQUARTERS", "").replace(" HQ", "")
     return clean_a == clean_b and len(clean_a) > 0
 
-# Local serializer
 fn = lambda v: v.isoformat() if hasattr(v, 'isoformat') else v
 def serialize_model_row(row):
     if not row:
@@ -177,12 +208,11 @@ def apply_opsec_scope(current_user, query, ModelClass):
 def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Automated execution endpoint. 
-    Scans all expected stations, permanently logs defaulters, and dispatches UI alerts.
+    Scans all expected stations, permanently logs defaulters, and dispatches UI and SMTP email alerts.
     """
     try:
         today_str = date.today().isoformat()
         
-        # 🟢 FIX 1: Safely compare strings instead of forcing Postgres func.date() casts
         submitted_logs = db.query(models.LockupMatrix.station).filter(
             models.LockupMatrix.date == today_str
         ).all()
@@ -190,7 +220,6 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
         submitted_stations = {log[0].strip().upper() for log in submitted_logs}
         defaulting_stations = []
         
-        # Isolate physical stations missing from the submitted list
         for region, stations in REGIONAL_HIERARCHY.items():
             if region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"]:
                 continue 
@@ -202,7 +231,6 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
         if not defaulting_stations:
             return {"status": "success", "message": "100% System Compliance. No alerts dispatched."}
 
-        # Write permanent disciplinary evidence to Daily_Compliance_Tracker
         for defaulter in defaulting_stations:
             existing_flag = db.query(models.DailyComplianceTracker).filter(
                 models.DailyComplianceTracker.date == today_str,
@@ -218,16 +246,18 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
                 )
                 db.add(new_default)
                 
-                # 🟢 FIX 2: Pass a raw Python list to the JSON column, DO NOT use json.dumps()
+                # 🟢 Safely serialize target_fnum as JSON string if column expects text/json
+                target_fnum_val = json.dumps([f"STATION:{defaulter['station']}"])
+                
                 alert = models.AdminCommunication(
                     msg_ref=f"WARN-{today_str.replace('-','')}-{defaulter['station'][:3]}",
                     sender_fnum="SYSTEM_AUTO",
                     sender_name="KMP COMPLIANCE ENGINE",
-                    target_audience="STATION",
+                    target_audience="SPECIFIC_REGION",
                     target_region=defaulter["region"],
-                    target_fnum=[f"STATION:{defaulter['station']}"], # Fixed JSON insertion
+                    target_fnum=target_fnum_val, 
                     message_type="COMPLIANCE_ALERT",
-                    subject=f"🚨 URGENT: OVERDUE DAILY CENSUS SUBMISSION",
+                    subject="🚨 URGENT: OVERDUE DAILY CENSUS SUBMISSION",
                     message=(
                         f"<p><strong>COMMAND COMPLIANCE ALERT:</strong> Your station <strong>({defaulter['station']})</strong> "
                         f"has failed to submit the Daily Suspect Lock-up Matrix by the 1100Hrs deadline for {today_str}. "
@@ -238,6 +268,30 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
                 )
                 db.add(alert)
 
+                # 🟢 Dispatch email alerts to station commanders or regional officers in the background
+                defaulter_emails = [
+                    u[0] for u in db.query(models.Users.email).filter(
+                        models.Users.is_approved == True,
+                        models.Users.email.isnot(None),
+                        func.upper(models.Users.station) == defaulter["station"]
+                    ).all() if u[0] and "@" in u[0]
+                ]
+
+                if defaulter_emails:
+                    def send_comp_sync():
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(send_compliance_email(
+                                defaulter_emails,
+                                f"🚨 OVERDUE CENSUS WARNING: {defaulter['station']}",
+                                alert.message
+                            ))
+                            loop.close()
+                        except Exception as ex:
+                            print(f"❌ Background compliance email error: {ex}")
+                    background_tasks.add_task(send_comp_sync)
+
         db.commit()
 
         return {
@@ -247,7 +301,6 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
         
     except Exception as e:
         db.rollback()
-        # 🟢 FIX 3: Catch and report the error so it doesn't fail silently
         print(f"🚨 Compliance Sweep Failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Compliance sweep aborted: {str(e)}")
 
@@ -285,7 +338,6 @@ def create_lockup_entry(
             if not has_master_clearance:
                 raise HTTPException(status_code=403, detail="Clearance Denied: Only the Office of the Commander KMP can log the Master Lockup.")
 
-        # 🟢 REGIONAL LOGGING GATE (Backend 1100Hrs Check)
         is_regional_command = (
             user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
             user_role not in ["SUPER_ADMIN", "ADMIN"]
@@ -382,7 +434,6 @@ def get_master_lockup_history(
         func.date(models.LockupMatrix.date) <= today.isoformat()
     ).order_by(models.LockupMatrix.date.desc(), models.LockupMatrix.sn.desc()).all()
     
-    # Take the latest submission for any given date if there are multiple master labels
     entries_by_date = {}
     for r in records:
         d_str = r.date if isinstance(r.date, str) else r.date.isoformat()
@@ -430,7 +481,6 @@ def get_station_lockup_summary(
     clean_stn = target_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
     today_str = date.today().isoformat()
 
-    # 1. Fetch Target Station Data
     query = db.query(models.LockupMatrix)
     query = apply_opsec_scope(current_user, query, models.LockupMatrix)
     
@@ -446,8 +496,6 @@ def get_station_lockup_summary(
     todays_log = target_query.filter(func.date(models.LockupMatrix.date) == today_str).first()
     todays_total = todays_log.suspects if todays_log else None
 
-    # 2. 🟢 Decoupled Computed Sum Engine
-    # Only sums actual stations in the user's jurisdiction (Excludes BOTH master labels)
     sum_query = db.query(func.sum(models.LockupMatrix.suspects)).filter(
         func.date(models.LockupMatrix.date) == today_str,
         ~func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
@@ -455,8 +503,6 @@ def get_station_lockup_summary(
     sum_query = apply_opsec_scope(current_user, sum_query, models.LockupMatrix)
     computed_sum = sum_query.scalar() or 0
 
-    # 3. 🟢 Decoupled Master Total Engine
-    # Looks directly at the physical SITREP logged by command via the specific master labels
     master_log = db.query(models.LockupMatrix.suspects).filter(
         func.date(models.LockupMatrix.date) == today_str,
         func.upper(models.LockupMatrix.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"])
