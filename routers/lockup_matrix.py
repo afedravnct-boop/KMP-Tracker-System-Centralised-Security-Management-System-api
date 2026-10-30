@@ -110,6 +110,21 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
     
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
+    user_stn = str(current_user.station).strip().upper() if current_user.station else "" # Evaluates current posting dynamically
+    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+
+    # Standard scoped checks will now automatically use 'CPS KABALAGALA' instead of 'CPS KAMPALA'
+    if hasattr(ModelClass, 'station'):
+        clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        return query.filter(
+            or_(
+                func.upper(ModelClass.station) == user_stn,
+                func.upper(ModelClass.station) == clean_stn
+            )
+        )
+    return query
+
+    user_role = str(current_user.role).strip().upper() if current_user.role else ""
     user_pos = str(current_user.position).strip().upper() if current_user.position else ""
     user_reg = str(current_user.region).strip().upper() if current_user.region else ""
     user_stn = str(current_user.station).strip().upper() if current_user.station else ""

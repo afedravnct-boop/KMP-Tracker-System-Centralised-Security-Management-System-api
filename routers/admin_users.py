@@ -24,7 +24,7 @@ conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
     MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=465,                # 🟢 Switch to Port 465
+    MAIL_PORT=465,                # 🟢 Port 465
     MAIL_SERVER="smtp.gmail.com",
     MAIL_STARTTLS=False,          # 🟢 Must be False for Port 465
     MAIL_SSL_TLS=True             # 🟢 Must be True for Port 465
@@ -941,6 +941,26 @@ def approve_hr_transfer_request(
         target_request.reviewed_by = f"{current_user.rank} {current_user.name} ({current_user.fnum})"
         target_request.reviewed_at = datetime.now(pytz.timezone('Africa/Nairobi')).replace(tzinfo=None)
         
+        # 🟢 DYNAMIC TRANSFER RECOGNITION: Update officer's active station and region globally upon approval
+        target_fnum_val = (getattr(target_request, "fnum", None) or getattr(target_request, "requested_fnum", "")).strip().upper()
+        target_officer = db.query(models.Users).filter(
+            func.upper(models.Users.fnum) == target_fnum_val
+        ).first()
+
+        if target_officer:
+            old_station = target_officer.station
+            old_region = target_officer.region
+            
+            target_officer.station = target_request.requested_station
+            target_officer.region = target_request.requested_region
+            
+            append_user_audit_event(
+                target_officer, 
+                "STATION_TRANSFER_EXECUTED", 
+                current_user.fnum, 
+                f"Transferred dynamically from {old_station} ({old_region}) to {target_officer.station} ({target_officer.region}) by authorized command."
+            )
+
         db.commit()
 
         record_neon_activity(
@@ -949,7 +969,7 @@ def approve_hr_transfer_request(
             action_type="UPDATE",
             module="ADMIN_APPROVALS",
             target_id=f"TRANSFER_REQ_{request_id}",
-            changes_summary=f"Command authority {current_user.fnum} explicitly approved transfer request #{request_id}."
+            changes_summary=f"Command authority {current_user.fnum} explicitly approved transfer request #{request_id} for officer {target_fnum_val}."
         )
 
         return {"status": "success", "message": f"Transfer request #{request_id} successfully authorized and cleared."}
@@ -1118,7 +1138,6 @@ def trigger_tactical_briefs(
             </div>
             """
             
-            # 🟢 FIX: Safe background task wrapper preventing event loop collision
             def send_brief_sync():
                 try:
                     loop = asyncio.new_event_loop()
@@ -1267,7 +1286,6 @@ def set_commander_status(
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                # Note: notify_delegation_status is a placeholder or can be added if needed, wrapped safely here
                 loop.close()
             except Exception as ex:
                 print(f"❌ Background delegation email error: {ex}")
