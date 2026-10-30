@@ -246,7 +246,7 @@ def get_exhibits(
         return serialized_records
     except Exception as e:
         print(f"Error fetching exhibits: {e}")
-        return []
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
 # 1B. SECURE EXPORT EXHIBITS TO ENCRYPTED ZIP (EXCEL)
