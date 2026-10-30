@@ -341,12 +341,12 @@ def get_dashboard_intelligence(
 ):
     """Offloads pure numerical telemetry, statistics, structured counts, and metadata without heavy narrative parsing."""
     try:
-        LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
-        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
-        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
-        ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
-        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
-        FireModel = get_model_safe('Fire_Statistics', 'FireStatistics', 'fire_statistics')
+        LockupModel = get_model_safe('lockup_matrix', 'suspect_lockup', 'LockupMatrix')
+        StoryModel = get_model_safe('success_stories', 'SuccessStories', 'Stories')
+        CrimeModel = get_model_safe('crime_reports', 'CrimeReports', 'Reports')
+        ExhibitModel = get_model_safe('impounded_exhibits', 'Exhibits')
+        AccidentsModel = get_model_safe('accidents_statistics', 'AccidentsStatistics')
+        FireModel = get_model_safe('fire_statistics', 'FireStatistics')
 
         def query_scoped(ModelClass):
             if not ModelClass:
