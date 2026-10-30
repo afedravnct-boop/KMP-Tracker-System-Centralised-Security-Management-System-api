@@ -56,9 +56,10 @@ const isStationEquivalent = (statA, statB) => {
   return cleanA === cleanB && cleanA.length > 0;
 };
 
-const autoCapitalize = (text) => {
-  if (!text) return text;
-  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
+const autoCapitalizeSentences = (str) => {
+  if (!str) return str;
+  // Capitalizes the first letter of the string and any letter following a punctuation mark (. ! ?) followed by spaces
+  return str.replace(/(^\s*|[.!?]\s+)([a-z])/g, (match, separator, letter) => {
     return separator + letter.toUpperCase();
   });
 };
@@ -1092,14 +1093,17 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   </label>
                   <div className="quill-editor-container bg-white rounded-md shadow-sm">
                     <ReactQuill 
-                      theme="snow" 
-                      value={formData.message} 
-                      onChange={(content) => {
-                        setFormData({ ...formData, message: content });
-                      }}
-                      style={{ height: '300px', marginBottom: '40px' }}
-                      modules={{ toolbar: [['bold', 'italic', 'underline'], [{'list': 'ordered'}, {'list': 'bullet'}], ['clean']] }}
-                    />
+  theme="snow" 
+  value={formData.message} 
+  onChange={(content) => {
+    // If the content contains HTML tags from Quill, we apply sentence capitalization smartly
+    // Or we can let users type and format on state change:
+    const capitalized = autoCapitalizeSentences(content);
+    setFormData({ ...formData, message: capitalized });
+  }}
+  style={{ height: '300px', marginBottom: '40px' }}
+  modules={{ toolbar: [['bold', 'italic', 'underline'], [{'list': 'ordered'}, {'list': 'bullet'}], ['clean']] }}
+/>
                   </div>
                 </div>
 

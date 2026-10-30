@@ -3,6 +3,11 @@
    ========================================================= */
 @import "tailwindcss";
 
+
+input[type="text"], textarea {
+  text-transform: none; /* Keeps NeonDB data clean while user types normally, or use capitalize */
+}
+
 /* =========================================================
    0. GLOBAL SYSTEM FONT & ROOT SCALING
    ========================================================= */
