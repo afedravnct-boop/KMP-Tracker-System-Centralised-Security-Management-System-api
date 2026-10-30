@@ -211,7 +211,7 @@ def get_stats(
             })
         return results
     except Exception as e:
-        print(f"Stats Endpoint Error: {e}")
+        print(f"Stats Endpoint Critical Exception: {e}")
         return []
 
 @router.get("/stats/export")
