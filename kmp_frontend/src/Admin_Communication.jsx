@@ -6,6 +6,13 @@ import 'react-quill-new/dist/quill.snow.css';
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+const autoCapitalize = (text) => {
+  if (!text) return text;
+  return text.replace(/(^\s*|>|\.\s+|\n\s*)([a-z])/g, (match, separator, letter) => {
+    return separator + letter.toUpperCase();
+  });
+};
+
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],

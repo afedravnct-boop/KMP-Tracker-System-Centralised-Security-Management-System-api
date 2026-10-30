@@ -682,11 +682,20 @@ def get_online_users(db: Session = Depends(database.get_db)):
         {
             "fnum": u.fnum,
             "name": u.name,
+            "rank": u.rank,
+            "role": u.role,
             "station": u.station,
-            "profile_photo_path": u.profile_photo_path
+            "region": u.region,
+            "division": u.division,
+            "position": u.position,
+            "email": u.email,
+            "phone": u.phone,
+            "ipps": u.ipps,
+            "sex": u.sex,
+            "profile_photo_path": u.profile_photo_path,
+            "permissions": u.permissions
         } for u in active_users
     ]
-
 # ====================================================================
 # 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER (Local Only)
 # ====================================================================

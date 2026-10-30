@@ -339,13 +339,14 @@ def get_dashboard_intelligence(
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
-    """Offloads success stories parsing, fire intelligence, manpower matrix, crime categories, detentions, exhibits, and accidents with precision regional/station filtering."""
+    """Offloads pure numerical telemetry, statistics, structured counts, and metadata without heavy narrative parsing."""
     try:
         LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
         ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
         AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
+        FireModel = get_model_safe('Fire_Statistics', 'FireStatistics', 'fire_statistics')
 
         def query_scoped(ModelClass):
             if not ModelClass:
@@ -359,8 +360,9 @@ def get_dashboard_intelligence(
         crime_records = query_scoped(CrimeModel)
         exhibit_records = query_scoped(ExhibitModel)
         accidents_records = query_scoped(AccidentsModel)
+        fire_records = query_scoped(FireModel)
 
-        # 1. DETENTIONS / LOCKUP CALENDAR & MARGIN AUDITS
+        # 1. DETENTIONS / LOCKUP CALENDAR & MARGIN AUDITS (Strictly Numerical)
         date_map = {}
         region_demo_map = {}
         region_dur_map = {}
@@ -418,43 +420,35 @@ def get_dashboard_intelligence(
                 "status": status_note
             })
 
-        # 2. SUCCESS STORIES PROCESSING
-        parsed_stories = []
+        # 2. SUCCESS STORIES METRICS (Purely Structured Metadata)
+        processed_stories = []
         for st in story_records:
-            raw_narrative = getattr(st, 'narrative', getattr(st, 'title', ''))
-            parsed = parse_success_story_backend(raw_narrative)
-            parsed_stories.append({
-                "station": getattr(st, 'station', 'UNKNOWN'),
-                "region": getattr(st, 'region', 'KMP GENERAL'),
-                "parsedSuspects": getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or parsed['suspects'],
-                "parsedRecoveries": getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or parsed['recoveries'],
-                "parsedLegalStatus": getattr(st, 'legal_status', '') or parsed['legalStatus'],
-                "parsedClassification": parsed['classification']
+            processed_stories.append({
+                "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
+                "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
+                "suspects": safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0)),
+                "date": str(getattr(st, 'date', 'N/A'))
             })
 
-        # 3. FIRE INTELLIGENCE
-        fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
+        # 3. FIRE INTELLIGENCE (Directly From Dedicated Fire Statistics Table)
+        total_fire_incidents = len(fire_records)
+        total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
+        total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
         fire_list = []
-        total_fire_deaths = 0
-        total_fire_injuries = 0
-        for cr in crime_records:
-            narrative = str(getattr(cr, 'narrative', '') or "")
-            offence = str(getattr(cr, 'offence', '') or "")
-            if any(kw in narrative.lower() or kw in offence.lower() for kw in fire_keywords):
-                parsed_fire = parse_fire_incident_advanced(narrative, offence)
-                total_fire_deaths += parsed_fire["deaths"]
-                total_fire_injuries += parsed_fire["injuries"]
-                fire_list.append({
-                    "station": getattr(cr, 'station', 'UNKNOWN'),
-                    "region": getattr(cr, 'region', 'KMP GENERAL'),
-                    "date": str(getattr(cr, 'date', 'N/A')),
-                    "classification": parsed_fire["classification"],
-                    "deaths": parsed_fire["deaths"],
-                    "injuries": parsed_fire["injuries"],
-                    "summary": strip_html_tags(narrative or offence or 'Fire incident logged.')
-                })
+        for f in fire_records:
+            fire_list.append({
+                "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
+                "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
+                "date": str(getattr(f, 'date', 'N/A')),
+                "classification": str(getattr(f, 'nature_of_fire', 'GENERAL FIRE')).upper(),
+                "minorOutbreaks": safe_int(getattr(f, 'minor_outbreaks', 0)),
+                "majorDisasters": safe_int(getattr(f, 'major_disasters', 0)),
+                "fatalFires": safe_int(getattr(f, 'fatal_fires', 0)),
+                "victims": safe_int(getattr(f, 'victims', 0)),
+                "total": safe_int(getattr(f, 'total', 0))
+            })
 
-        # 4. CRIME CATEGORIES
+        # 4. CRIME CATEGORIES (Structured Metrics)
         crime_reg_map = {}
         for cr in crime_records:
             cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
@@ -470,11 +464,11 @@ def get_dashboard_intelligence(
             crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
         crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
 
-        # 5. EXHIBITS DATA RETRIEVAL
+        # 5. EXHIBITS DATA RETRIEVAL (Purely Categorical & Numerical)
         exhibits_formatted = []
         for ex in exhibit_records:
             exhibits_formatted.append({
-                "id": getattr(ex, 'id', 0),
+                "id": safe_int(getattr(ex, 'id', 0)),
                 "category": str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper(),
                 "description": str(getattr(ex, 'description', getattr(ex, 'particulars', 'N/A')) or 'N/A').upper(),
                 "region": str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper(),
@@ -483,11 +477,11 @@ def get_dashboard_intelligence(
                 "total": 1
             })
 
-        # 6. ACCIDENTS DATA RETRIEVAL
+        # 6. ACCIDENTS DATA RETRIEVAL (Structured Telemetry)
         accidents_formatted = []
         for ac in accidents_records:
             accidents_formatted.append({
-                "id": getattr(ac, 'id', 0),
+                "id": safe_int(getattr(ac, 'id', 0)),
                 "date": str(getattr(ac, 'date', 'N/A')),
                 "region": str(getattr(ac, 'region', 'KMP GENERAL')).upper(),
                 "station": str(getattr(ac, 'station', 'N/A')).upper(),
@@ -507,9 +501,9 @@ def get_dashboard_intelligence(
                 "regionDuration": list(region_dur_map.values()),
                 "dailyMargins": daily_margins
             },
-            "successStoriesProcessed": parsed_stories,
+            "successStoriesProcessed": processed_stories,
             "fireIntelligence": {
-                "totalFires": len(fire_list),
+                "totalFires": total_fire_incidents,
                 "totalDeaths": total_fire_deaths,
                 "totalInjuries": total_fire_injuries,
                 "fireList": fire_list
