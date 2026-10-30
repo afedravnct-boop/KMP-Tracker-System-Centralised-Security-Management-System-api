@@ -1,3 +1,4 @@
+# routers/exhibits.py
 import json
 import re
 import io
@@ -35,6 +36,18 @@ def strip_html_tags(text_str: str) -> str:
     if not text_str:
         return ""
     return re.sub('<.*?>', '', str(text_str))
+
+def get_model_safe(*names):
+    """Safe helper to resolve database models across varying naming conventions and tablenames."""
+    for name in names:
+        if hasattr(models, name):
+            return getattr(models, name)
+    target_slug = names[-1].lower()
+    for attr_name, cls in models.__dict__.items():
+        if isinstance(cls, type) and hasattr(cls, '__tablename__'):
+            if cls.__tablename__.lower() in [n.lower() for n in names] or cls.__tablename__.lower() == target_slug:
+                return cls
+    return None
 
 # 🟢 Local serializer to prevent circular imports with api_backend
 def serialize_model_row(row):
@@ -138,7 +151,7 @@ def get_exhibits(
     current_user = Depends(get_current_user)
 ):
     try:
-        Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
+        Model = get_model_safe('impounded_exhibits', 'Impounded_Exhibits', 'Exhibits', 'ImpoundedExhibits')
         if not Model: return []
         
         query = db.query(Model)
@@ -193,8 +206,28 @@ def get_exhibits(
                     Model.status.ilike(term)
                 ))
             
-        records = query.order_by(Model.id.desc()).limit(limit).all()
-        serialized_records = [serialize_model_row(r) for r in records]
+        pk_col = getattr(Model, 'id', getattr(Model, 'sn', getattr(Model, 's_no', None)))
+        if pk_col is not None and hasattr(pk_col, 'desc'):
+            records = query.order_by(pk_col.desc()).limit(limit).all()
+        else:
+            records = query.limit(limit).all()
+
+        serialized_records = []
+        for r in records:
+            item = {}
+            if hasattr(Model, '__table__'):
+                for col in Model.__table__.columns:
+                    col_name = col.name
+                    val = getattr(r, col_name, None)
+                    if isinstance(val, datetime):
+                        item[col_name] = val.strftime("%Y-%m-%d %H:%M:%S")
+                    elif hasattr(val, 'isoformat'):
+                        item[col_name] = val.isoformat()
+                    else:
+                        item[col_name] = val
+            else:
+                item = serialize_model_row(r)
+            serialized_records.append(item)
 
         if search:
             summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched exhibits ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
@@ -233,7 +266,7 @@ def export_exhibits_secure(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
+        Model = get_model_safe('impounded_exhibits', 'Impounded_Exhibits', 'Exhibits', 'ImpoundedExhibits')
         if not Model:
             raise HTTPException(status_code=500, detail="Exhibits model not found")
 
@@ -289,7 +322,12 @@ def export_exhibits_secure(
                     Model.status.ilike(term)
                 ))
 
-        records = query.order_by(Model.id.desc()).all()
+        pk_col = getattr(Model, 'id', getattr(Model, 'sn', getattr(Model, 's_no', None)))
+        if pk_col is not None and hasattr(pk_col, 'desc'):
+            records = query.order_by(pk_col.desc()).all()
+        else:
+            records = query.all()
+            
         total_records = len(records)
 
         # --- 🟢 1. Initialize Workbook & Inject Metadata ---
@@ -410,7 +448,7 @@ def create_exhibit(
     current_user = Depends(get_current_user)
 ):
     try:
-        Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
+        Model = get_model_safe('impounded_exhibits', 'Impounded_Exhibits', 'Exhibits', 'ImpoundedExhibits')
         if not Model: raise HTTPException(status_code=500, detail="Exhibits model not initialized.")
         
         model_kwargs = {
@@ -472,7 +510,7 @@ def update_exhibit(
     current_user = Depends(get_current_user)
 ):
     try:
-        Model = getattr(models, 'Impounded_Exhibits', getattr(models, 'ImpoundedExhibits', None))
+        Model = get_model_safe('impounded_exhibits', 'Impounded_Exhibits', 'Exhibits', 'ImpoundedExhibits')
         item = db.query(Model).filter(Model.id == item_id).first()
         if not item: raise HTTPException(status_code=404, detail="Exhibit record not found.")
         

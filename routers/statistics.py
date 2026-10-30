@@ -28,6 +28,12 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
+def safe_int(val) -> int:
+    try:
+        return int(float(val)) if val else 0
+    except (ValueError, TypeError):
+        return 0
+
 def get_model_safe(*names):
     for name in names:
         if hasattr(models, name):
@@ -185,14 +191,20 @@ def get_stats(
         
         results = []
         for r in records:
-            item = {}
-            if hasattr(StatsModel, '__table__'):
-                for col in StatsModel.__table__.columns:
-                    col_name = col.name
-                    item[col_name] = getattr(r, col_name, None)
-            else:
-                item = clean_model_dict(r)
-            results.append(item)
+            results.append({
+                "id": getattr(r, 'id', getattr(r, 'sn', 0)),
+                "date": str(getattr(r, 'date', '') or ''),
+                "region": str(getattr(r, 'region', '') or ''),
+                "station": str(getattr(r, 'station', '') or ''),
+                "arrested": safe_int(getattr(r, 'arrested', 0)),
+                "given_bond": safe_int(getattr(r, 'given_bond', 0)),
+                "cautioned": safe_int(getattr(r, 'cautioned', 0)),
+                "pending_court": safe_int(getattr(r, 'pending_court', 0)),
+                "taken_to_court": safe_int(getattr(r, 'taken_to_court', 0)),
+                "released": safe_int(getattr(r, 'released', 0)),
+                "remanded": safe_int(getattr(r, 'remanded', 0)),
+                "convicted": safe_int(getattr(r, 'convicted', 0))
+            })
         return results
     except Exception as e:
         print(f"Stats Endpoint Error: {e}")
@@ -353,13 +365,28 @@ def get_agric_stats(
     search: Optional[str] = Query(default=None), limit: int = Query(default=300),
     db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
 ):
-    AgricStatsModel = get_model_safe('AgricStats', 'agric_stats', 'Agric_Stats')
-    if not AgricStatsModel: return []
-    query = db.query(AgricStatsModel)
-    query = apply_opsec_scope(current_user, query, AgricStatsModel)
-    query = build_filtered_query(query, AgricStatsModel, region, station, start_date, end_date, search)
-    records = query.order_by(AgricStatsModel.id.desc()).limit(limit).all()
-    return [clean_model_dict(r) for r in records]
+    try:
+        AgricStatsModel = get_model_safe('AgricStats', 'agric_stats', 'Agric_Stats')
+        if not AgricStatsModel: return []
+        query = db.query(AgricStatsModel)
+        query = apply_opsec_scope(current_user, query, AgricStatsModel)
+        query = build_filtered_query(query, AgricStatsModel, region, station, start_date, end_date, search)
+        
+        pk_col = getattr(AgricStatsModel, 'id', getattr(AgricStatsModel, 'sn', None))
+        records = query.order_by(pk_col.desc()).limit(limit).all() if pk_col else query.limit(limit).all()
+        
+        return [{
+            "id": getattr(r, 'id', getattr(r, 'sn', 0)),
+            "date": str(getattr(r, 'date', '') or ''),
+            "region": str(getattr(r, 'region', '') or ''),
+            "station": str(getattr(r, 'station', '') or ''),
+            "agric_crime_report": str(getattr(r, 'agric_crime_report', '') or ''),
+            "number_count": safe_int(getattr(r, 'number_count', 0)),
+            "recoveries": safe_int(getattr(r, 'recoveries', 0))
+        } for r in records]
+    except Exception as e:
+        print(f"Agric Stats Endpoint Error: {e}")
+        return []
 
 @router.get("/agric-stats/export")
 def export_agric_stats_secure_zip(
@@ -512,13 +539,29 @@ def get_agric_summary(
     search: Optional[str] = Query(default=None), limit: int = Query(default=300),
     db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
 ):
-    SummaryModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary')
-    if not SummaryModel: return []
-    query = db.query(SummaryModel)
-    query = apply_opsec_scope(current_user, query, SummaryModel)
-    query = build_filtered_query(query, SummaryModel, region, station, start_date, end_date, search)
-    records = query.order_by(SummaryModel.id.desc()).limit(limit).all()
-    return [clean_model_dict(r) for r in records]
+    try:
+        SummaryModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary')
+        if not SummaryModel: return []
+        query = db.query(SummaryModel)
+        query = apply_opsec_scope(current_user, query, SummaryModel)
+        query = build_filtered_query(query, SummaryModel, region, station, start_date, end_date, search)
+        
+        pk_col = getattr(SummaryModel, 'id', getattr(SummaryModel, 'sn', None))
+        records = query.order_by(pk_col.desc()).limit(limit).all() if pk_col else query.limit(limit).all()
+        
+        return [{
+            "id": getattr(r, 'id', getattr(r, 'sn', 0)),
+            "date": str(getattr(r, 'date', '') or ''),
+            "region": str(getattr(r, 'region', '') or ''),
+            "station": str(getattr(r, 'station', '') or ''),
+            "agric_crime_report": str(getattr(r, 'agric_crime_report', '') or ''),
+            "number_count": safe_int(getattr(r, 'number_count', 0)),
+            "recoveries": safe_int(getattr(r, 'recoveries', 0)),
+            "status": str(getattr(r, 'status', '') or '')
+        } for r in records]
+    except Exception as e:
+        print(f"Agric Summary Endpoint Error: {e}")
+        return []
 
 @router.post("/agric-summary")
 def create_agric_summary(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
@@ -546,23 +589,34 @@ def get_accidents_stats(
     search: Optional[str] = Query(default=None), limit: int = Query(default=300),
     db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
 ):
-    AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
-    if not AccidentsModel: return []
-    
-    query = db.query(AccidentsModel)
-    query = apply_opsec_scope(current_user, query, AccidentsModel)
-    query = build_filtered_query(query, AccidentsModel, region, station, start_date, end_date, search)
-    
-    records = query.order_by(AccidentsModel.id.desc()).limit(limit).all()
-    
-    results = []
-    for r in records:
-        clean = clean_model_dict(r)
-        if hasattr(r, 'created_at') and r.created_at:
-            clean['created_at'] = r.created_at.isoformat() if hasattr(r.created_at, 'isoformat') else str(r.created_at)
-        results.append(clean)
+    try:
+        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
+        if not AccidentsModel: return []
         
-    return results
+        query = db.query(AccidentsModel)
+        query = apply_opsec_scope(current_user, query, AccidentsModel)
+        query = build_filtered_query(query, AccidentsModel, region, station, start_date, end_date, search)
+        
+        pk_col = getattr(AccidentsModel, 'id', getattr(AccidentsModel, 'sn', None))
+        records = query.order_by(pk_col.desc()).limit(limit).all() if pk_col else query.limit(limit).all()
+        
+        return [{
+            "id": getattr(r, 'id', getattr(r, 'sn', 0)),
+            "date": str(getattr(r, 'date', '') or ''),
+            "region": str(getattr(r, 'region', '') or ''),
+            "station": str(getattr(r, 'station', '') or ''),
+            "nature_of_accident": str(getattr(r, 'nature_of_accident', '') or ''),
+            "minor": safe_int(getattr(r, 'minor', 0)),
+            "serious": safe_int(getattr(r, 'serious', 0)),
+            "fatal": safe_int(getattr(r, 'fatal', 0)),
+            "victims": safe_int(getattr(r, 'victims', 0)),
+            "total": safe_int(getattr(r, 'total', 0)),
+            "entered_by": str(getattr(r, 'entered_by', getattr(r, 'last_updated_by', '')) or ''),
+            "created_at": r.created_at.isoformat() if hasattr(r, 'created_at') and r.created_at else ''
+        } for r in records]
+    except Exception as e:
+        print(f"Accidents Endpoint Error: {e}")
+        return []
 
 @router.post("/accidents")
 def create_accidents_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
@@ -746,23 +800,34 @@ def get_fires_stats(
     search: Optional[str] = Query(default=None), limit: int = Query(default=300),
     db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)
 ):
-    FiresModel = get_model_safe('Fire_Statistics', 'FireStatistics', 'fire_statistics', 'FiresStats')
-    if not FiresModel: return []
-    
-    query = db.query(FiresModel)
-    query = apply_opsec_scope(current_user, query, FiresModel)
-    query = build_filtered_query(query, FiresModel, region, station, start_date, end_date, search)
-    
-    records = query.order_by(FiresModel.id.desc()).limit(limit).all()
-    
-    results = []
-    for r in records:
-        clean = clean_model_dict(r)
-        if hasattr(r, 'created_at') and r.created_at:
-            clean['created_at'] = r.created_at.isoformat() if hasattr(r.created_at, 'isoformat') else str(r.created_at)
-        results.append(clean)
+    try:
+        FiresModel = get_model_safe('fire_statistics', 'Fire_Statistics', 'FireStatistics', 'FiresStats')
+        if not FiresModel: return []
         
-    return results
+        query = db.query(FiresModel)
+        query = apply_opsec_scope(current_user, query, FiresModel)
+        query = build_filtered_query(query, FiresModel, region, station, start_date, end_date, search)
+        
+        pk_col = getattr(FiresModel, 'id', getattr(FiresModel, 'sn', None))
+        records = query.order_by(pk_col.desc()).limit(limit).all() if pk_col else query.limit(limit).all()
+        
+        return [{
+            "id": getattr(r, 'id', getattr(r, 'sn', 0)),
+            "date": str(getattr(r, 'date', '') or ''),
+            "region": str(getattr(r, 'region', '') or ''),
+            "station": str(getattr(r, 'station', '') or ''),
+            "nature_of_fire": str(getattr(r, 'nature_of_fire', '') or ''),
+            "minor_outbreaks": safe_int(getattr(r, 'minor_outbreaks', 0)),
+            "major_disasters": safe_int(getattr(r, 'major_disasters', 0)),
+            "fatal_fires": safe_int(getattr(r, 'fatal_fires', 0)),
+            "victims": safe_int(getattr(r, 'victims', 0)),
+            "total": safe_int(getattr(r, 'total', 0)),
+            "entered_by": str(getattr(r, 'entered_by', getattr(r, 'last_updated_by', '')) or ''),
+            "created_at": r.created_at.isoformat() if hasattr(r, 'created_at') and r.created_at else ''
+        } for r in records]
+    except Exception as e:
+        print(f"Fires Endpoint Error: {e}")
+        return []
 
 @router.post("/fires")
 def create_fires_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
