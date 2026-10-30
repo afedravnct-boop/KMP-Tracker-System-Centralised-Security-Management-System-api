@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
+from typing import Optional, List, Dict, Any # 🟢 FIX: CRITICAL MISSING IMPORT ADDED
 
 from auth import get_current_user, require_export_privilege
 from app.database import get_db, get_logs_db
@@ -26,6 +27,13 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU"]
 }
+
+# 🟢 FIX: Aggressive Safe Integer Casting for dirty database entries
+def safe_int(val) -> int:
+    try:
+        return int(float(val)) if val else 0
+    except (ValueError, TypeError):
+        return 0
 
 def get_model_safe(*model_names):
     """Safe helper to resolve database models across varying naming conventions and tablenames."""
@@ -66,7 +74,6 @@ def get_official_region_for_station(station_name: str, db_region: str) -> str:
 
     return clean_region or "KMP GENERAL"
 
-# 🟢 PRECISION SCOPING HELPER: Ensures Regional HQ staff roll up under their parent regions
 def apply_precise_regional_scoping(query, ModelClass, selected_region: Optional[str], selected_station: Optional[str], current_user):
     sel_reg = (selected_region or "").strip().upper()
     sel_stn = (selected_station or "").strip().upper()
@@ -91,7 +98,6 @@ def apply_precise_regional_scoping(query, ModelClass, selected_region: Optional[
         user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]
     )
 
-    # 1. Station-Level Precision Filter (Takes precedence if a specific station is chosen)
     if sel_stn and sel_stn not in ["ALL STATIONS", "ALL STATIONS / DIVISIONS", "ALL"]:
         conds = []
         if hasattr(ModelClass, 'station'):
@@ -105,7 +111,6 @@ def apply_precise_regional_scoping(query, ModelClass, selected_region: Optional[
             )
         return query.filter(or_(*conds))
 
-    # 2. Region-Level Scoping Filter (When a region like KMP EAST or KMP NORTH is selected)
     if sel_reg and sel_reg != "ALL REGIONS":
         conds = []
         if hasattr(ModelClass, 'region'):
@@ -117,7 +122,6 @@ def apply_precise_regional_scoping(query, ModelClass, selected_region: Optional[
 
         return query.filter(or_(*conds))
 
-    # 3. Non-Global User Fallback (Restricted to native jurisdiction)
     if not is_absolute_global:
         conds = []
         if user_reg and hasattr(ModelClass, 'region'):
@@ -181,10 +185,10 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     injuries = 0
     death_match = re.search(r'(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)', text_blob)
     if death_match:
-        deaths = int(death_match.group(1))
+        deaths = safe_int(death_match.group(1))
     injury_match = re.search(r'(\d+)\s*(?:injured|injury|injuries|hurt|burn wounds|hospitalized|admitted)', text_blob)
     if injury_match:
-        injuries = int(injury_match.group(1))
+        injuries = safe_int(injury_match.group(1))
 
     return {
         "classification": classification,
@@ -202,13 +206,14 @@ def parse_success_story_backend(raw_narrative: str):
             "classification": "OPERATIONAL BREAKTHROUGH"
         }
 
-    headline_match = re.search(r'<strong>(.*?)<\/strong>', raw_narrative, re.IGNORECASE)
+    raw_narrative_str = str(raw_narrative)
+    headline_match = re.search(r'<strong>(.*?)<\/strong>', raw_narrative_str, re.IGNORECASE)
     if headline_match:
         classification = strip_html_tags(headline_match.group(1)).strip().upper()
     else:
         classification = "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION"
 
-    plain_text = strip_html_tags(raw_narrative)
+    plain_text = strip_html_tags(raw_narrative_str)
     lower_text = plain_text.lower()
     
     suspects_count = 0
@@ -218,7 +223,7 @@ def parse_success_story_backend(raw_narrative: str):
     ]
     for m in suspect_patterns:
         if m and m.group(1):
-            suspects_count = int(m.group(1))
+            suspects_count = safe_int(m.group(1))
             break
     if suspects_count == 0 and ('suspect' in lower_text or 'arrest' in lower_text or 'apprehend' in lower_text):
         suspects_count = 1 
@@ -266,15 +271,22 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         d_str = getattr(r, date_field, None)
         if not d_str:
             continue
+        
+        # 🟢 FIX: Safe Date Parsing for varying DB formats
+        dt = None
         try:
-            if isinstance(d_str, str):
-                dt = datetime.strptime(d_str.split('T')[0], "%Y-%m-%d")
-            elif isinstance(d_str, datetime):
+            if isinstance(d_str, datetime):
                 dt = d_str
             else:
-                continue
+                clean_d = str(d_str).split('T')[0][:10]
+                try: dt = datetime.strptime(clean_d, "%Y-%m-%d")
+                except ValueError:
+                    try: dt = datetime.strptime(clean_d, "%d/%m/%Y")
+                    except ValueError: continue
         except Exception:
             continue
+            
+        if not dt: continue
 
         week_key = f"{dt.year}-W{dt.strftime('%V')}"
         month_key = dt.strftime("%Y-%m (%B)")
@@ -286,7 +298,7 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
                 target_dict[key]["_count"] = 0
             target_dict[key]["_count"] += 1
             for vf in value_fields:
-                target_dict[key][vf] += int(getattr(r, vf, 0) or 0)
+                target_dict[key][vf] += safe_int(getattr(r, vf, 0))
 
         accumulate(weekly_map, week_key)
         accumulate(monthly_map, month_key)
@@ -322,12 +334,11 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 
 @router.get("/dashboard-intelligence", response_model=None)
 def get_dashboard_intelligence(
-    region: str | None = None,
-    station: str | None = None,
+    region: Optional[str] = None,
+    station: Optional[str] = None,
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
-
     """Offloads success stories parsing, fire intelligence, manpower matrix, crime categories, detentions, exhibits, and accidents with precision regional/station filtering."""
     try:
         LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
@@ -362,12 +373,13 @@ def get_dashboard_intelligence(
 
             stn = str(getattr(r, 'station', 'UNKNOWN')).upper()
             reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
-            suspects = int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', 0)) or 0)
-            m_ad = int(getattr(r, 'male_count', getattr(r, 'male', 0)) or 0)
-            m_juv = int(getattr(r, 'male_juvenile_count', 0) or 0)
-            f_ad = int(getattr(r, 'female_count', getattr(r, 'female', 0)) or 0)
-            f_juv = int(getattr(r, 'female_juvenile_count', 0) or 0)
-            d3_over = int(getattr(r, 'detention_3days_over', 0) or 0)
+            
+            suspects = safe_int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', 0)))
+            m_ad = safe_int(getattr(r, 'male_count', getattr(r, 'male', 0)))
+            m_juv = safe_int(getattr(r, 'male_juvenile_count', 0))
+            f_ad = safe_int(getattr(r, 'female_count', getattr(r, 'female', 0)))
+            f_juv = safe_int(getattr(r, 'female_juvenile_count', 0))
+            d3_over = safe_int(getattr(r, 'detention_3days_over', 0))
 
             if d_str not in date_map:
                 date_map[d_str] = {"total": 0, "stations": []}
@@ -388,8 +400,8 @@ def get_dashboard_intelligence(
 
             if reg not in region_dur_map:
                 region_dur_map[reg] = {"region": reg, "day1": 0, "day2": 0, "over3Days": 0}
-            region_dur_map[reg]["day1"] += int(getattr(r, 'detention_1day', 0) or 0)
-            region_dur_map[reg]["day2"] += int(getattr(r, 'detention_2days', 0) or 0)
+            region_dur_map[reg]["day1"] += safe_int(getattr(r, 'detention_1day', 0))
+            region_dur_map[reg]["day2"] += safe_int(getattr(r, 'detention_2days', 0))
             region_dur_map[reg]["over3Days"] += d3_over
 
         sorted_dates = sorted(date_map.keys())
@@ -480,11 +492,11 @@ def get_dashboard_intelligence(
                 "region": str(getattr(ac, 'region', 'KMP GENERAL')).upper(),
                 "station": str(getattr(ac, 'station', 'N/A')).upper(),
                 "nature": str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper(),
-                "minor": int(getattr(ac, 'minor', 0) or 0),
-                "serious": int(getattr(ac, 'serious', 0) or 0),
-                "fatal": int(getattr(ac, 'fatal', 0) or 0),
-                "victims": int(getattr(ac, 'victims', 0) or 0),
-                "total": int(getattr(ac, 'total', 0) or 0)
+                "minor": safe_int(getattr(ac, 'minor', 0)),
+                "serious": safe_int(getattr(ac, 'serious', 0)),
+                "fatal": safe_int(getattr(ac, 'fatal', 0)),
+                "victims": safe_int(getattr(ac, 'victims', 0)),
+                "total": safe_int(getattr(ac, 'total', 0))
             })
 
         return {
@@ -594,13 +606,13 @@ def export_analytics_report(
         total_female_custody = 0
         total_juveniles_custody = 0
         for lck in lockup_records:
-            d3 = int(getattr(lck, 'detention_3days_over', 0) or 0)
+            d3 = safe_int(getattr(lck, 'detention_3days_over', 0))
             if d3 > 0:
                 stn = str(getattr(lck, 'station', 'UNKNOWN')).upper()
                 overstayed_details_map[stn] = overstayed_details_map.get(stn, 0) + d3
                 total_overstayed_suspects += d3
-            total_female_custody += int(getattr(lck, 'female_count', 0) or 0) + int(getattr(lck, 'female_juvenile_count', 0) or 0)
-            total_juveniles_custody += int(getattr(lck, 'female_juvenile_count', 0) or 0) + int(getattr(lck, 'male_juvenile_count', 0) or 0)
+            total_female_custody += safe_int(getattr(lck, 'female_count', 0)) + safe_int(getattr(lck, 'female_juvenile_count', 0))
+            total_juveniles_custody += safe_int(getattr(lck, 'female_juvenile_count', 0)) + safe_int(getattr(lck, 'male_juvenile_count', 0))
 
         detention_timeseries = calculate_timeseries_aggregates(
             lockup_records, date_field='date', 
@@ -614,8 +626,8 @@ def export_analytics_report(
         agric_breakdown = {"ANIMALS": [0, 0], "PRODUCE": [0, 0], "EQUIPMENT": [0, 0]}
         for ag in agric_records:
             rep_type = str(getattr(ag, 'agric_crime_report', '')).upper()
-            stolen = getattr(ag, 'number_count', 0) or 0
-            recovered = getattr(ag, 'recoveries', 0) or 0
+            stolen = safe_int(getattr(ag, 'number_count', 0))
+            recovered = safe_int(getattr(ag, 'recoveries', 0))
             if "ANIMAL" in rep_type or "LIVESTOCK" in rep_type or "CATTLE" in rep_type:
                 agric_breakdown["ANIMALS"][0] += stolen
                 agric_breakdown["ANIMALS"][1] += recovered
@@ -710,14 +722,14 @@ def export_analytics_report(
             if reg not in region_ops_totals:
                 region_ops_totals[reg] = {"arrested": 0, "bond": 0, "caution": 0, "pending": 0, "court": 0, "released": 0, "remanded": 0, "convicted": 0}
             
-            arr = getattr(s, 'arrested', 0) or 0
-            bon = getattr(s, 'given_bond', 0) or 0
-            cau = getattr(s, 'cautioned', 0) or 0
-            pen = getattr(s, 'pending_court', 0) or 0
-            tak = getattr(s, 'taken_to_court', 0) or 0
-            rel = getattr(s, 'released', 0) or 0
-            rem = getattr(s, 'remanded', 0) or 0
-            con = getattr(s, 'convicted', 0) or 0
+            arr = safe_int(getattr(s, 'arrested', 0))
+            bon = safe_int(getattr(s, 'given_bond', 0))
+            cau = safe_int(getattr(s, 'cautioned', 0))
+            pen = safe_int(getattr(s, 'pending_court', 0))
+            tak = safe_int(getattr(s, 'taken_to_court', 0))
+            rel = safe_int(getattr(s, 'released', 0))
+            rem = safe_int(getattr(s, 'remanded', 0))
+            con = safe_int(getattr(s, 'convicted', 0))
 
             region_ops_totals[reg]["arrested"] += arr
             region_ops_totals[reg]["bond"] += bon
@@ -748,8 +760,8 @@ def export_analytics_report(
             ["Total Fire Outbreaks & Arson Incidents", fire_incidents_count],
             ["Total Fire Deaths Recorded", total_fire_deaths],
             ["Total Fire Injuries Recorded", total_fire_injuries],
-            ["Total Suspects Arrested Force-Wide", sum(getattr(s, 'arrested', 0) or 0 for s in ops_records)],
-            ["Total Convictions Obtained Force-Wide", sum(getattr(s, 'convicted', 0) or 0 for s in ops_records)],
+            ["Total Suspects Arrested Force-Wide", sum(safe_int(getattr(s, 'arrested', 0)) for s in ops_records)],
+            ["Total Convictions Obtained Force-Wide", sum(safe_int(getattr(s, 'convicted', 0)) for s in ops_records)],
             ["Total Constitutional Overstays (3+ Days in Cells)", total_overstayed_suspects],
             ["Total Women in Custody (Adults & Juveniles)", total_female_custody],
             ["Total Juveniles / Minors in Detention", total_juveniles_custody]
