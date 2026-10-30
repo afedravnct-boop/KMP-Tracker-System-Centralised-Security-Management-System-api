@@ -169,15 +169,22 @@ def get_stats(
     current_user: models.Users = Depends(get_current_user)
 ):
     StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
-    if not StatsModel: return []
+    if not StatsModel: 
+        return []
     
-    query = db.query(StatsModel)
-    query = apply_opsec_scope(current_user, query, StatsModel)
-    query = build_filtered_query(query, StatsModel, region, station, start_date, end_date, search)
-    
-    records = query.order_by(StatsModel.id.desc()).limit(limit).all()
-    return [clean_model_dict(r) for r in records]
-
+    try:
+        query = db.query(StatsModel)
+        query = apply_opsec_scope(current_user, query, StatsModel)
+        query = build_filtered_query(query, StatsModel, region, station, start_date, end_date, search)
+        
+        # Safe primary key detection preventing AttributeErrors
+        pk_col = getattr(StatsModel, 'id', getattr(StatsModel, 'sn', None))
+        records = query.order_by(pk_col.desc()).limit(limit).all() if pk_col else query.limit(limit).all()
+        
+        return [clean_model_dict(r) for r in records]
+    except Exception as e:
+        print(f"Stats Endpoint Error: {e}")
+        return []
 @router.get("/stats/export")
 def export_stats_secure_zip(
     region: Optional[str] = Query(default=None),

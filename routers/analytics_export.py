@@ -339,14 +339,15 @@ def get_dashboard_intelligence(
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
-    """Offloads pure numerical telemetry, statistics, structured counts, and metadata without heavy narrative parsing."""
+    """Offloads pure numerical telemetry directly from dedicated NeonDB statistical tables."""
     try:
+        # Directly target your exact NeonDB table identifiers
         LockupModel = get_model_safe('lockup_matrix', 'suspect_lockup', 'LockupMatrix')
         StoryModel = get_model_safe('success_stories', 'SuccessStories', 'Stories')
         CrimeModel = get_model_safe('crime_reports', 'CrimeReports', 'Reports')
-        ExhibitModel = get_model_safe('impounded_exhibits', 'Exhibits')
-        AccidentsModel = get_model_safe('accidents_statistics', 'AccidentsStatistics')
-        FireModel = get_model_safe('fire_statistics', 'FireStatistics')
+        ExhibitModel = get_model_safe('impounded_exhibits', 'Impounded_Exhibits', 'Exhibits')
+        AccidentsModel = get_model_safe('accidents_statistics', 'Accidents_Statistics', 'AccidentsStatistics')
+        FireModel = get_model_safe('fire_statistics', 'Fire_Statistics', 'FireStatistics')
 
         def query_scoped(ModelClass):
             if not ModelClass:
@@ -362,7 +363,7 @@ def get_dashboard_intelligence(
         accidents_records = query_scoped(AccidentsModel)
         fire_records = query_scoped(FireModel)
 
-        # 1. DETENTIONS / LOCKUP CALENDAR & MARGIN AUDITS (Resilient Fallback)
+        # 1. DETENTIONS / LOCKUP CALENDAR (From lockup_matrix)
         date_map = {}
         region_demo_map = {}
         region_dur_map = {}
@@ -414,13 +415,55 @@ def get_dashboard_intelligence(
             margin = curr_total - prev_total
             status_note = 'DECREASE (Check Bails/Remands/Releases)' if margin < 0 else ('INCREASE (New Admissions)' if margin > 0 else 'STABLE')
             daily_margins.append({
-                "date": dt,
-                "total": curr_total,
-                "margin": margin,
-                "status": status_note
+                "date": dt, "total": curr_total, "margin": margin, "status": status_note
             })
 
-        # 5. EXHIBITS DATA RETRIEVAL (Resilient Field Mapping)
+        # 2. SUCCESS STORIES METRICS
+        processed_stories = []
+        for st in story_records:
+            processed_stories.append({
+                "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
+                "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
+                "suspects": safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0)),
+                "date": str(getattr(st, 'date', 'N/A'))
+            })
+
+        # 3. FIRE INTELLIGENCE (Strictly from fire_statistics table — NO NARRATIVE SCRAPING)
+        total_fire_incidents = len(fire_records)
+        total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
+        total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
+        fire_list = []
+        for f in fire_records:
+            fire_list.append({
+                "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
+                "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
+                "date": str(getattr(f, 'date', 'N/A')),
+                "classification": str(getattr(f, 'nature_of_fire', 'GENERAL FIRE')).upper(),
+                "minorOutbreaks": safe_int(getattr(f, 'minor_outbreaks', 0)),
+                "majorDisasters": safe_int(getattr(f, 'major_disasters', 0)),
+                "fatalFires": safe_int(getattr(f, 'fatal_fires', 0)),
+                "deaths": safe_int(getattr(f, 'victims', 0)),
+                "injuries": safe_int(getattr(f, 'fatal_fires', 0)),
+                "summary": f"Nature of fire: {getattr(f, 'nature_of_fire', 'N/A')} | Outbreaks: {getattr(f, 'minor_outbreaks', 0)}"
+            })
+
+        # 4. CRIME CATEGORIES
+        crime_reg_map = {}
+        for cr in crime_records:
+            cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
+            reg = get_official_region_for_station(getattr(cr, 'station', ''), getattr(cr, 'region', ''))
+            if reg not in crime_reg_map:
+                crime_reg_map[reg] = {"region": reg, "totalCrimes": 0, "categories": {}}
+            crime_reg_map[reg]["totalCrimes"] += 1
+            crime_reg_map[reg]["categories"][cat] = crime_reg_map[reg]["categories"].get(cat, 0) + 1
+
+        crime_category_data = []
+        for reg, obj in crime_reg_map.items():
+            cat_list = [{"name": c, "count": cnt} for c, cnt in sorted(obj["categories"].items(), key=lambda x: x[1], reverse=True)]
+            crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
+        crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
+
+        # 5. EXHIBITS DATA RETRIEVAL (From impounded_exhibits table)
         exhibits_formatted = []
         for ex in exhibit_records:
             exhibits_formatted.append({
@@ -433,7 +476,7 @@ def get_dashboard_intelligence(
                 "total": 1
             })
 
-        # 6. ACCIDENTS DATA RETRIEVAL (Resilient Field Mapping)
+        # 6. ACCIDENTS DATA RETRIEVAL (From accidents_statistics table)
         accidents_formatted = []
         for ac in accidents_records:
             minor_c = safe_int(getattr(ac, 'minor', 0))
@@ -477,7 +520,7 @@ def get_dashboard_intelligence(
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Dashboard intelligence computation failed: {str(e)}")
+        raise HTTPException(status_status=500, detail=f"Dashboard intelligence computation failed: {str(e)}")
 
 @router.get("/export")
 def export_analytics_report(
