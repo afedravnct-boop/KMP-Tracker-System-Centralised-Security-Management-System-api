@@ -339,9 +339,8 @@ def get_dashboard_intelligence(
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
-    """Offloads pure numerical telemetry directly from dedicated NeonDB statistical tables."""
+    """Offloads pure numerical telemetry safely with comprehensive exception handling."""
     try:
-        # Directly target your exact NeonDB table identifiers
         LockupModel = get_model_safe('lockup_matrix', 'suspect_lockup', 'LockupMatrix')
         StoryModel = get_model_safe('success_stories', 'SuccessStories', 'Stories')
         CrimeModel = get_model_safe('crime_reports', 'CrimeReports', 'Reports')
@@ -352,9 +351,13 @@ def get_dashboard_intelligence(
         def query_scoped(ModelClass):
             if not ModelClass:
                 return []
-            q = db.query(ModelClass)
-            q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
-            return q.all()
+            try:
+                q = db.query(ModelClass)
+                q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
+                return q.all()
+            except Exception as ex:
+                print(f"Query scoped error for {ModelClass}: {ex}")
+                return []
 
         lockup_records = query_scoped(LockupModel)
         story_records = query_scoped(StoryModel)
@@ -370,42 +373,45 @@ def get_dashboard_intelligence(
         daily_totals = {}
 
         for r in lockup_records:
-            d_str = str(getattr(r, 'date', getattr(r, 'created_at', ''))).split('T')[0]
-            if not d_str or d_str == 'None':
+            try:
+                d_str = str(getattr(r, 'date', getattr(r, 'created_at', ''))).split('T')[0]
+                if not d_str or d_str == 'None':
+                    continue
+
+                stn = str(getattr(r, 'station', 'UNKNOWN')).upper()
+                reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
+                
+                suspects = safe_int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', getattr(r, 'total_suspects', 0))))
+                m_ad = safe_int(getattr(r, 'male_count', getattr(r, 'male', 0)))
+                m_juv = safe_int(getattr(r, 'male_juvenile_count', 0))
+                f_ad = safe_int(getattr(r, 'female_count', getattr(r, 'female', 0)))
+                f_juv = safe_int(getattr(r, 'female_juvenile_count', 0))
+                d3_over = safe_int(getattr(r, 'detention_3days_over', 0))
+
+                if d_str not in date_map:
+                    date_map[d_str] = {"total": 0, "stations": []}
+                date_map[d_str]["total"] += suspects
+                date_map[d_str]["stations"].append({
+                    "station": stn, "region": reg, "suspects": suspects,
+                    "mAd": m_ad, "mJuv": m_juv, "fAd": f_ad, "fJuv": f_juv, "d3Over": d3_over
+                })
+
+                daily_totals[d_str] = daily_totals.get(d_str, 0) + suspects
+
+                if reg not in region_demo_map:
+                    region_demo_map[reg] = {"region": reg, "maleAdults": 0, "femaleAdults": 0, "maleJuveniles": 0, "femaleJuveniles": 0}
+                region_demo_map[reg]["maleAdults"] += m_ad
+                region_demo_map[reg]["femaleAdults"] += f_ad
+                region_demo_map[reg]["maleJuveniles"] += m_juv
+                region_demo_map[reg]["femaleJuveniles"] += f_juv
+
+                if reg not in region_dur_map:
+                    region_dur_map[reg] = {"region": reg, "day1": 0, "day2": 0, "over3Days": 0}
+                region_dur_map[reg]["day1"] += safe_int(getattr(r, 'detention_1day', 0))
+                region_dur_map[reg]["day2"] += safe_int(getattr(r, 'detention_2days', 0))
+                region_dur_map[reg]["over3Days"] += d3_over
+            except Exception:
                 continue
-
-            stn = str(getattr(r, 'station', 'UNKNOWN')).upper()
-            reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
-            
-            suspects = safe_int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', getattr(r, 'total_suspects', 0))))
-            m_ad = safe_int(getattr(r, 'male_count', getattr(r, 'male', 0)))
-            m_juv = safe_int(getattr(r, 'male_juvenile_count', 0))
-            f_ad = safe_int(getattr(r, 'female_count', getattr(r, 'female', 0)))
-            f_juv = safe_int(getattr(r, 'female_juvenile_count', 0))
-            d3_over = safe_int(getattr(r, 'detention_3days_over', 0))
-
-            if d_str not in date_map:
-                date_map[d_str] = {"total": 0, "stations": []}
-            date_map[d_str]["total"] += suspects
-            date_map[d_str]["stations"].append({
-                "station": stn, "region": reg, "suspects": suspects,
-                "mAd": m_ad, "mJuv": m_juv, "fAd": f_ad, "fJuv": f_juv, "d3Over": d3_over
-            })
-
-            daily_totals[d_str] = daily_totals.get(d_str, 0) + suspects
-
-            if reg not in region_demo_map:
-                region_demo_map[reg] = {"region": reg, "maleAdults": 0, "femaleAdults": 0, "maleJuveniles": 0, "femaleJuveniles": 0}
-            region_demo_map[reg]["maleAdults"] += m_ad
-            region_demo_map[reg]["femaleAdults"] += f_ad
-            region_demo_map[reg]["maleJuveniles"] += m_juv
-            region_demo_map[reg]["femaleJuveniles"] += f_juv
-
-            if reg not in region_dur_map:
-                region_dur_map[reg] = {"region": reg, "day1": 0, "day2": 0, "over3Days": 0}
-            region_dur_map[reg]["day1"] += safe_int(getattr(r, 'detention_1day', 0))
-            region_dur_map[reg]["day2"] += safe_int(getattr(r, 'detention_2days', 0))
-            region_dur_map[reg]["over3Days"] += d3_over
 
         sorted_dates = sorted(date_map.keys(), reverse=True)
         daily_margins = []
@@ -421,41 +427,50 @@ def get_dashboard_intelligence(
         # 2. SUCCESS STORIES METRICS
         processed_stories = []
         for st in story_records:
-            processed_stories.append({
-                "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
-                "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
-                "suspects": safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0)),
-                "date": str(getattr(st, 'date', 'N/A'))
-            })
+            try:
+                processed_stories.append({
+                    "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
+                    "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
+                    "suspects": safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0)),
+                    "date": str(getattr(st, 'date', 'N/A'))
+                })
+            except Exception:
+                continue
 
-        # 3. FIRE INTELLIGENCE (Strictly from fire_statistics table — NO NARRATIVE SCRAPING)
+        # 3. FIRE INTELLIGENCE (Strictly from fire_statistics)
         total_fire_incidents = len(fire_records)
         total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
         total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
         fire_list = []
         for f in fire_records:
-            fire_list.append({
-                "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
-                "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
-                "date": str(getattr(f, 'date', 'N/A')),
-                "classification": str(getattr(f, 'nature_of_fire', 'GENERAL FIRE')).upper(),
-                "minorOutbreaks": safe_int(getattr(f, 'minor_outbreaks', 0)),
-                "majorDisasters": safe_int(getattr(f, 'major_disasters', 0)),
-                "fatalFires": safe_int(getattr(f, 'fatal_fires', 0)),
-                "deaths": safe_int(getattr(f, 'victims', 0)),
-                "injuries": safe_int(getattr(f, 'fatal_fires', 0)),
-                "summary": f"Nature of fire: {getattr(f, 'nature_of_fire', 'N/A')} | Outbreaks: {getattr(f, 'minor_outbreaks', 0)}"
-            })
+            try:
+                fire_list.append({
+                    "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
+                    "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
+                    "date": str(getattr(f, 'date', 'N/A')),
+                    "classification": str(getattr(f, 'nature_of_fire', 'GENERAL FIRE')).upper(),
+                    "minorOutbreaks": safe_int(getattr(f, 'minor_outbreaks', 0)),
+                    "majorDisasters": safe_int(getattr(f, 'major_disasters', 0)),
+                    "fatalFires": safe_int(getattr(f, 'fatal_fires', 0)),
+                    "deaths": safe_int(getattr(f, 'victims', 0)),
+                    "injuries": safe_int(getattr(f, 'fatal_fires', 0)),
+                    "summary": f"Nature: {getattr(f, 'nature_of_fire', 'N/A')} | Outbreaks: {getattr(f, 'minor_outbreaks', 0)}"
+                })
+            except Exception:
+                continue
 
         # 4. CRIME CATEGORIES
         crime_reg_map = {}
         for cr in crime_records:
-            cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
-            reg = get_official_region_for_station(getattr(cr, 'station', ''), getattr(cr, 'region', ''))
-            if reg not in crime_reg_map:
-                crime_reg_map[reg] = {"region": reg, "totalCrimes": 0, "categories": {}}
-            crime_reg_map[reg]["totalCrimes"] += 1
-            crime_reg_map[reg]["categories"][cat] = crime_reg_map[reg]["categories"].get(cat, 0) + 1
+            try:
+                cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
+                reg = get_official_region_for_station(getattr(cr, 'station', ''), getattr(cr, 'region', ''))
+                if reg not in crime_reg_map:
+                    crime_reg_map[reg] = {"region": reg, "totalCrimes": 0, "categories": {}}
+                crime_reg_map[reg]["totalCrimes"] += 1
+                crime_reg_map[reg]["categories"][cat] = crime_reg_map[reg]["categories"].get(cat, 0) + 1
+            except Exception:
+                continue
 
         crime_category_data = []
         for reg, obj in crime_reg_map.items():
@@ -463,40 +478,46 @@ def get_dashboard_intelligence(
             crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
         crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
 
-        # 5. EXHIBITS DATA RETRIEVAL (From impounded_exhibits table)
+        # 5. EXHIBITS DATA RETRIEVAL (From impounded_exhibits)
         exhibits_formatted = []
         for ex in exhibit_records:
-            exhibits_formatted.append({
-                "id": safe_int(getattr(ex, 'id', getattr(ex, 'sn', 0))),
-                "category": str(getattr(ex, 'category', getattr(ex, 'exhibit_category', 'GENERAL')) or 'GENERAL').upper(),
-                "description": str(getattr(ex, 'description', getattr(ex, 'particulars', getattr(ex, 'type_make', 'N/A'))) or 'N/A').upper(),
-                "region": str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper(),
-                "station": str(getattr(ex, 'station', getattr(ex, 'division', 'N/A')) or 'N/A').upper(),
-                "status": str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper(),
-                "total": 1
-            })
+            try:
+                exhibits_formatted.append({
+                    "id": safe_int(getattr(ex, 'id', getattr(ex, 'sn', 0))),
+                    "category": str(getattr(ex, 'category', getattr(ex, 'exhibit_category', 'GENERAL')) or 'GENERAL').upper(),
+                    "description": str(getattr(ex, 'description', getattr(ex, 'particulars', getattr(ex, 'type_make', 'N/A'))) or 'N/A').upper(),
+                    "region": str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper(),
+                    "station": str(getattr(ex, 'station', getattr(ex, 'division', 'N/A')) or 'N/A').upper(),
+                    "status": str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper(),
+                    "total": 1
+                })
+            except Exception:
+                continue
 
-        # 6. ACCIDENTS DATA RETRIEVAL (From accidents_statistics table)
+        # 6. ACCIDENTS DATA RETRIEVAL (From accidents_statistics)
         accidents_formatted = []
         for ac in accidents_records:
-            minor_c = safe_int(getattr(ac, 'minor', 0))
-            serious_c = safe_int(getattr(ac, 'serious', 0))
-            fatal_c = safe_int(getattr(ac, 'fatal', 0))
-            victims_c = safe_int(getattr(ac, 'victims', 0))
-            total_c = safe_int(getattr(ac, 'total', minor_c + serious_c + fatal_c))
-            
-            accidents_formatted.append({
-                "id": safe_int(getattr(ac, 'id', getattr(ac, 'sn', 0))),
-                "date": str(getattr(ac, 'date', 'N/A')),
-                "region": str(getattr(ac, 'region', 'KMP GENERAL')).upper(),
-                "station": str(getattr(ac, 'station', 'N/A')).upper(),
-                "nature": str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper(),
-                "minor": minor_c,
-                "serious": serious_c,
-                "fatal": fatal_c,
-                "victims": victims_c,
-                "total": total_c
-            })
+            try:
+                minor_c = safe_int(getattr(ac, 'minor', 0))
+                serious_c = safe_int(getattr(ac, 'serious', 0))
+                fatal_c = safe_int(getattr(ac, 'fatal', 0))
+                victims_c = safe_int(getattr(ac, 'victims', 0))
+                total_c = safe_int(getattr(ac, 'total', minor_c + serious_c + fatal_c))
+                
+                accidents_formatted.append({
+                    "id": safe_int(getattr(ac, 'id', getattr(ac, 'sn', 0))),
+                    "date": str(getattr(ac, 'date', 'N/A')),
+                    "region": str(getattr(ac, 'region', 'KMP GENERAL')).upper(),
+                    "station": str(getattr(ac, 'station', 'N/A')).upper(),
+                    "nature": str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper(),
+                    "minor": minor_c,
+                    "serious": serious_c,
+                    "fatal": fatal_c,
+                    "victims": victims_c,
+                    "total": total_c
+                })
+            except Exception:
+                continue
 
         return {
             "detentionCalendar": {
@@ -516,6 +537,18 @@ def get_dashboard_intelligence(
             "crimeCategoryData": crime_category_data,
             "exhibitsData": exhibits_formatted,
             "accidentsData": accidents_formatted
+        }
+    except Exception as e:
+        print(f"Dashboard Intelligence Critical Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "detentionCalendar": {"dates": [], "dateMap": {}, "regionDemographics": [], "regionDuration": [], "dailyMargins": []},
+            "successStoriesProcessed": [],
+            "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": []},
+            "crimeCategoryData": [],
+            "exhibitsData": [],
+            "accidentsData": []
         }
     except Exception as e:
         import traceback

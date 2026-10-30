@@ -168,23 +168,36 @@ def get_stats(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
-    if not StatsModel: 
-        return []
-    
     try:
+        StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+        if not StatsModel: 
+            return []
+        
         query = db.query(StatsModel)
         query = apply_opsec_scope(current_user, query, StatsModel)
         query = build_filtered_query(query, StatsModel, region, station, start_date, end_date, search)
         
-        # Safe primary key detection preventing AttributeErrors
         pk_col = getattr(StatsModel, 'id', getattr(StatsModel, 'sn', None))
-        records = query.order_by(pk_col.desc()).limit(limit).all() if pk_col else query.limit(limit).all()
+        if pk_col is not None and hasattr(pk_col, 'desc'):
+            records = query.order_by(pk_col.desc()).limit(limit).all()
+        else:
+            records = query.limit(limit).all()
         
-        return [clean_model_dict(r) for r in records]
+        results = []
+        for r in records:
+            item = {}
+            if hasattr(StatsModel, '__table__'):
+                for col in StatsModel.__table__.columns:
+                    col_name = col.name
+                    item[col_name] = getattr(r, col_name, None)
+            else:
+                item = clean_model_dict(r)
+            results.append(item)
+        return results
     except Exception as e:
         print(f"Stats Endpoint Error: {e}")
         return []
+
 @router.get("/stats/export")
 def export_stats_secure_zip(
     region: Optional[str] = Query(default=None),
