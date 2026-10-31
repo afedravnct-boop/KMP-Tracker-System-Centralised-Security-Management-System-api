@@ -916,5 +916,4 @@ def external_trigger_briefing(background_tasks: BackgroundTasks, key: str = Quer
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.app = "api_backend:app" # or pass the import string directly
     uvicorn.run("api_backend:app", host="0.0.0.0", port=port, reload=True)
