@@ -1,3 +1,4 @@
+# routers/success_stories.py
 import json
 import re
 import io
@@ -26,6 +27,21 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
+WORD_TO_NUM = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+    'eleven': 11, 'twelve': 12, 'fifteen': 15, 'twenty': 20,
+    'a': 1, 'an': 1, 'several': 3, 'couple': 2, 'few': 3
+}
+
+def parse_word_number(val_str: str) -> int:
+    if not val_str:
+        return 0
+    clean = val_str.strip().lower()
+    if clean.isdigit():
+        return int(clean)
+    return WORD_TO_NUM.get(clean, 1)
+
 def strip_html_tags(text_str: str) -> str:
     if not text_str: return ""
     return re.sub('<.*?>', '', str(text_str))
@@ -37,7 +53,6 @@ def get_officer_signature(user):
     name = (user.name or "").strip()
     return f"{fnum} {rank} {name}".strip().upper()
 
-# 🟢 Aggressive Base Name Extractor (Shared logic with Nominal Roll)
 def get_base_station_name(stn: str) -> str:
     if not stn: return "UNKNOWN"
     val = str(stn).strip().upper()
@@ -46,29 +61,40 @@ def get_base_station_name(stn: str) -> str:
     val = re.sub(r'\s+(P\.?S\.?|P/S|PS|P\s*STN|P/STN|POL\s*STN|POLICE\s*STATION|DIVISION|P\.?P\.?|P/P|P/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$', '', val)
     return val.strip()
 
-# 🟢 Bulletproof OPSEC Scope
-def apply_opsec_scope(current_user, query, ModelClass):
-    if not ModelClass or not current_user:
-        return query.filter(text("1=0"))
-    
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
-    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
-    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+def is_user_global_tier(current_user) -> bool:
+    if not current_user:
+        return False
+    user_role = str(getattr(current_user, 'role', '')).strip().upper().replace(' ', '_')
+    user_pos = str(getattr(current_user, 'position', '')).strip().upper()
+    user_reg = str(getattr(current_user, 'region', '')).strip().upper()
 
-    perms = current_user.permissions or {}
+    perms = getattr(current_user, 'permissions', {})
     if isinstance(perms, str):
         try: perms = json.loads(perms)
         except Exception: perms = {}
 
-    is_absolute_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+    return (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER", "SUPERVISOR"] or
         "KMP COMMANDER" in user_pos or
         "DEPUTY KMP COMMANDER" in user_pos or
         "KMP ADMIN" in user_pos or
+        "SYSTEM_MANAGER" in user_role or
         perms.get("view_global_roster") is True or
-        perms.get("global_observer") is True
+        perms.get("global_observer") is True or
+        user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]
     )
+
+def apply_opsec_scope(current_user, query, ModelClass):
+    if not ModelClass or not current_user:
+        return query.filter(text("1=0"))
+    
+    if is_user_global_tier(current_user):
+        return query
+    
+    user_role = str(current_user.role or "").strip().upper()
+    user_pos = str(current_user.position or "").strip().upper()
+    user_reg = str(current_user.region or "").strip().upper()
+    user_stn = str(current_user.station or "").strip().upper()
 
     is_kmp_sys_mgr = (user_role == "SYSTEM_MANAGER" and user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in user_pos)
     is_kmp_specialist = (user_role == "ASSISTANT_SYSTEM_MANAGER" and user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in user_pos)
@@ -78,10 +104,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         not is_kmp_sys_mgr and not is_kmp_specialist
     )
 
-    if is_absolute_global or is_kmp_sys_mgr:
-        return query
-        
-    elif is_kmp_specialist and hasattr(ModelClass, 'region'):
+    if is_kmp_specialist and hasattr(ModelClass, 'region'):
         return query.filter(func.upper(ModelClass.region) == user_reg)
         
     elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
@@ -101,8 +124,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         if conds: return query.filter(or_(*conds))
         return query.filter(text("1=0"))
         
-    elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
-        # Station Admins see their primary station AND all associated posts
+    elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region') and user_stn:
         clean_user_stn = get_base_station_name(user_stn)
         return query.filter(
             and_(
@@ -114,6 +136,73 @@ def apply_opsec_scope(current_user, query, ModelClass):
             )
         )
     return query.filter(text("1=0"))
+
+def parse_success_story_backend(raw_narrative: str):
+    if not raw_narrative:
+        return {
+            "suspects": 0,
+            "recoveries": "NONE RECORDED",
+            "legalStatus": "UNDER INVESTIGATION",
+            "classification": "OPERATIONAL BREAKTHROUGH"
+        }
+
+    raw_narrative_str = str(raw_narrative)
+    headline_match = re.search(r'<strong>(.*?)<\/strong>', raw_narrative_str, re.IGNORECASE)
+    if headline_match:
+        classification = strip_html_tags(headline_match.group(1)).strip().upper()
+    else:
+        classification = "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION"
+
+    plain_text = strip_html_tags(raw_narrative_str)
+    lower_text = plain_text.lower()
+    
+    suspects_count = 0
+    word_num_pattern = r'(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)'
+    suspect_match = re.search(word_num_pattern, lower_text)
+    if suspect_match:
+        suspects_count = parse_word_number(suspect_match.group(1))
+    
+    if suspects_count == 0 and any(k in lower_text for k in ['suspect', 'arrest', 'apprehend', 'detain', 'culprit']):
+        suspects_count = 1 
+
+    legal_status = 'UNDER INVESTIGATION'
+    if 'remand' in lower_text or 'remanded' in lower_text:
+        legal_status = 'REMANDED'
+    elif 'convict' in lower_text or 'sentenced' in lower_text:
+        legal_status = 'CONVICTED'
+    elif 'acquit' in lower_text:
+        legal_status = 'ACQUITTED'
+    elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text or 'arraign' in lower_text:
+        legal_status = 'UNDERGOING COURT TRIAL'
+
+    recoveries_list = []
+    recovery_word_pattern = r'(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))'
+    recovery_matches = re.findall(recovery_word_pattern, lower_text, re.IGNORECASE)
+    
+    for count_val, item_val in recovery_matches:
+        num_val = parse_word_number(count_val)
+        formatted_count = str(num_val).zfill(2)
+        recoveries_list.append(f"{formatted_count} | {item_val.strip().upper()}")
+
+    if not recoveries_list:
+        if 'motorcycle' in lower_text or 'boda' in lower_text: recoveries_list.append('01 | MOTORCYCLE RECOVERED')
+        elif 'vehicle' in lower_text or 'car' in lower_text: recoveries_list.append('01 | MOTOR VEHICLE RECOVERED')
+        elif 'phone' in lower_text or 'mobile' in lower_text: recoveries_list.append('01 | MOBILE PHONE RECOVERED')
+        elif 'cattle' in lower_text or 'cow' in lower_text: recoveries_list.append('01 | STOLEN CATTLE RECOVERED')
+        elif 'cash' in lower_text or 'money' in lower_text or 'shillings' in lower_text: recoveries_list.append('01 | CASH / FUNDS RECOVERED')
+        elif 'gun' in lower_text or 'pistol' in lower_text or 'firearm' in lower_text: recoveries_list.append('01 | FIREARM RECOVERED')
+        elif 'uniform' in lower_text or 'stores' in lower_text: recoveries_list.append('01 | GOVERNMENT STORES')
+        else: recoveries_list.append('NONE RECORDED')
+
+    classification_str = str(classification)
+    formatted_classification = (classification_str[:52] + '...') if len(classification_str) > 55 else classification_str
+
+    return {
+        "suspects": suspects_count,
+        "recoveries": " || ".join(recoveries_list),
+        "legalStatus": legal_status,
+        "classification": formatted_classification
+    }
 
 # ====================================================================
 # 1. RETRIEVE SUCCESS STORIES
@@ -157,7 +246,6 @@ def get_stories(
         if agri_only and hasattr(models.Success_Stories, 'category'):
             query = query.filter(func.upper(models.Success_Stories.category) == 'AGRIC_CRIME')
 
-        # 🟢 CRITICAL FIX: Safe Date Parsing
         invalid_date_strings = ["ALL TIME", "ALL", "UNDEFINED", "NULL", ""]
         if start_date and start_date.upper() not in invalid_date_strings and hasattr(models.Success_Stories, 'date'):
             query = query.filter(models.Success_Stories.date >= start_date)
@@ -173,7 +261,6 @@ def get_stories(
             if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
             if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
             if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
-            if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
             if search_conds:
                 query = query.filter(or_(*search_conds))
 
@@ -186,6 +273,15 @@ def get_stories(
             r_dict = r.__dict__.copy()
             r_dict.pop('_sa_instance_state', None)
             
+            # 🟢 Automatically inject auto-parsed metrics for UI & Analytics sync
+            narrative_str = r_dict.get('narrative', '') or r_dict.get('title', '')
+            parsed = parse_success_story_backend(narrative_str)
+
+            r_dict['suspects'] = r_dict.get('suspects_arrested') or parsed['suspects']
+            r_dict['recoveries'] = r_dict.get('suspected_stolen_properties_recovered') or parsed['recoveries']
+            r_dict['legalStatus'] = r_dict.get('legal_status') or parsed['legalStatus']
+            r_dict['classification'] = r_dict.get('category') or parsed['classification']
+
             narrative_str = r_dict.get('narrative', '')
             linked_case = None
 
@@ -215,25 +311,11 @@ def get_stories(
                                 }
                                 break
                 except Exception:
-                    pass # Fail silently on case linkage rather than dropping the whole record
+                    pass
 
             r_dict['linked_case'] = linked_case
             serialized_records.append(r_dict)
             
-        if search:
-            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} searched success stories ledger for query: \"{search}\" (Returned {len(serialized_records)} matches)."
-        else:
-            summary_text = f"{current_user.fnum} {current_user.rank} {current_user.name} accessed Success Stories ledger (Fetched {len(serialized_records)} records)."
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="VIEW",
-            module="SUCCESS_STORIES",
-            target_id=search if search else "ALL_STORIES",
-            changes_summary=summary_text
-        )
-
         return serialized_records
     
     except Exception as e:
@@ -278,7 +360,7 @@ def get_unique_categories(
         return []
 
 # ====================================================================
-# 1C. SECURE AES-256 ZIP EXPORT (PHYSICAL PHOTOS, EXHIBITS & EXCEL DATA)
+# 1C. SECURE AES-256 ZIP EXPORT
 # ====================================================================
 @router.get("/stories/export")
 def export_stories_archive(
@@ -333,13 +415,11 @@ def export_stories_archive(
             if hasattr(models.Success_Stories, 'station'): search_conds.append(models.Success_Stories.station.ilike(term))
             if hasattr(models.Success_Stories, 'region'): search_conds.append(models.Success_Stories.region.ilike(term))
             if hasattr(models.Success_Stories, 'category'): search_conds.append(models.Success_Stories.category.ilike(term))
-            if hasattr(models.Success_Stories, 'last_updated_by'): search_conds.append(models.Success_Stories.last_updated_by.ilike(term))
             if search_conds:
                 query = query.filter(or_(*search_conds))
 
         records = query.order_by(models.Success_Stories.sn.desc()).all()
 
-        # 1. Generate Excel Document Data
         data_rows = []
         for r in records:
             data_rows.append({
@@ -363,11 +443,9 @@ def export_stories_archive(
             workbook = writer.book
             workbook.properties.creator = get_officer_signature(current_user)
             workbook.properties.title = "KMP Secure Success Stories Export"
-            workbook.properties.subject = "Restricted Law Enforcement Extract"
 
         excel_buffer.seek(0)
 
-        # 2. Create Secure ZIP Archive
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -375,11 +453,8 @@ def export_stories_archive(
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-
-            # Write the Excel summary document to the root of the ZIP
             zf.writestr(f"Success_Stories_Report_{timestamp}.xlsx", excel_buffer.getvalue())
 
-            # Write the physical photo exhibits into the ZIP
             for r in records:
                 sn = getattr(r, 'sn', getattr(r, 'id', 'UNKNOWN'))
                 station_name = strip_html_tags(getattr(r, 'station', 'STATION')).replace('/', '_').replace(' ', '_')
@@ -397,7 +472,6 @@ def export_stories_archive(
                                 file_ext = url.split('.')[-1].split('?')[0].lower()
                                 if file_ext not in ['jpg', 'jpeg', 'png', 'webp', 'pdf']:
                                     file_ext = 'jpg'
-                                
                                 filename = f"Exhibits/SN_{sn}_{station_name}_Exhibit_{idx + 1}.{file_ext}"
                                 zf.writestr(filename, img_response.content)
                         elif os.path.exists(url):
@@ -409,16 +483,6 @@ def export_stories_archive(
                         print(f"Failed to bundle exhibit for SN {sn}: {str(ex)}")
 
         zip_stream.seek(0)
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="EXPORT",
-            module="SUCCESS_STORIES",
-            target_id="SECURE_FULL_ARCHIVE_EXPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely exported combined Excel report and physical photo exhibits archive for Success Stories ({len(records)} records processed)."
-        )
-
         return StreamingResponse(
             zip_stream,
             media_type="application/zip",

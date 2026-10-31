@@ -453,17 +453,36 @@ def get_dashboard_intelligence(
                 "date": dt, "total": curr_total, "margin": margin, "status": status_note
             })
 
-        # 2. SUCCESS STORIES METRICS
+        # 2. SUCCESS STORIES METRICS (Robust Column + Regex Fallback)
         processed_stories = []
         for st in story_records:
             try:
                 raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
                 parsed = parse_success_story_backend(raw_narrative)
                 
-                suspects = safe_int(getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or parsed['suspects'])
-                recoveries = str(getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or parsed['recoveries'])
-                legal_status = str(getattr(st, 'legal_status', '') or parsed['legalStatus'])
-                classification = str(parsed['classification'])
+                # Prioritize explicit database columns, falling back to regex parsing
+                suspects = safe_int(
+                    getattr(st, 'suspects_arrested', None) or 
+                    getattr(st, 'suspects_arrested_count', None) or 
+                    getattr(st, 'suspects', None) or 
+                    parsed['suspects']
+                )
+                recoveries = str(
+                    getattr(st, 'suspected_stolen_properties_recovered', None) or 
+                    getattr(st, 'property_recovered', None) or 
+                    getattr(st, 'recoveries', None) or 
+                    parsed['recoveries']
+                )
+                legal_status = str(
+                    getattr(st, 'legal_status', None) or 
+                    getattr(st, 'status', None) or 
+                    parsed['legalStatus']
+                ).upper()
+                classification = str(
+                    getattr(st, 'category', None) or 
+                    getattr(st, 'classification', None) or 
+                    parsed['classification']
+                ).upper()
 
                 processed_stories.append({
                     "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
@@ -472,9 +491,10 @@ def get_dashboard_intelligence(
                     "recoveries": recoveries,
                     "legalStatus": legal_status,
                     "classification": classification,
-                    "date": str(getattr(st, 'date', 'N/A'))
+                    "date": str(getattr(st, 'date', getattr(st, 'created_at', 'N/A'))).split('T')[0]
                 })
-            except Exception:
+            except Exception as e:
+                print(f"Error parsing success story record: {e}")
                 continue
 
         # 3. FIRE INTELLIGENCE
@@ -687,7 +707,7 @@ def export_analytics_report(
         )
         
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
-        StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'Stats', 'operational_statistics')
+        StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'Stats', 'operational_statistics')
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
         NomModel = get_model_safe('Nominal_Roll', 'NominalRoll', 'User', 'Users', 'nominal_roll')
         AgricModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary')

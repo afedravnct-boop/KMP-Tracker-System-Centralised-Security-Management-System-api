@@ -190,7 +190,7 @@ def get_stats(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+        StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
         if not StatsModel: 
             return []
         
@@ -236,7 +236,7 @@ def export_stats_secure_zip(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+    StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
     if not StatsModel: raise HTTPException(status_code=500, detail="Model not found")
 
     query = db.query(StatsModel)
@@ -338,7 +338,7 @@ def export_stats_secure_zip(
 
 @router.post("/stats")
 def create_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
-    StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+    StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
     if not StatsModel: raise HTTPException(status_code=500, detail="Model not configured.")
     try:
         data.pop('sn', None); data.pop('id', None)
@@ -354,7 +354,7 @@ def create_stat(data: dict, db: Session = Depends(get_db), logs_db: Session = De
 
 @router.put("/stats/{record_id}")
 def update_stat(record_id: int, data: dict, db: Session = Depends(get_db), logs_db: Session = Depends(get_logs_db), current_user: models.Users = Depends(get_current_user)):
-    StatsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
+    StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'OperationalStats', 'operational_stats', 'Stats', 'stats')
     if not StatsModel: raise HTTPException(status_code=500, detail="Model not configured.")
     try:
         record = db.query(StatsModel).filter(StatsModel.id == record_id).first()
