@@ -122,11 +122,13 @@ def apply_opsec_scope(current_user, query, ModelClass):
     return query.filter(text("1=0"))
 
 def build_filtered_query(query, ModelClass, region, station, start_date, end_date, search):
+    # 🟢 Pre-initialize clean_stn safely to prevent scope crashes
+    clean_stn = ""
+    
     if region and region.upper() not in ["ALL REGIONS", "ALL"]:
         if hasattr(ModelClass, 'region'):
             query = query.filter(func.upper(ModelClass.region) == region.upper())
             
-    # 🟢 FIX: Properly define clean_stn right here before using it in filters
     if station and station.upper() not in ["ALL STATIONS", "ALL"]:
         if hasattr(ModelClass, 'station'):
             clean_stn = station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
