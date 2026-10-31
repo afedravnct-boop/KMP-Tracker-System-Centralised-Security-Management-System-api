@@ -818,20 +818,56 @@ def get_fires_stats(
         pk_col = getattr(FiresModel, 'id', getattr(FiresModel, 'sn', None))
         records = query.order_by(pk_col.desc()).limit(limit).all() if pk_col else query.limit(limit).all()
         
-        return [{
-            "id": getattr(r, 'id', getattr(r, 'sn', 0)),
-            "date": str(getattr(r, 'date', '') or ''),
-            "region": str(getattr(r, 'region', '') or ''),
-            "station": str(getattr(r, 'station', '') or ''),
-            "nature_of_fire": str(getattr(r, 'nature_of_fire', '') or ''),
-            "minor_outbreaks": safe_int(getattr(r, 'minor_outbreaks', 0)),
-            "major_disasters": safe_int(getattr(r, 'major_disasters', 0)),
-            "fatal_fires": safe_int(getattr(r, 'fatal_fires', 0)),
-            "victims": safe_int(getattr(r, 'victims', 0)),
-            "total": safe_int(getattr(r, 'total', 0)),
-            "entered_by": str(getattr(r, 'entered_by', getattr(r, 'last_updated_by', '')) or ''),
-            "created_at": r.created_at.isoformat() if hasattr(r, 'created_at') and r.created_at else ''
-        } for r in records]
+        results = []
+        for r in records:
+            narrative_val = str(getattr(r, 'narrative', getattr(r, 'nature_of_fire', '')) or '')
+            offence_val = str(getattr(r, 'nature_of_fire', '') or '')
+            
+            # Extract structure type and cause/findings using advanced intelligence matching
+            text_blob = f"{offence_val} {narrative_val}".lower()
+            classification = "RESIDENTIAL PROPERTY"
+            if any(k in text_blob for k in ["dormitory", "dorm", "hostel"]):
+                classification = "SCHOOL DORMITORY"
+            elif any(k in text_blob for k in ["school", "college", "academy", "nursery", "student"]):
+                classification = "SCHOOL FACILITY"
+            elif any(k in text_blob for k in ["factory", "industrial", "plant", "manufacturing"]):
+                classification = "INDUSTRIAL / FACTORY"
+            elif any(k in text_blob for k in ["shop", "market", "store", "commercial", "hardware", "tailoring", "facility", "business"]):
+                classification = "COMMERCIAL / BUSINESS ROOM"
+            elif any(k in text_blob for k in ["church", "mosque", "chapel", "temple"]):
+                classification = "RELIGIOUS CENTRE"
+            elif any(k in text_blob for k in ["vehicle", "car", "taxi", "bus", "lorry", "truck", "motorcycle", "boda"]):
+                classification = "MOTOR VEHICLE / TRANSPORT"
+            elif any(k in text_blob for k in ["rental", "room", "house", "residence", "residential"]):
+                classification = "RESIDENTIAL ROOM / HOUSE"
+
+            status_findings = "UNDER INVESTIGATION"
+            if "cause of fire was still under investigation" in text_blob or "still under investigation" in text_blob:
+                status_findings = "UNDER INVESTIGATION"
+            elif "spark" in text_blob or "electrical" in text_blob or "short circuit" in text_blob:
+                status_findings = "CAUSE ESTABLISHED: ELECTRICAL SHORT CIRCUIT"
+            elif "arson" in text_blob or "set the dormitory on fire" in text_blob or "malicious" in text_blob or "student" in text_blob:
+                status_findings = "CAUSE ESTABLISHED: ARSON / DELIBERATE ACT"
+            elif "charcoal" in text_blob or "stove" in text_blob or "candle" in text_blob or "cook" in text_blob:
+                status_findings = "CAUSE ESTABLISHED: UNATTENDED HEAT SOURCE"
+
+            results.append({
+                "id": getattr(r, 'id', getattr(r, 'sn', 0)),
+                "date": str(getattr(r, 'date', '') or ''),
+                "region": str(getattr(r, 'region', '') or ''),
+                "station": str(getattr(r, 'station', '') or ''),
+                "nature_of_fire": classification,
+                "status_findings": status_findings,
+                "minor_outbreaks": safe_int(getattr(r, 'minor_outbreaks', 0)),
+                "major_disasters": safe_int(getattr(r, 'major_disasters', 0)),
+                "fatal_fires": safe_int(getattr(r, 'fatal_fires', 0)),
+                "victims": safe_int(getattr(r, 'victims', 0)),
+                "total": safe_int(getattr(r, 'total', 0)),
+                "summary": f"Findings: {status_findings} | {narrative_val}",
+                "entered_by": str(getattr(r, 'entered_by', getattr(r, 'last_updated_by', '')) or ''),
+                "created_at": r.created_at.isoformat() if hasattr(r, 'created_at') and r.created_at else ''
+            })
+        return results
     except Exception as e:
         print(f"Fires Endpoint Error: {e}")
         return []

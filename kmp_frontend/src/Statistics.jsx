@@ -40,6 +40,7 @@ const COMMON_FIRES = [
   "ELECTRICAL SHORT CIRCUIT FIRE",
   "GAS CYLINDER EXPLOSION",
   "WAREHOUSE / STORAGE FIRE",
+  "LIGHTNING STRIKE / ACT OF GOD",
   "OTHER"
 ];
 
@@ -418,7 +419,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       if (statsDomain === 'FIRES') {
           return {
               sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-              date: getTodayString(), nature_of_fire: '', minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0
+              date: getTodayString(), nature_of_fire: '', custom_nature_of_fire: '', minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0
           };
       }
       return {
@@ -548,6 +549,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
             updatedState.custom_nature_of_accident = statData.nature_of_accident;
         }
     }
+    if (statsDomain === 'FIRES') {
+        if (!COMMON_FIRES.includes(statData.nature_of_fire)) {
+            updatedState.nature_of_fire = 'OTHER';
+            updatedState.custom_nature_of_fire = statData.nature_of_fire;
+        }
+    }
     setFormData(updatedState);
   };
 
@@ -594,6 +601,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           }
       } else if (statsDomain === 'FIRES') {
           newStat.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
+          if (newStat.nature_of_fire === 'OTHER') {
+              newStat.nature_of_fire = formData.custom_nature_of_fire;
+          }
       }
       
       try {
@@ -644,6 +654,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           }
       } else if (statsDomain === 'FIRES') {
           updatedRecord.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
+          if (updatedRecord.nature_of_fire === 'OTHER') {
+              updatedRecord.nature_of_fire = formData.custom_nature_of_fire;
+          }
       }
 
       try {
@@ -807,7 +820,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <h4 className="text-sm font-bold text-amber-900 dark:text-amber-300 border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">🔥 Fire & Rescue Aggregates</h4>
                         
                         <div className="mb-4">
-                            <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Fire *</label>
+                            <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Fire / Cause *</label>
                             <select 
                               name="nature_of_fire" 
                               value={formData.nature_of_fire || ''} 
@@ -819,7 +832,23 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                               {COMMON_FIRES.map(fire => (
                                   <option key={fire} value={fire}>{fire}</option>
                               ))}
+                              {formData.nature_of_fire && formData.nature_of_fire !== 'OTHER' && !COMMON_FIRES.includes(formData.nature_of_fire) && (
+                                  <option value={formData.nature_of_fire}>{formData.nature_of_fire}</option>
+                              )}
+                              <option value="OTHER">OTHER (SPECIFY BELOW)</option>
                             </select>
+                            
+                            {formData.nature_of_fire === 'OTHER' && (
+                                <input 
+                                  type="text" 
+                                  name="custom_nature_of_fire" 
+                                  value={formData.custom_nature_of_fire || ''} 
+                                  onChange={handleInputChange} 
+                                  required 
+                                  placeholder="Type specific nature or natural cause (e.g. LIGHTNING STRIKE)..." 
+                                  className="mt-2 w-full text-sm border border-amber-300 dark:border-amber-800 rounded-md shadow-sm bg-amber-50 dark:bg-slate-900 dark:text-slate-100 p-2 uppercase focus:border-amber-500 outline-none" 
+                                />
+                            )}
                         </div>
 
                         <div className="grid grid-cols-4 gap-3">

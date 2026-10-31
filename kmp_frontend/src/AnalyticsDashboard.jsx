@@ -955,7 +955,7 @@ const AnalyticsDashboard = ({
              </div>
           </div>
 
-          {/* 🟢 NEW: Graphical Representations for Fire Causes and Monthly Occurrences */}
+          {/* Graphical Representations for Fire Causes and Monthly Occurrences */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px]">
               <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Frequency of Fire Incident Causes & Culprits</h3>

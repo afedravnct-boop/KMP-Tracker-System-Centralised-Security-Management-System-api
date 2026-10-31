@@ -403,17 +403,17 @@ class LockupMatrix(Base):
 
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sd_ref = Column(String, unique=True, index=True, nullable=False) 
-    date = Column(String, index=True, nullable=False)                
-    time = Column(String, nullable=True)                             
-    region = Column(String, index=True, nullable=False)              
-    station = Column(String, index=True, nullable=False)             
-    suspects = Column(Integer, default=0, nullable=False)            
+    date = Column(String, index=True, nullable=False)                                
+    time = Column(String, nullable=True)                                     
+    region = Column(String, index=True, nullable=False)                   
+    station = Column(String, index=True, nullable=False)                  
+    suspects = Column(Integer, default=0, nullable=False)                 
     
     male_count = Column(Integer, default=0, nullable=False)          
     male_juvenile_count = Column(Integer, default=0, nullable=False)
     female_count = Column(Integer, default=0, nullable=False)         
     female_juvenile_count = Column(Integer, default=0, nullable=False)
-    detention_1day = Column(Integer, default=0, nullable=False)      
+    detention_1day = Column(Integer, default=0, nullable=False)     
     detention_2days = Column(Integer, default=0, nullable=False)    
     detention_3days_over = Column(Integer, default=0, nullable=False)
 
@@ -503,7 +503,7 @@ class Accidents_Statistics(Base):
     minor = Column(Integer, default=0)
     serious = Column(Integer, default=0)
     fatal = Column(Integer, default=0)
-    victims = Column(Integer, default=0) # 🟢 NEW: Added Victims count column
+    victims = Column(Integer, default=0)
     total = Column(Integer, default=0)
     
     entered_by = Column(String, nullable=True)
@@ -531,6 +531,7 @@ AccidentsStatistics = Accidents_Statistics
 # ======================================================================
 class Fire_Statistics(Base):
     __tablename__ = "fire_statistics"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     sn = Column(Integer, nullable=True)
@@ -538,14 +539,18 @@ class Fire_Statistics(Base):
     station = Column(String(100), index=True, nullable=False)
     date = Column(String(20), index=True, nullable=False)
     nature_of_fire = Column(String(200), nullable=False)
+    status_findings = Column(String(255), default="UNDER INVESTIGATION") # 🟢 Added for cause auditing & status tracking
     minor_outbreaks = Column(Integer, default=0)
     major_disasters = Column(Integer, default=0)
     fatal_fires = Column(Integer, default=0)
     victims = Column(Integer, default=0)
     total = Column(Integer, default=0)
+    narrative = Column(Text, nullable=True) # 🟢 Added to store incident narratives for intelligent parsing
     entered_by = Column(String(150), nullable=True)
     last_updated_by = Column(String(150), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_eat_time)
+
+FireStatistics = Fire_Statistics
 
 # ==========================================
 # AGRICULTURAL CRIME SUMMARY LEDGER
@@ -576,7 +581,7 @@ class Impounded_Exhibits(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     sn = Column(Integer, index=True, autoincrement=True)
-    category = Column(String, default="GENERAL PROPERTY") # Optional: explicitly define category if needed
+    category = Column(String, default="GENERAL PROPERTY")
     reg_no = Column(String, index=True, nullable=False)
     type_make = Column(String, nullable=False)
     colour = Column(String, nullable=False)
@@ -586,7 +591,7 @@ class Impounded_Exhibits(Base):
     unit_responsible = Column(String, default="CID")
     assorted_items = Column(String, default="NIL")
     comment = Column(String, default="NIL")
-    photo_url = Column(String, nullable=True) # 🟢 NEW: Add photo_url column here
+    photo_url = Column(String, nullable=True)
     region = Column(String, index=True, nullable=False)
     station = Column(String, index=True, nullable=False)
     date_impounded = Column(String, nullable=True)

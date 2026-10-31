@@ -171,7 +171,7 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     plain_text = strip_html_tags(raw_narrative or '')
     lower_plain = plain_text.lower()
     
-    # 1. Intelligent Property / Structure Type Extraction
+    # 1. Intelligent Structure / Property Type Extraction
     classification = "RESIDENTIAL PROPERTY"
     if any(k in lower_plain for k in ["dormitory", "dorm", "hostel"]):
         classification = "SCHOOL DORMITORY"
@@ -191,7 +191,8 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     facility_match = re.search(r'(?:at|in|of)\s+([A-Z][a-zA-Z0-9\s]{3,30}\s+(?:School|College|Factory|Center|Centre|Hostel|Dormitory|Market))', plain_text)
     if facility_match:
         classification = facility_match.group(1).strip().upper()
-    
+
+    # 2. Casualties Extraction
     deaths = 0
     injuries = 0
     death_match = re.search(r'(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)', text_blob)
@@ -201,16 +202,27 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     if injury_match:
         injuries = safe_int(injury_match.group(1))
 
-    # Investigation Status & Exact Cause Detection
+    # 3. Investigation Status & Extended Cause Detection (Including Natural & Custom Entries)
     status_findings = "UNDER INVESTIGATION"
+    
     if "cause of fire was still under investigation" in lower_plain or "still under investigation" in lower_plain:
         status_findings = "UNDER INVESTIGATION"
-    elif "spark" in lower_plain or "electrical" in lower_plain or "short circuit" in lower_plain:
+    elif any(k in lower_plain for k in ["lightning", "thunder", "act of god", "natural occurrence"]):
+        status_findings = "CAUSE ESTABLISHED: NATURAL / LIGHTNING STRIKE"
+    elif any(k in lower_plain for k in ["spark", "electrical", "short circuit", "power surge"]):
         status_findings = "CAUSE ESTABLISHED: ELECTRICAL SHORT CIRCUIT"
-    elif "arson" in lower_plain or "set the dormitory on fire" in lower_plain or "malicious" in lower_plain or "student" in lower_plain:
+    elif any(k in lower_plain for k in ["arson", "malicious", "deliberate", "set fire", "student"]):
         status_findings = "CAUSE ESTABLISHED: ARSON / DELIBERATE ACT"
-    elif "charcoal" in lower_plain or "stove" in lower_plain or "candle" in lower_plain or "cook" in lower_plain:
-        status_findings = "CAUSE ESTABLISHED: UNATTENDED HEAT SOURCE"
+    elif any(k in lower_plain for k in ["charcoal", "stove", "candle", "cook", "gas leak", "cylinder"]):
+        status_findings = "CAUSE ESTABLISHED: UNATTENDED HEAT SOURCE / GAS"
+    else:
+        # Check if a custom cause description can be parsed or captured
+        cause_match = re.search(r'(?:due to|caused by|resulted from)\s+([^.,;]+)', lower_plain)
+        if cause_match:
+            custom_cause = cause_match.group(1).strip().upper()
+            status_findings = f"CAUSE ESTABLISHED: {custom_cause}"
+        else:
+            status_findings = "CAUSE ESTABLISHED: CUSTOM / OTHER INQUIRY"
 
     return {
         "classification": classification,
