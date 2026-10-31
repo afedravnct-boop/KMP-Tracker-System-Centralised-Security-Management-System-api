@@ -1,3 +1,4 @@
+# app/models.py
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Boolean, ForeignKey, UniqueConstraint, JSON
 from sqlalchemy.sql import func
@@ -403,11 +404,11 @@ class LockupMatrix(Base):
 
     sn = Column(Integer, primary_key=True, index=True, autoincrement=True)
     sd_ref = Column(String, unique=True, index=True, nullable=False) 
-    date = Column(String, index=True, nullable=False)                                
+    date = Column(String, index=True, nullable=False)                        
     time = Column(String, nullable=True)                                     
-    region = Column(String, index=True, nullable=False)                   
-    station = Column(String, index=True, nullable=False)                  
-    suspects = Column(Integer, default=0, nullable=False)                 
+    region = Column(String, index=True, nullable=False)                    
+    station = Column(String, index=True, nullable=False)                   
+    suspects = Column(Integer, default=0, nullable=False)                  
     
     male_count = Column(Integer, default=0, nullable=False)          
     male_juvenile_count = Column(Integer, default=0, nullable=False)
@@ -438,6 +439,7 @@ General_Documents = GeneralDocuments
 
 class OperationalDocumentEmbedding(Base):
     __tablename__ = "operational_document_embeddings"
+    __table_args__ = {'extend_existing': True}
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(String(100), nullable=False, index=True)
@@ -510,24 +512,8 @@ class Accidents_Statistics(Base):
     last_updated_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=get_eat_time)
 
-# =====================================================================
-# CROSS-ROUTER COMPATIBILITY ALIASES
-# =====================================================================
-CrimeReports = Crime_Reports
-OperationalStatistics = Operational_Statistics
-SuccessStories = Success_Stories
-AuditLogs = Audit_Logs
-ActivityLogs = Activity_Logs
-ModificationRequests = Modification_Requests
-PasswordResetRequests = Password_Reset_Requests
-CommunicationReads = Communication_Reads
-AdminCommunication = Admin_Communication
-AICommandLogs = AI_Command_Logs 
-DailyComplianceTracker = Daily_Compliance_Tracker
-AccidentsStatistics = Accidents_Statistics
-
 # ======================================================================
-# FIRES SUMMARY LEDGER
+# 14. FIRES SUMMARY LEDGER
 # ======================================================================
 class Fire_Statistics(Base):
     __tablename__ = "fire_statistics"
@@ -539,21 +525,19 @@ class Fire_Statistics(Base):
     station = Column(String(100), index=True, nullable=False)
     date = Column(String(20), index=True, nullable=False)
     nature_of_fire = Column(String(200), nullable=False)
-    status_findings = Column(String(255), default="UNDER INVESTIGATION") # 🟢 Added for cause auditing & status tracking
+    status_findings = Column(String(255), default="UNDER INVESTIGATION")
     minor_outbreaks = Column(Integer, default=0)
     major_disasters = Column(Integer, default=0)
     fatal_fires = Column(Integer, default=0)
     victims = Column(Integer, default=0)
     total = Column(Integer, default=0)
-    narrative = Column(Text, nullable=True) # 🟢 Added to store incident narratives for intelligent parsing
+    narrative = Column(Text, nullable=True)
     entered_by = Column(String(150), nullable=True)
     last_updated_by = Column(String(150), nullable=True)
     created_at = Column(DateTime, default=get_eat_time)
 
-FireStatistics = Fire_Statistics
-
 # ==========================================
-# AGRICULTURAL CRIME SUMMARY LEDGER
+# 15. AGRICULTURAL CRIME SUMMARY LEDGER
 # ==========================================
 class Agricultural_Crime_Summary(Base):
     __tablename__ = "agricultural_crime_summary"
@@ -573,8 +557,9 @@ class Agricultural_Crime_Summary(Base):
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
 
-AgriculturalCrimeSummary = Agricultural_Crime_Summary
-
+# ==========================================
+# 16. IMPOUNDED EXHIBITS
+# ==========================================
 class Impounded_Exhibits(Base):
     __tablename__ = "impounded_exhibits"
     __table_args__ = {'extend_existing': True}
@@ -602,4 +587,52 @@ class Impounded_Exhibits(Base):
     entered_by = Column(String, nullable=True)
     created_at = Column(DateTime, default=get_eat_time)
 
+# =====================================================================
+# CROSS-ROUTER COMPATIBILITY ALIASES (COMPREHENSIVE)
+# =====================================================================
+CrimeReports = Crime_Reports
+SuspectLockup = Suspect_Lockup
+
+OperationalStatistics = Operational_Statistics
+OperationalStats = Operational_Statistics
+operational_statistics = Operational_Statistics
+Stats = Operational_Statistics
+
+Agric_Crimes_Statistics = AgricCrimeStatistics
+AgricCrimesStatistics = AgricCrimeStatistics
+Agric_Crime_Statistics = AgricCrimeStatistics
+AgricStats = AgricCrimeStatistics
+Agric_Stats = AgricCrimeStatistics
+agric_crimes_statistics = AgricCrimeStatistics
+
+SuccessStories = Success_Stories
+Nominal_Roll = NominalRoll
+Nominal_Roll_Archives = NominalRollArchive
+NominalRollArchives = NominalRollArchive
+Archived_Personnel = NominalRollArchive
+
+AuditLogs = Audit_Logs
+ActivityLogs = Activity_Logs
+ModificationRequests = Modification_Requests
+PasswordResetRequests = Password_Reset_Requests
+CommunicationReads = Communication_Reads
+AdminCommunication = Admin_Communication
+AICommandLogs = AI_Command_Logs
+AI_Logs = AI_Command_Logs
+AILogs = AI_Command_Logs
+
+Lockup_Matrix = LockupMatrix
+DailyComplianceTracker = Daily_Compliance_Tracker
+
+AccidentsStatistics = Accidents_Statistics
+accidents_statistics = Accidents_Statistics
+
+FireStatistics = Fire_Statistics
+FiresStats = Fire_Statistics
+fire_statistics = Fire_Statistics
+
+AgriculturalCrimeSummary = Agricultural_Crime_Summary
+agricultural_crime_summary = Agricultural_Crime_Summary
+
 ImpoundedExhibits = Impounded_Exhibits
+Exhibits = Impounded_Exhibits

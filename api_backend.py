@@ -87,6 +87,7 @@ from routers import (
 # ==========================================
 # ROUTER INCLUSIONS
 # ==========================================
+app.include_router(statistics.router)
 app.include_router(document_upload.router)
 app.include_router(general_documents.router)
 app.include_router(command_templates.router)
@@ -103,7 +104,6 @@ app.include_router(auth_router)
 app.include_router(exhibits.router)
 app.include_router(hr_router.router)
 app.include_router(consolidated_ledger.router)
-app.include_router(statistics.router)
 app.include_router(admin_users.router)
 
 # ==========================================

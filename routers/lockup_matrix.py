@@ -109,25 +109,13 @@ def apply_opsec_scope(current_user, query, ModelClass):
     if not ModelClass or not current_user:
         return query.filter(text("1=0"))
     
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    user_stn = str(current_user.station).strip().upper() if current_user.station else "" # Evaluates current posting dynamically
-    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
-
-    # Standard scoped checks will now automatically use 'CPS KABALAGALA' instead of 'CPS KAMPALA'
-    if hasattr(ModelClass, 'station'):
-        clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
-        return query.filter(
-            or_(
-                func.upper(ModelClass.station) == user_stn,
-                func.upper(ModelClass.station) == clean_stn
-            )
-        )
-    return query
-
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    user_pos = str(current_user.position).strip().upper() if current_user.position else ""
-    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
-    user_stn = str(current_user.station).strip().upper() if current_user.station else ""
+    user_role = str(current_user.role or "").strip().upper()
+    user_pos = str(current_user.position or "").strip().upper()
+    user_reg = str(current_user.region or "").strip().upper()
+    user_stn = str(current_user.station or "").strip().upper()
+    
+    # 🟢 Safe pre-initialization of clean_stn to prevent NameError crash
+    clean_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
 
     perms = current_user.permissions or {}
     if isinstance(perms, str):
@@ -195,7 +183,6 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]))
         
     elif hasattr(ModelClass, 'station') and hasattr(ModelClass, 'region'):
-        clean_user_stn = user_stn.replace(' HEADQUARTERS', '').replace(' HQ', '')
         return query.filter(
             or_(
                 func.upper(ModelClass.station).in_(["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]),
@@ -203,8 +190,8 @@ def apply_opsec_scope(current_user, query, ModelClass):
                     func.upper(ModelClass.region) == user_reg,
                     or_(
                         func.upper(ModelClass.station) == user_stn,
-                        func.upper(ModelClass.station) == clean_user_stn,
-                        func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+                        func.upper(ModelClass.station) == clean_stn,
+                        func.upper(ModelClass.station) == f"{clean_stn} HEADQUARTERS"
                     )
                 )
             )
