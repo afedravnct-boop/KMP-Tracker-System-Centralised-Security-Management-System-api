@@ -13,8 +13,8 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const PIE_COLORS = ['#596E47', '#A97142'];
-const PIE_STATUS_COLORS = ['#3a3225', '#b8ab97'];
+const PIE_COLORS = ['#596E47', '#A97142', '#2563EB', '#D97706', '#991B1B', '#7C3AED'];
+const PIE_STATUS_COLORS = ['#3a3225', '#b8ab97', '#2563EB', '#DC2626'];
 
 const isLockupLog = (item) => {
   if (!item) return false;
@@ -142,6 +142,7 @@ const AnalyticsDashboard = ({
   const [backendDetentionCalendar, setBackendDetentionCalendar] = useState({ dates: [], dateMap: {}, regionDemographics: [], regionDuration: [], dailyMargins: [] });
   const [backendSuccessStories, setBackendSuccessStories] = useState([]);
   const [backendFireIntelligence, setBackendFireIntelligence] = useState({ totalFires: 0, totalDeaths: 0, totalInjuries: 0, fireList: [], fireCauses: [], fireMonthly: [] });
+  const [backendAccidentsIntelligence, setBackendAccidentsIntelligence] = useState({ accidentsMonthly: [], accidentsSeverity: [], accidentsRegional: [] });
   const [backendCrimeCategories, setBackendCrimeCategories] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -210,6 +211,13 @@ const AnalyticsDashboard = ({
                 fireList: Array.isArray(intelData.fireIntelligence.fireList) ? intelData.fireIntelligence.fireList : [],
                 fireCauses: Array.isArray(intelData.fireIntelligence.fireCauses) ? intelData.fireIntelligence.fireCauses : [],
                 fireMonthly: Array.isArray(intelData.fireIntelligence.fireMonthly) ? intelData.fireIntelligence.fireMonthly : []
+              });
+            }
+            if (intelData.accidentsIntelligence) {
+              setBackendAccidentsIntelligence({
+                accidentsMonthly: Array.isArray(intelData.accidentsIntelligence.accidentsMonthly) ? intelData.accidentsIntelligence.accidentsMonthly : [],
+                accidentsSeverity: Array.isArray(intelData.accidentsIntelligence.accidentsSeverity) ? intelData.accidentsIntelligence.accidentsSeverity : [],
+                accidentsRegional: Array.isArray(intelData.accidentsIntelligence.accidentsRegional) ? intelData.accidentsIntelligence.accidentsRegional : []
               });
             }
             if (Array.isArray(intelData.crimeCategoryData)) setBackendCrimeCategories(intelData.crimeCategoryData);
@@ -353,9 +361,32 @@ const AnalyticsDashboard = ({
     return backendFireIntelligence.fireMonthly || [];
   }, [backendFireIntelligence]);
 
-  const accidentsTimeSeriesData = useMemo(() => {
-      return aggregateTimeSeries(timeFilteredDataset, 'date', ['minor', 'serious', 'fatal', 'victims', 'total']);
-  }, [timeFilteredDataset]);
+  // 🟢 ACCIDENTS INTELLIGENCE CHART MEMOS
+  const accidentsMonthlyChartData = useMemo(() => {
+    return backendAccidentsIntelligence.accidentsMonthly || [];
+  }, [backendAccidentsIntelligence]);
+
+  const accidentsSeverityChartData = useMemo(() => {
+    return backendAccidentsIntelligence.accidentsSeverity || [];
+  }, [backendAccidentsIntelligence]);
+
+  const accidentsRegionalChartData = useMemo(() => {
+    return backendAccidentsIntelligence.accidentsRegional || [];
+  }, [backendAccidentsIntelligence]);
+
+  const displayAccidentsList = useMemo(() => {
+    return timeFilteredData(resolvedAccidents).map(ac => ({
+      station: ac.station || 'UNKNOWN',
+      region: ac.region || 'UNKNOWN',
+      date: ac.date || 'N/A',
+      nature: ac.nature_of_accident || 'TRAFFIC ACCIDENT',
+      minor: ac.minor || 0,
+      serious: ac.serious || 0,
+      fatal: ac.fatal || 0,
+      victims: ac.victims || 0,
+      total: ac.total || 0
+    }));
+  }, [resolvedAccidents, selectedMonth, dateFilter]);
 
   const selectedDayLockup = useMemo(() => {
     if (!selectedDetentionDate || !backendDetentionCalendar.dateMap[selectedDetentionDate]) {
@@ -617,7 +648,7 @@ const AnalyticsDashboard = ({
         </div>
 
         <span className="text-[10px] font-extrabold text-[#596E47] bg-[#e9eedf] px-2 py-0.5 rounded border border-[#cfe1b9]">
-          Total Entries: {activeDomain === 'SUCCESS' ? displaySuccessStories.length : activeDomain === 'CRIME' ? displayCrimeCategories.length : activeDomain === 'EXHIBITS' ? exhibitGroupedData.length : activeDomain === 'FIRES' ? displayFireIncidents.length : timeFilteredDataset.length}
+          Total Entries: {activeDomain === 'SUCCESS' ? displaySuccessStories.length : activeDomain === 'CRIME' ? displayCrimeCategories.length : activeDomain === 'EXHIBITS' ? exhibitGroupedData.length : activeDomain === 'FIRES' ? displayFireIncidents.length : activeDomain === 'ACCIDENTS' ? displayAccidentsList.length : timeFilteredDataset.length}
         </span>
       </div>
 
@@ -898,32 +929,106 @@ const AnalyticsDashboard = ({
         <div className="space-y-3 pb-8">
           <div className="bg-[#3a3225] rounded-xl p-3 text-[#f4eee2] shadow-sm border border-[#534735]">
             <h2 className="text-xs font-extrabold flex items-center tracking-wide text-[#f4eee2]">
-              <Car className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Traffic & Accidents Time-Series Analytics
+              <Car className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Traffic & Accidents Intelligence Audit & Analytics
             </h2>
             <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
-              Weekly severity progression comparing minor, serious, fatal crashes, and human casualties.
+              Tracking monthly accident comparisons, crash severity, and regional distributions.
             </p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[380px]">
-             <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Weekly Accident Crash Severity & Casualties</h3>
-             {accidentsTimeSeriesData.weekly.length > 0 ? (
-               <ResponsiveContainer width="100%" height="88%">
-                  <BarChart data={accidentsTimeSeriesData.weekly} margin={{ top: 10, right: 30, left: 0, bottom: 5 }}>
+          {/* 🟢 ACCIDENTS ANALYTICAL CHARTS (Monthly Trend, Severity Bar Chart, Regional Pie Chart) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px]">
+              <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Accident Occurrences by Month</h3>
+              {accidentsMonthlyChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="90%">
+                  <LineChart data={accidentsMonthlyChartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2d6c3" />
+                    <XAxis dataKey="month" tick={{fontSize: 9, fontWeight: 'bold'}} />
+                    <YAxis tick={{fontSize: 9}} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Line type="monotone" dataKey="count" name="Accidents" stroke="#2563EB" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450]">No monthly accident data available.</div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px]">
+              <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Accident Severity Breakdown</h3>
+              {accidentsSeverityChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="90%">
+                  <BarChart data={accidentsSeverityChartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2d6c3" />
-                    <XAxis dataKey="period" tick={{fontSize: 10, fontWeight: 'bold'}} />
-                    <YAxis tick={{fontSize: 10}} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2d6c3', fontSize: '10px', fontWeight: 'bold' }} />
-                    <Legend wrapperStyle={{ fontSize: '10px', fontWeight: 'bold' }} />
-                    <Bar dataKey="minor" name="Minor Crashes" fill="#2563EB" stackId="a" />
-                    <Bar dataKey="serious" name="Serious Crashes" fill="#D97706" stackId="a" />
-                    <Bar dataKey="fatal" name="Fatal Crashes" fill="#991B1B" stackId="a" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="victims" name="Total Victims" fill="#7C3AED" barSize={15} />
+                    <XAxis dataKey="severity" tick={{fontSize: 9, fontWeight: 'bold'}} />
+                    <YAxis tick={{fontSize: 9}} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Bar dataKey="count" name="Severity Count" fill="#D97706" radius={[4, 4, 0, 0]} barSize={40} />
                   </BarChart>
-               </ResponsiveContainer>
-             ) : (
-               <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450] font-bold">No accident statistics available for the selected timeframe.</div>
-             )}
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450]">No severity breakdown data.</div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px] flex flex-col items-center">
+              <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-1 w-full border-b border-[#e2d6c3] pb-1">Accident Concentration by Region</h3>
+              {accidentsRegionalChartData.length > 0 ? (
+                <div className="h-[260px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={accidentsRegionalChartData} cx="50%" cy="50%" labelLine={false} label={renderCustomizedLabel} outerRadius={70} fill="#8884d8" dataKey="value" nameKey="region">
+                        {accidentsRegionalChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                      <Legend wrapperStyle={{ fontSize: '9px', fontWeight: 'bold' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450]">No regional accident distribution data.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
+            <div className="max-h-[420px] overflow-y-auto custom-scrollbar w-full">
+              <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '18%' }}>Station / Region</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '12%' }}>Date</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '28%' }}>Nature of Accident</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Minor</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Serious</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Fatal</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Victims</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide" style={{ width: '12%' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
+                  {displayAccidentsList.length > 0 ? (
+                    displayAccidentsList.map((ac, idx) => (
+                      <tr key={idx} className="hover:bg-[#e9eedf]/30 align-top">
+                        <td className="px-3 py-2 text-[10px] font-bold text-[#3a3225] border-r border-[#e2d6c3] whitespace-normal break-words">{ac.station}<br/><span className="text-[9px] text-[#736450]">{ac.region}</span></td>
+                        <td className="px-3 py-2 text-[10px] font-semibold text-[#594d3c] border-r border-[#e2d6c3]">{ac.date}</td>
+                        <td className="px-3 py-2 text-[10px] font-extrabold text-blue-900 uppercase border-r border-[#e2d6c3] whitespace-normal break-words">{ac.nature}</td>
+                        <td className="px-3 py-2 text-center text-[10px] font-bold text-blue-700 border-r border-[#e2d6c3]">{ac.minor}</td>
+                        <td className="px-3 py-2 text-center text-[10px] font-bold text-orange-700 border-r border-[#e2d6c3]">{ac.serious}</td>
+                        <td className="px-3 py-2 text-center text-[10px] font-black text-red-700 border-r border-[#e2d6c3]">{ac.fatal}</td>
+                        <td className="px-3 py-2 text-center text-[10px] font-black text-purple-700 border-r border-[#e2d6c3]">{ac.victims}</td>
+                        <td className="px-3 py-2 text-center text-[10px] font-black text-[#3a3225]">{ac.total}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr><td colSpan="8" className="text-center py-6 text-[10px] text-[#736450]">No accident records found matching your filter criteria.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -997,11 +1102,11 @@ const AnalyticsDashboard = ({
               <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '18%' }}>Station / Region</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '22%' }}>Property / Structure Type</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '10%' }}>Deaths</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '10%' }}>Injuries</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '40%' }}>Incident Findings & Summary</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '18%' }}>Station / Region</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '22%' }}>Property / Structure Type</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Deaths</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Injuries</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide" style={{ width: '40%' }}>Incident Findings & Summary</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
@@ -1076,11 +1181,11 @@ const AnalyticsDashboard = ({
               <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '22%' }}>Exhibit Category</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '30%' }}>Description (Colour/Features)</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '22%' }}>Region / Station</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '14%' }}>Status</th>
-                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '12%' }}>Total</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '22%' }}>Exhibit Category</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '30%' }}>Description (Colour/Features)</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '22%' }}>Region / Station</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '14%' }}>Status</th>
+                    <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide" style={{ width: '12%' }}>Total</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
@@ -1121,8 +1226,8 @@ const AnalyticsDashboard = ({
               <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
-                    <th className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '75%' }}>Operational Metric Attribute</th>
-                    <th className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '25%' }}>Aggregate Total</th>
+                    <th className="px-4 py-2.5 text-left text-[11px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '75%' }}>Operational Metric Attribute</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] uppercase tracking-wide" style={{ width: '25%' }}>Aggregate Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#e2d6c3]">

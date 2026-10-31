@@ -171,7 +171,6 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     plain_text = strip_html_tags(raw_narrative or '')
     lower_plain = plain_text.lower()
     
-    # 1. Intelligent Structure / Property Type Extraction
     classification = "RESIDENTIAL PROPERTY"
     if any(k in lower_plain for k in ["dormitory", "dorm", "hostel"]):
         classification = "SCHOOL DORMITORY"
@@ -192,7 +191,6 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     if facility_match:
         classification = facility_match.group(1).strip().upper()
 
-    # 2. Casualties Extraction
     deaths = 0
     injuries = 0
     death_match = re.search(r'(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)', text_blob)
@@ -202,9 +200,7 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     if injury_match:
         injuries = safe_int(injury_match.group(1))
 
-    # 3. Investigation Status & Extended Cause Detection (Including Natural & Custom Entries)
     status_findings = "UNDER INVESTIGATION"
-    
     if "cause of fire was still under investigation" in lower_plain or "still under investigation" in lower_plain:
         status_findings = "UNDER INVESTIGATION"
     elif any(k in lower_plain for k in ["lightning", "thunder", "act of god", "natural occurrence"]):
@@ -216,7 +212,6 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     elif any(k in lower_plain for k in ["charcoal", "stove", "candle", "cook", "gas leak", "cylinder"]):
         status_findings = "CAUSE ESTABLISHED: UNATTENDED HEAT SOURCE / GAS"
     else:
-        # Check if a custom cause description can be parsed or captured
         cause_match = re.search(r'(?:due to|caused by|resulted from)\s+([^.,;]+)', lower_plain)
         if cause_match:
             custom_cause = cause_match.group(1).strip().upper()
@@ -482,7 +477,7 @@ def get_dashboard_intelligence(
             except Exception:
                 continue
 
-        # 3. FIRE INTELLIGENCE (Upgraded with Property and Cause Analysis)
+        # 3. FIRE INTELLIGENCE
         total_fire_incidents = len(fire_records)
         total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
         total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
@@ -498,11 +493,9 @@ def get_dashboard_intelligence(
                 offence_str = str(getattr(f, 'nature_of_fire', ''))
                 parsed_fire = parse_fire_incident_advanced(raw_narrative, offence_str)
 
-                # Tally Fire Causes
                 cause_key = parsed_fire["statusFindings"]
                 fire_causes_map[cause_key] = fire_causes_map.get(cause_key, 0) + 1
 
-                # Tally Monthly Occurrences
                 d_str = str(getattr(f, 'date', ''))
                 if d_str and d_str != 'None':
                     clean_d = d_str.split('T')[0][:10]
@@ -526,7 +519,59 @@ def get_dashboard_intelligence(
         fire_causes_data = [{"cause": k, "count": v} for k, v in sorted(fire_causes_map.items(), key=lambda x: x[1], reverse=True)]
         fire_monthly_data = [{"month": m, "count": fire_monthly_map[m]} for m in month_names]
 
-        # 4. CRIME CATEGORIES
+        # 🟢 4. ACCIDENTS INTELLIGENCE (Monthly trends, severity breakdown, and regional pie breakdown)
+        accidents_monthly_map = {m: 0 for m in month_names}
+        accidents_severity_map = {"MINOR": 0, "SERIOUS": 0, "FATAL": 0}
+        accidents_regional_map = {}
+
+        accidents_formatted = []
+        for ac in accidents_records:
+            try:
+                minor_c = safe_int(getattr(ac, 'minor', 0))
+                serious_c = safe_int(getattr(ac, 'serious', 0))
+                fatal_c = safe_int(getattr(ac, 'fatal', 0))
+                victims_c = safe_int(getattr(ac, 'victims', 0))
+                total_c = safe_int(getattr(ac, 'total', minor_c + serious_c + fatal_c))
+                
+                reg = str(getattr(ac, 'region', 'KMP GENERAL')).upper()
+                nature = str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper()
+
+                # Tally severity
+                accidents_severity_map["MINOR"] += minor_c
+                accidents_severity_map["SERIOUS"] += serious_c
+                accidents_severity_map["FATAL"] += fatal_c
+
+                # Tally regional distribution for pie chart
+                accidents_regional_map[reg] = accidents_regional_map.get(reg, 0) + total_c
+
+                # Tally monthly timeline
+                d_str = str(getattr(ac, 'date', ''))
+                if d_str and d_str != 'None':
+                    clean_d = d_str.split('T')[0][:10]
+                    dt = datetime.strptime(clean_d, "%Y-%m-%d")
+                    m_label = month_names[dt.month - 1]
+                    accidents_monthly_map[m_label] += total_c
+
+                accidents_formatted.append({
+                    "id": safe_int(getattr(ac, 'id', getattr(ac, 'sn', 0))),
+                    "date": str(getattr(ac, 'date', 'N/A')),
+                    "region": reg,
+                    "station": str(getattr(ac, 'station', 'N/A')).upper(),
+                    "nature": nature,
+                    "minor": minor_c,
+                    "serious": serious_c,
+                    "fatal": fatal_c,
+                    "victims": victims_c,
+                    "total": total_c
+                })
+            except Exception:
+                continue
+
+        accidents_monthly_data = [{"month": m, "count": accidents_monthly_map[m]} for m in month_names]
+        accidents_severity_data = [{"severity": k, "count": v} for k, v in accidents_severity_map.items()]
+        accidents_regional_data = [{"region": k, "value": v} for k, v in accidents_regional_map.items()]
+
+        # 5. CRIME CATEGORIES
         crime_reg_map = {}
         for cr in crime_records:
             try:
@@ -545,7 +590,7 @@ def get_dashboard_intelligence(
             crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
         crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
 
-        # 5. EXHIBITS DATA RETRIEVAL
+        # 6. EXHIBITS DATA RETRIEVAL
         exhibits_formatted = []
         for ex in exhibit_records:
             try:
@@ -557,31 +602,6 @@ def get_dashboard_intelligence(
                     "station": str(getattr(ex, 'station', getattr(ex, 'division', 'N/A')) or 'N/A').upper(),
                     "status": str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper(),
                     "total": 1
-                })
-            except Exception:
-                continue
-
-        # 6. ACCIDENTS DATA RETRIEVAL
-        accidents_formatted = []
-        for ac in accidents_records:
-            try:
-                minor_c = safe_int(getattr(ac, 'minor', 0))
-                serious_c = safe_int(getattr(ac, 'serious', 0))
-                fatal_c = safe_int(getattr(ac, 'fatal', 0))
-                victims_c = safe_int(getattr(ac, 'victims', 0))
-                total_c = safe_int(getattr(ac, 'total', minor_c + serious_c + fatal_c))
-                
-                accidents_formatted.append({
-                    "id": safe_int(getattr(ac, 'id', getattr(ac, 'sn', 0))),
-                    "date": str(getattr(ac, 'date', 'N/A')),
-                    "region": str(getattr(ac, 'region', 'KMP GENERAL')).upper(),
-                    "station": str(getattr(ac, 'station', 'N/A')).upper(),
-                    "nature": str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper(),
-                    "minor": minor_c,
-                    "serious": serious_c,
-                    "fatal": fatal_c,
-                    "victims": victims_c,
-                    "total": total_c
                 })
             except Exception:
                 continue
@@ -603,6 +623,11 @@ def get_dashboard_intelligence(
                 "fireCauses": fire_causes_data,
                 "fireMonthly": fire_monthly_data
             },
+            "accidentsIntelligence": {
+                "accidentsMonthly": accidents_monthly_data,
+                "accidentsSeverity": accidents_severity_data,
+                "accidentsRegional": accidents_regional_data
+            },
             "crimeCategoryData": crime_category_data,
             "exhibitsData": exhibits_formatted,
             "accidentsData": accidents_formatted
@@ -615,6 +640,7 @@ def get_dashboard_intelligence(
             "detentionCalendar": {"dates": [], "dateMap": {}, "regionDemographics": [], "regionDuration": [], "dailyMargins": []},
             "successStoriesProcessed": [],
             "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": [], "fireCauses": [], "fireMonthly": []},
+            "accidentsIntelligence": {"accidentsMonthly": [], "accidentsSeverity": [], "accidentsRegional": []},
             "crimeCategoryData": [],
             "exhibitsData": [],
             "accidentsData": []
