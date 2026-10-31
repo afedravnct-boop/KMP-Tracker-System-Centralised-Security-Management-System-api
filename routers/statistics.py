@@ -117,10 +117,18 @@ def apply_opsec_scope(current_user, query, ModelClass):
         return query.filter(text("1=0"))
         
     elif hasattr(ModelClass, 'station'):
-        return query.filter(func.upper(ModelClass.station) == user_stn)
+        # 🟢 FIX: Ensure clean_stn is defined here if your fallback block uses it, 
+        # or safely derive it directly from user_stn:
+        clean_stn = user_stn.replace(" HEADQUARTERS", "").replace(" HQ", "")
+        return query.filter(
+            or_(
+                func.upper(ModelClass.station) == user_stn,
+                func.upper(ModelClass.station) == f"{clean_stn} HEADQUARTERS",
+                func.upper(ModelClass.station) == f"{clean_stn} HQ"
+            )
+        )
         
     return query.filter(text("1=0"))
-
 def build_filtered_query(query, ModelClass, region, station, start_date, end_date, search):
     # 🟢 Pre-initialize clean_stn safely to prevent scope crashes
     clean_stn = ""
