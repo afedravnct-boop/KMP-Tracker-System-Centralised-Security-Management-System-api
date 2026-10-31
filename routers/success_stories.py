@@ -273,7 +273,7 @@ def get_stories(
             r_dict = r.__dict__.copy()
             r_dict.pop('_sa_instance_state', None)
             
-            # 🟢 Automatically inject auto-parsed metrics for UI & Analytics sync
+            # 🟢 INJECT PARSED WORD-FORM METRICS FOR UI COLUMNS
             narrative_str = r_dict.get('narrative', '') or r_dict.get('title', '')
             parsed = parse_success_story_backend(narrative_str)
 
@@ -283,7 +283,6 @@ def get_stories(
             r_dict['classification'] = r_dict.get('category') or parsed['classification']
 
             linked_case = None
-
             if CrimeModel and narrative_str:
                 try:
                     ref_regex = re.compile(r'(sd\s*ref|crb|def|gef|tar|cid)\s*:?\s*([A-Z0-9/\-]+)', re.IGNORECASE)
@@ -294,7 +293,6 @@ def get_stories(
 
                     for prefix, ref_num in matches:
                         search_num = ref_num.strip().upper()
-                        
                         or_conditions = []
                         if has_sd_ref: or_conditions.append(func.upper(CrimeModel.sd_ref).like(f"%{search_num}%"))
                         if has_sdRef: or_conditions.append(func.upper(CrimeModel.sdRef).like(f"%{search_num}%"))
