@@ -60,43 +60,6 @@ const getOfficialRegionForStation = (stationName, dbRegion) => {
   return cleanDbRegion || 'KMP GENERAL';
 };
 
-const aggregateTimeSeries = (records, dateField, valueFields) => {
-    if (!Array.isArray(records)) return { weekly: [], monthly: [] };
-    const weeklyMap = {};
-    const monthlyMap = {};
-
-    records.forEach(r => {
-        if (!r) return;
-        const dStr = r[dateField];
-        if (!dStr) return;
-        try {
-            const dt = new Date(dStr);
-            if (isNaN(dt)) return;
-
-            const weekKey = `${dt.getFullYear()}-W${String(Math.ceil(dt.getDate() / 7)).padStart(2, '0')}`;
-            const monthKey = dt.toLocaleString('default', { month: 'short', year: 'numeric' });
-
-            if (!weeklyMap[weekKey]) weeklyMap[weekKey] = { period: weekKey, count: 0 };
-            if (!monthlyMap[monthKey]) monthlyMap[monthKey] = { period: monthKey, count: 0 };
-
-            weeklyMap[weekKey].count += 1;
-            monthlyMap[monthKey].count += 1;
-
-            valueFields.forEach(vf => {
-                if (!weeklyMap[weekKey][vf]) weeklyMap[weekKey][vf] = 0;
-                if (!monthlyMap[monthKey][vf]) monthlyMap[monthKey][vf] = 0;
-                weeklyMap[weekKey][vf] += Number(r[vf] || 0);
-                monthlyMap[monthKey][vf] += Number(r[vf] || 0);
-            });
-        } catch (e) {}
-    });
-
-    return {
-        weekly: Object.values(weeklyMap).sort((a, b) => a.period.localeCompare(b.period)),
-        monthly: Object.values(monthlyMap)
-    };
-};
-
 const AnalyticsDashboard = ({ 
   nominalRolls = [], 
   nominal_rolls = [], 
@@ -142,7 +105,7 @@ const AnalyticsDashboard = ({
   const [backendDetentionCalendar, setBackendDetentionCalendar] = useState({ dates: [], dateMap: {}, regionDemographics: [], regionDuration: [], dailyMargins: [] });
   const [backendSuccessStories, setBackendSuccessStories] = useState([]);
   const [backendFireIntelligence, setBackendFireIntelligence] = useState({ totalFires: 0, totalDeaths: 0, totalInjuries: 0, fireList: [], fireCauses: [], fireMonthly: [] });
-  const [backendAccidentsIntelligence, setBackendAccidentsIntelligence] = useState({ accidentsMonthly: [], accidentsSeverity: [], accidentsRegional: [] });
+  const [backendAccidentsIntelligence, setBackendAccidentsIntelligence] = useState({ accidentsMonthly: [], accidentsSeverity: [], accidentsRegional: [], crimeRegistryAccidentAudit: { MINOR: 0, SERIOUS: 0, FATAL: 0, TOTAL: 0 } });
   const [backendCrimeCategories, setBackendCrimeCategories] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -217,7 +180,8 @@ const AnalyticsDashboard = ({
               setBackendAccidentsIntelligence({
                 accidentsMonthly: Array.isArray(intelData.accidentsIntelligence.accidentsMonthly) ? intelData.accidentsIntelligence.accidentsMonthly : [],
                 accidentsSeverity: Array.isArray(intelData.accidentsIntelligence.accidentsSeverity) ? intelData.accidentsIntelligence.accidentsSeverity : [],
-                accidentsRegional: Array.isArray(intelData.accidentsIntelligence.accidentsRegional) ? intelData.accidentsIntelligence.accidentsRegional : []
+                accidentsRegional: Array.isArray(intelData.accidentsIntelligence.accidentsRegional) ? intelData.accidentsIntelligence.accidentsRegional : [],
+                crimeRegistryAccidentAudit: intelData.accidentsIntelligence.crimeRegistryAccidentAudit || { MINOR: 0, SERIOUS: 0, FATAL: 0, TOTAL: 0 }
               });
             }
             if (Array.isArray(intelData.crimeCategoryData)) setBackendCrimeCategories(intelData.crimeCategoryData);
@@ -361,7 +325,6 @@ const AnalyticsDashboard = ({
     return backendFireIntelligence.fireMonthly || [];
   }, [backendFireIntelligence]);
 
-  // 🟢 ACCIDENTS INTELLIGENCE CHART MEMOS
   const accidentsMonthlyChartData = useMemo(() => {
     return backendAccidentsIntelligence.accidentsMonthly || [];
   }, [backendAccidentsIntelligence]);
@@ -372,6 +335,10 @@ const AnalyticsDashboard = ({
 
   const accidentsRegionalChartData = useMemo(() => {
     return backendAccidentsIntelligence.accidentsRegional || [];
+  }, [backendAccidentsIntelligence]);
+
+  const crimeRegistryAccidentAudit = useMemo(() => {
+    return backendAccidentsIntelligence.crimeRegistryAccidentAudit || { MINOR: 0, SERIOUS: 0, FATAL: 0, TOTAL: 0 };
   }, [backendAccidentsIntelligence]);
 
   const displayAccidentsList = useMemo(() => {
@@ -740,8 +707,8 @@ const AnalyticsDashboard = ({
                           <React.Fragment key={reg.region}>
                             <tr onClick={() => toggleCrimeRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8]">
                                <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 border-r border-[#e2d6c3] whitespace-normal break-words">
-                                  <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
-                                  <span>{reg.region}</span>
+                                 <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
+                                 <span>{reg.region}</span>
                                </td>
                                <td className="px-3 py-2 text-[10px] text-center font-black text-amber-800">{reg.totalCrimes}</td>
                             </tr>
@@ -932,11 +899,35 @@ const AnalyticsDashboard = ({
               <Car className="mr-2 text-[#C5A880] w-3.5 h-3.5" /> Traffic & Accidents Intelligence Audit & Analytics
             </h2>
             <p className="text-[10px] text-[#b8ab97] mt-0.5 leading-tight">
-              Tracking monthly accident comparisons, crash severity, and regional distributions.
+              Tracking monthly accident comparisons, crash severity, regional distributions, and Crime Registry variance audit.
             </p>
           </div>
 
-          {/* 🟢 ACCIDENTS ANALYTICAL CHARTS (Monthly Trend, Severity Bar Chart, Regional Pie Chart) */}
+          {/* 🟢 CRIME REGISTRY VS ACCIDENT STATS VARIANCE AUDIT BANNER */}
+          <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl shadow-xs flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0" />
+              <div>
+                <strong className="text-amber-900 block font-extrabold uppercase">Accident Reporting Variance Audit</strong>
+                <span className="text-amber-800 text-[10px]">Comparing official Accident Statistics document vs. recorded Accident Reports in the Crime Registry.</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-center">
+              <div className="bg-white px-3 py-1.5 rounded-lg border border-amber-200 shadow-2xs">
+                <span className="text-[9px] text-gray-500 block font-bold">Accident Stats Document</span>
+                <span className="text-sm font-black text-amber-900">{resolvedAccidents.length} Records</span>
+              </div>
+              <div className="bg-white px-3 py-1.5 rounded-lg border border-amber-200 shadow-2xs">
+                <span className="text-[9px] text-gray-500 block font-bold">Crime Registry Reports</span>
+                <span className="text-sm font-black text-blue-900">{crimeRegistryAccidentAudit.TOTAL} Incidents</span>
+              </div>
+              <div className={`px-3 py-1.5 rounded-lg border shadow-2xs ${resolvedAccidents.length === crimeRegistryAccidentAudit.TOTAL ? 'bg-emerald-100 border-emerald-300 text-emerald-900' : 'bg-red-100 border-red-300 text-red-900'}`}>
+                <span className="text-[9px] block font-bold">Variance Delta</span>
+                <span className="text-sm font-black">{Math.abs(resolvedAccidents.length - crimeRegistryAccidentAudit.TOTAL)}</span>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
             <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px]">
               <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Accident Occurrences by Month</h3>
@@ -1001,7 +992,7 @@ const AnalyticsDashboard = ({
                   <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
                     <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '18%' }}>Station / Region</th>
                     <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '12%' }}>Date</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '28%' }}>Nature of Accident</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '28%' }}>Nature of Accident (Minor / Serious / Fatal)</th>
                     <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Minor</th>
                     <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Serious</th>
                     <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8]" style={{ width: '10%' }}>Fatal</th>
@@ -1060,7 +1051,6 @@ const AnalyticsDashboard = ({
              </div>
           </div>
 
-          {/* Graphical Representations for Fire Causes and Monthly Occurrences */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px]">
               <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Frequency of Fire Incident Causes & Culprits</h3>
@@ -1291,8 +1281,8 @@ const AnalyticsDashboard = ({
                           <React.Fragment key={reg.region}>
                             <tr onClick={() => toggleManpowerRegion(reg.region)} className="bg-[#efece6]/50 hover:bg-[#e9eedf]/50 cursor-pointer transition-colors border-t border-[#d3c2a8]">
                                <td className="px-3 py-2 text-[10px] font-extrabold text-[#3a3225] uppercase flex items-center space-x-1.5 sticky left-0 bg-[#efece6]/50 border-r border-[#d3c2a8]">
-                                  <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
-                                  <span>{reg.region}</span>
+                                 <span className="text-[#596E47]">{isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}</span>
+                                 <span>{reg.region}</span>
                                </td>
                                <td className="px-3 py-2 text-[10px] text-center font-black text-[#3a3225] border-r border-[#d3c2a8]">{reg.totalDeployable}</td>
                                <td colSpan={2 + (manpowerAnalysis.allRanks.length * 2)} className="px-3 py-2 text-[10px] text-[#736450] italic">Expand to view station distribution...</td>

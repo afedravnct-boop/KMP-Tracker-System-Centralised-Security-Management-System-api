@@ -383,7 +383,8 @@ def get_dashboard_intelligence(
             try:
                 q = db.query(ModelClass)
                 q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
-                return q.all()
+                q = q.all()
+                return q
             except Exception as ex:
                 print(f"Query scoped error for {ModelClass}: {ex}")
                 return []
@@ -453,14 +454,13 @@ def get_dashboard_intelligence(
                 "date": dt, "total": curr_total, "margin": margin, "status": status_note
             })
 
-        # 2. SUCCESS STORIES METRICS (Robust Column + Regex Fallback)
+        # 2. SUCCESS STORIES METRICS
         processed_stories = []
         for st in story_records:
             try:
                 raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
                 parsed = parse_success_story_backend(raw_narrative)
                 
-                # Prioritize explicit database columns, falling back to regex parsing
                 suspects = safe_int(
                     getattr(st, 'suspects_arrested', None) or 
                     getattr(st, 'suspects_arrested_count', None) or 
@@ -539,7 +539,7 @@ def get_dashboard_intelligence(
         fire_causes_data = [{"cause": k, "count": v} for k, v in sorted(fire_causes_map.items(), key=lambda x: x[1], reverse=True)]
         fire_monthly_data = [{"month": m, "count": fire_monthly_map[m]} for m in month_names]
 
-        # 🟢 4. ACCIDENTS INTELLIGENCE (Monthly trends, severity breakdown, and regional pie breakdown)
+        # 4. ACCIDENTS INTELLIGENCE & CRIME REGISTRY ACCIDENT AUDIT
         accidents_monthly_map = {m: 0 for m in month_names}
         accidents_severity_map = {"MINOR": 0, "SERIOUS": 0, "FATAL": 0}
         accidents_regional_map = {}
@@ -556,15 +556,12 @@ def get_dashboard_intelligence(
                 reg = str(getattr(ac, 'region', 'KMP GENERAL')).upper()
                 nature = str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper()
 
-                # Tally severity
                 accidents_severity_map["MINOR"] += minor_c
                 accidents_severity_map["SERIOUS"] += serious_c
                 accidents_severity_map["FATAL"] += fatal_c
 
-                # Tally regional distribution for pie chart
                 accidents_regional_map[reg] = accidents_regional_map.get(reg, 0) + total_c
 
-                # Tally monthly timeline
                 d_str = str(getattr(ac, 'date', ''))
                 if d_str and d_str != 'None':
                     clean_d = d_str.split('T')[0][:10]
@@ -586,6 +583,21 @@ def get_dashboard_intelligence(
                 })
             except Exception:
                 continue
+
+        # 🟢 COUNTING ACCIDENT REPORTS DIRECTLY FROM CRIME REGISTRY FOR VARIANCE AUDIT
+        crime_accident_counts = {"MINOR": 0, "SERIOUS": 0, "FATAL": 0, "TOTAL": 0}
+        for cr in crime_records:
+            offence_txt = str(getattr(cr, 'offence', '') or "").upper()
+            narrative_txt = str(getattr(cr, 'narrative', '') or "").upper()
+            blob = f"{offence_txt} {narrative_txt}"
+            if "ACCIDENT" in blob or "TRAFFIC" in blob or "CRASH" in blob:
+                crime_accident_counts["TOTAL"] += 1
+                if "FATAL" in blob:
+                    crime_accident_counts["FATAL"] += 1
+                elif "SERIOUS" in blob:
+                    crime_accident_counts["SERIOUS"] += 1
+                else:
+                    crime_accident_counts["MINOR"] += 1
 
         accidents_monthly_data = [{"month": m, "count": accidents_monthly_map[m]} for m in month_names]
         accidents_severity_data = [{"severity": k, "count": v} for k, v in accidents_severity_map.items()]
@@ -610,7 +622,7 @@ def get_dashboard_intelligence(
             crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
         crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
 
-        # 6. EXHIBITS DATA RETRIEVAL
+        # 6. EXHIBITS DATA
         exhibits_formatted = []
         for ex in exhibit_records:
             try:
@@ -646,7 +658,8 @@ def get_dashboard_intelligence(
             "accidentsIntelligence": {
                 "accidentsMonthly": accidents_monthly_data,
                 "accidentsSeverity": accidents_severity_data,
-                "accidentsRegional": accidents_regional_data
+                "accidentsRegional": accidents_regional_data,
+                "crimeRegistryAccidentAudit": crime_accident_counts
             },
             "crimeCategoryData": crime_category_data,
             "exhibitsData": exhibits_formatted,
@@ -660,7 +673,7 @@ def get_dashboard_intelligence(
             "detentionCalendar": {"dates": [], "dateMap": {}, "regionDemographics": [], "regionDuration": [], "dailyMargins": []},
             "successStoriesProcessed": [],
             "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": [], "fireCauses": [], "fireMonthly": []},
-            "accidentsIntelligence": {"accidentsMonthly": [], "accidentsSeverity": [], "accidentsRegional": []},
+            "accidentsIntelligence": {"accidentsMonthly": [], "accidentsSeverity": [], "accidentsRegional": [], "crimeRegistryAccidentAudit": {"MINOR": 0, "SERIOUS": 0, "FATAL": 0, "TOTAL": 0}},
             "crimeCategoryData": [],
             "exhibitsData": [],
             "accidentsData": []
@@ -675,37 +688,6 @@ def export_analytics_report(
     current_user = Depends(require_export_privilege)
 ):
     try:
-        user_role = str(current_user.role).strip().upper() if current_user.role else ""
-        user_pos = str(current_user.position).strip().upper() if current_user.position else ""
-        user_reg = str(current_user.region).strip().upper() if current_user.region else ""
-        user_stn = str(current_user.station).strip().upper() if current_user.station else ""
-
-        perms = current_user.permissions or {}
-        if isinstance(perms, str):
-            try: perms = json.loads(perms)
-            except Exception: perms = {}
-
-        is_absolute_global = (
-            user_role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"] or
-            "KMP COMMANDER" in user_pos or
-            "DEPUTY KMP COMMANDER" in user_pos or
-            "KMP ADMIN" in user_pos or
-            perms.get("view_global_roster") is True or
-            perms.get("global_observer") is True
-        )
-
-        is_kmp_sys_mgr = (
-            user_role == "SYSTEM_MANAGER" and
-            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-            "KMP" in user_pos
-        )
-
-        is_regional_command = (
-            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] or
-            user_pos.find("RPC") != -1 or
-            user_reg in REGIONAL_HIERARCHY
-        )
-        
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
         StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'Stats', 'operational_statistics')
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
@@ -730,6 +712,21 @@ def export_analytics_report(
         ex_records = get_scoped_records(ExhibitModel)
         lockup_records = get_scoped_records(LockupModel)
         accidents_records = get_scoped_records(AccidentsModel)
+
+        # 🟢 CRIME REGISTRY ACCIDENT AUDIT FOR EXCEL EXPORT
+        crime_acc_minor = 0
+        crime_acc_serious = 0
+        crime_acc_fatal = 0
+        for cr in cr_records:
+            offence_txt = str(getattr(cr, 'offence', '') or "").upper()
+            narrative_txt = str(getattr(cr, 'narrative', '') or "").upper()
+            blob = f"{offence_txt} {narrative_txt}"
+            if "ACCIDENT" in blob or "TRAFFIC" in blob or "CRASH" in blob:
+                if "FATAL" in blob: crime_acc_fatal += 1
+                elif "SERIOUS" in blob: crime_acc_serious += 1
+                else: crime_acc_minor += 1
+
+        total_crime_accidents = crime_acc_minor + crime_acc_serious + crime_acc_fatal
 
         fire_incidents_count = 0
         total_fire_deaths = 0
@@ -899,7 +896,8 @@ def export_analytics_report(
             ["Total Recorded Incidents / Crime Reports", len(cr_records)],
             ["Total Disruptive Operations Logs", len(ops_records)],
             ["Total Impounded Exhibits Tracked", len(ex_records)],
-            ["Total Traffic Accidents Recorded", len(accidents_records)],
+            ["Total Traffic Accidents Recorded (Stats Doc)", len(accidents_records)],
+            ["Total Traffic Accidents Reported (Crime Registry Audit)", total_crime_accidents],
             ["Total Fire Outbreaks & Arson Incidents", fire_incidents_count],
             ["Total Fire Deaths Recorded", total_fire_deaths],
             ["Total Fire Injuries Recorded", total_fire_injuries],
@@ -1008,7 +1006,7 @@ def export_analytics_report(
             action_type="UPDATE",
             module="ANALYTICS_EXPORT",
             target_id="MASTER_ANALYTICS_REPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Advanced Fire Classifications and Daily Detentions Progression."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Crime Registry Accident Audit."
         )
 
         return StreamingResponse(
