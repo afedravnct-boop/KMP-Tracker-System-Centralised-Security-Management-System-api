@@ -282,7 +282,6 @@ def get_stories(
             r_dict['legalStatus'] = r_dict.get('legal_status') or parsed['legalStatus']
             r_dict['classification'] = r_dict.get('category') or parsed['classification']
 
-            narrative_str = r_dict.get('narrative', '')
             linked_case = None
 
             if CrimeModel and narrative_str:
