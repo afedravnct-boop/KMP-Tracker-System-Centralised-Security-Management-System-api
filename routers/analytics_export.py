@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
-from typing import Optional, List, Dict, Any # 🟢 FIX: CRITICAL MISSING IMPORT ADDED
+from typing import Optional, List, Dict, Any
 
 from auth import get_current_user, require_export_privilege
 from app.database import get_db, get_logs_db
@@ -28,7 +28,6 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU"]
 }
 
-# 🟢 FIX: Aggressive Safe Integer Casting for dirty database entries
 def safe_int(val) -> int:
     try:
         return int(float(val)) if val else 0
@@ -169,17 +168,29 @@ def normalize_offence_category(raw_offence: str) -> str:
 
 def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     text_blob = f"{offence_str or ''} {raw_narrative or ''}".lower()
-    classification = "RESIDENTIAL HOUSE"
-    if any(k in text_blob for k in ["school", "college", "academy", "nursery", "student", "dormitory"]):
-        classification = "SCHOOL"
-    elif any(k in text_blob for k in ["church", "mosque", "chapel", "temple", "synagogue", "relig"]):
-        classification = "CHURCH / RELIGIOUS CENTRE"
-    elif any(k in text_blob for k in ["vehicle", "car", "taxi", "bus", "lorry", "truck", "boda", "motorcycle"]):
-        classification = "MOTOR VEHICLE"
-    elif any(k in text_blob for k in ["boat", "vessel", "ship", "canoe", "watercraft"]):
-        classification = "VESSEL"
-    elif any(k in text_blob for k in ["furniture", "shop", "market", "store", "warehouse", "commercial", "factory", "office", "hardware"]):
-        classification = "FURNITURE SHOP / COMMERCIAL PROPERTY"
+    plain_text = strip_html_tags(raw_narrative or '')
+    lower_plain = plain_text.lower()
+    
+    # 1. Intelligent Property / Structure Type Extraction
+    classification = "RESIDENTIAL PROPERTY"
+    if any(k in lower_plain for k in ["dormitory", "dorm", "hostel"]):
+        classification = "SCHOOL DORMITORY"
+    elif any(k in lower_plain for k in ["school", "college", "academy", "nursery", "student"]):
+        classification = "SCHOOL FACILITY"
+    elif any(k in lower_plain for k in ["factory", "industrial", "plant", "manufacturing"]):
+        classification = "INDUSTRIAL / FACTORY"
+    elif any(k in lower_plain for k in ["shop", "market", "store", "commercial", "hardware", "tailoring", "facility", "business"]):
+        classification = "COMMERCIAL / BUSINESS ROOM"
+    elif any(k in lower_plain for k in ["church", "mosque", "chapel", "temple"]):
+        classification = "RELIGIOUS CENTRE"
+    elif any(k in lower_plain for k in ["vehicle", "car", "taxi", "bus", "lorry", "truck", "motorcycle", "boda"]):
+        classification = "MOTOR VEHICLE / TRANSPORT"
+    elif any(k in lower_plain for k in ["rental", "room", "house", "residence", "residential"]):
+        classification = "RESIDENTIAL ROOM / HOUSE"
+
+    facility_match = re.search(r'(?:at|in|of)\s+([A-Z][a-zA-Z0-9\s]{3,30}\s+(?:School|College|Factory|Center|Centre|Hostel|Dormitory|Market))', plain_text)
+    if facility_match:
+        classification = facility_match.group(1).strip().upper()
     
     deaths = 0
     injuries = 0
@@ -190,11 +201,23 @@ def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
     if injury_match:
         injuries = safe_int(injury_match.group(1))
 
+    # Investigation Status & Exact Cause Detection
+    status_findings = "UNDER INVESTIGATION"
+    if "cause of fire was still under investigation" in lower_plain or "still under investigation" in lower_plain:
+        status_findings = "UNDER INVESTIGATION"
+    elif "spark" in lower_plain or "electrical" in lower_plain or "short circuit" in lower_plain:
+        status_findings = "CAUSE ESTABLISHED: ELECTRICAL SHORT CIRCUIT"
+    elif "arson" in lower_plain or "set the dormitory on fire" in lower_plain or "malicious" in lower_plain or "student" in lower_plain:
+        status_findings = "CAUSE ESTABLISHED: ARSON / DELIBERATE ACT"
+    elif "charcoal" in lower_plain or "stove" in lower_plain or "candle" in lower_plain or "cook" in lower_plain:
+        status_findings = "CAUSE ESTABLISHED: UNATTENDED HEAT SOURCE"
+
     return {
         "classification": classification,
         "deaths": deaths,
         "injuries": injuries,
-        "totalCasualties": deaths + injuries
+        "totalCasualties": deaths + injuries,
+        "statusFindings": status_findings
     }
 
 def parse_success_story_backend(raw_narrative: str):
@@ -272,7 +295,6 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         if not d_str:
             continue
         
-        # 🟢 FIX: Safe Date Parsing for varying DB formats
         dt = None
         try:
             if isinstance(d_str, datetime):
@@ -366,7 +388,7 @@ def get_dashboard_intelligence(
         accidents_records = query_scoped(AccidentsModel)
         fire_records = query_scoped(FireModel)
 
-        # 1. DETENTIONS / LOCKUP CALENDAR (From lockup_matrix)
+        # 1. DETENTIONS / LOCKUP CALENDAR
         date_map = {}
         region_demo_map = {}
         region_dur_map = {}
@@ -424,7 +446,7 @@ def get_dashboard_intelligence(
                 "date": dt, "total": curr_total, "margin": margin, "status": status_note
             })
 
-        # 2. SUCCESS STORIES METRICS (🟢 FIX: Integrated backend intelligent parser)
+        # 2. SUCCESS STORIES METRICS
         processed_stories = []
         for st in story_records:
             try:
@@ -448,27 +470,49 @@ def get_dashboard_intelligence(
             except Exception:
                 continue
 
-        # 3. FIRE INTELLIGENCE (Strictly from fire_statistics)
+        # 3. FIRE INTELLIGENCE (Upgraded with Property and Cause Analysis)
         total_fire_incidents = len(fire_records)
         total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
         total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
+        
         fire_list = []
+        fire_causes_map = {}
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        fire_monthly_map = {m: 0 for m in month_names}
+
         for f in fire_records:
             try:
+                raw_narrative = str(getattr(f, 'narrative', getattr(f, 'nature_of_fire', '')))
+                offence_str = str(getattr(f, 'nature_of_fire', ''))
+                parsed_fire = parse_fire_incident_advanced(raw_narrative, offence_str)
+
+                # Tally Fire Causes
+                cause_key = parsed_fire["statusFindings"]
+                fire_causes_map[cause_key] = fire_causes_map.get(cause_key, 0) + 1
+
+                # Tally Monthly Occurrences
+                d_str = str(getattr(f, 'date', ''))
+                if d_str and d_str != 'None':
+                    clean_d = d_str.split('T')[0][:10]
+                    dt = datetime.strptime(clean_d, "%Y-%m-%d")
+                    m_label = month_names[dt.month - 1]
+                    fire_monthly_map[m_label] += 1
+
                 fire_list.append({
                     "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
                     "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
                     "date": str(getattr(f, 'date', 'N/A')),
-                    "classification": str(getattr(f, 'nature_of_fire', 'GENERAL FIRE')).upper(),
-                    "minorOutbreaks": safe_int(getattr(f, 'minor_outbreaks', 0)),
-                    "majorDisasters": safe_int(getattr(f, 'major_disasters', 0)),
-                    "fatalFires": safe_int(getattr(f, 'fatal_fires', 0)),
-                    "deaths": safe_int(getattr(f, 'victims', 0)),
-                    "injuries": safe_int(getattr(f, 'fatal_fires', 0)),
-                    "summary": f"Nature: {getattr(f, 'nature_of_fire', 'N/A')} | Outbreaks: {getattr(f, 'minor_outbreaks', 0)}"
+                    "classification": parsed_fire["classification"],
+                    "statusFindings": parsed_fire["statusFindings"],
+                    "deaths": parsed_fire["deaths"],
+                    "injuries": parsed_fire["injuries"],
+                    "summary": raw_narrative
                 })
             except Exception:
                 continue
+
+        fire_causes_data = [{"cause": k, "count": v} for k, v in sorted(fire_causes_map.items(), key=lambda x: x[1], reverse=True)]
+        fire_monthly_data = [{"month": m, "count": fire_monthly_map[m]} for m in month_names]
 
         # 4. CRIME CATEGORIES
         crime_reg_map = {}
@@ -489,7 +533,7 @@ def get_dashboard_intelligence(
             crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
         crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
 
-        # 5. EXHIBITS DATA RETRIEVAL (From impounded_exhibits)
+        # 5. EXHIBITS DATA RETRIEVAL
         exhibits_formatted = []
         for ex in exhibit_records:
             try:
@@ -505,7 +549,7 @@ def get_dashboard_intelligence(
             except Exception:
                 continue
 
-        # 6. ACCIDENTS DATA RETRIEVAL (From accidents_statistics)
+        # 6. ACCIDENTS DATA RETRIEVAL
         accidents_formatted = []
         for ac in accidents_records:
             try:
@@ -543,7 +587,9 @@ def get_dashboard_intelligence(
                 "totalFires": total_fire_incidents,
                 "totalDeaths": total_fire_deaths,
                 "totalInjuries": total_fire_injuries,
-                "fireList": fire_list
+                "fireList": fire_list,
+                "fireCauses": fire_causes_data,
+                "fireMonthly": fire_monthly_data
             },
             "crimeCategoryData": crime_category_data,
             "exhibitsData": exhibits_formatted,
@@ -556,15 +602,11 @@ def get_dashboard_intelligence(
         return {
             "detentionCalendar": {"dates": [], "dateMap": {}, "regionDemographics": [], "regionDuration": [], "dailyMargins": []},
             "successStoriesProcessed": [],
-            "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": []},
+            "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": [], "fireCauses": [], "fireMonthly": []},
             "crimeCategoryData": [],
             "exhibitsData": [],
             "accidentsData": []
         }
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_status=500, detail=f"Dashboard intelligence computation failed: {str(e)}")
 
 @router.get("/export")
 def export_analytics_report(

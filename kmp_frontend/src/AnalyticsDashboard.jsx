@@ -141,7 +141,7 @@ const AnalyticsDashboard = ({
 
   const [backendDetentionCalendar, setBackendDetentionCalendar] = useState({ dates: [], dateMap: {}, regionDemographics: [], regionDuration: [], dailyMargins: [] });
   const [backendSuccessStories, setBackendSuccessStories] = useState([]);
-  const [backendFireIntelligence, setBackendFireIntelligence] = useState({ totalFires: 0, totalDeaths: 0, totalInjuries: 0, fireList: [] });
+  const [backendFireIntelligence, setBackendFireIntelligence] = useState({ totalFires: 0, totalDeaths: 0, totalInjuries: 0, fireList: [], fireCauses: [], fireMonthly: [] });
   const [backendCrimeCategories, setBackendCrimeCategories] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -207,7 +207,9 @@ const AnalyticsDashboard = ({
                 totalFires: intelData.fireIntelligence.totalFires || 0,
                 totalDeaths: intelData.fireIntelligence.totalDeaths || 0,
                 totalInjuries: intelData.fireIntelligence.totalInjuries || 0,
-                fireList: Array.isArray(intelData.fireIntelligence.fireList) ? intelData.fireIntelligence.fireList : []
+                fireList: Array.isArray(intelData.fireIntelligence.fireList) ? intelData.fireIntelligence.fireList : [],
+                fireCauses: Array.isArray(intelData.fireIntelligence.fireCauses) ? intelData.fireIntelligence.fireCauses : [],
+                fireMonthly: Array.isArray(intelData.fireIntelligence.fireMonthly) ? intelData.fireIntelligence.fireMonthly : []
               });
             }
             if (Array.isArray(intelData.crimeCategoryData)) setBackendCrimeCategories(intelData.crimeCategoryData);
@@ -290,9 +292,9 @@ const AnalyticsDashboard = ({
 
       const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
       const belongsToRegion = activeTargetRegion === 'ALL REGIONS' || 
-                              reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
-                              (item.region && item.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
-                              (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
+                            reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
+                            (item.region && item.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
+                            (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
 
       if (!belongsToRegion) return false;
       if (selectedStation !== 'ALL STATIONS' && !isStationEquivalent(stn, selectedStation)) return false;
@@ -300,63 +302,16 @@ const AnalyticsDashboard = ({
     });
   }, [activeDomain, resolvedCrimeRegistry, resolvedNominalRolls, resolvedSuccessStories, resolvedOperationalStats, resolvedExhibits, resolvedAccidents, selectedRegion, selectedStation, canViewGlobalLevel, userRegClean]);
 
-  // 🟢 AUTO-FALLBACK ENGINES: Extracts data dynamically from raw Props if Backend is empty
   const displaySuccessStories = useMemo(() => {
     if (backendSuccessStories.length > 0) return backendSuccessStories;
-
-    const parseIntelligence = (htmlText) => {
-      const cleanStr = stripHtmlTags(htmlText || '').replace(/&nbsp;/g, ' ').trim();
-      if (!cleanStr) return { suspects: 0, recoveries: 'NO ITEMS LISTED' };
-      
-      const lower = cleanStr.toLowerCase();
-      let parsedSuspects = 0;
-
-      const wordsToNum = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, twenty: 20 };
-      const extractNum = (val) => isNaN(val) ? (wordsToNum[val.toLowerCase()] || 0) : parseInt(val, 10);
-
-      const forwardRegex = /(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:notorious\s+|armed\s+|hardcore\s+|suspected\s+|male\s+|female\s+)?(?:suspects?|persons?|thieves|robbers|criminals?|individuals?)/i;
-      const backwardRegex = /(?:arrested|apprehended|detained|held|caught|intercepted|custody)\s+(?:of\s+|a\s+total\s+of\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)/i;
-
-      const matchA = lower.match(forwardRegex);
-      const matchB = lower.match(backwardRegex);
-
-      if (matchA) {
-        parsedSuspects = extractNum(matchA[1]);
-      } else if (matchB) {
-        parsedSuspects = extractNum(matchB[1]);
-      } else if (/(suspects|thieves|robbers)/i.test(lower)) {
-        parsedSuspects = 2;
-      } else if (/(suspect|thief|robber)/i.test(lower)) {
-        parsedSuspects = 1;
-      }
-
-      let parsedRecoveries = cleanStr.length > 70 ? cleanStr.substring(0, 70) + '...' : cleanStr;
-      const recoveryRegex = /(?:recovery of|recovered|seized|impounded|rescued|exhibited)\s+([^,.;]+(?:kgs?|kilograms?|litres?|jerricans?|sacks?|pieces?|cows?|goats?|motorcycles?|vehicles?|cars?|phones?|tvs?|televisions?|cartons?|guns?|ammunition|weapons?|drugs?|suspected stolen))/i;
-      const itemOnlyRegex = /(\d+|one|two|three|four|five)\s+(?:kgs?|kilograms?|litres?|jerricans?|sacks?|pieces?|cows?|goats?|motorcycles?|vehicles?|cars?|phones?|tvs?|televisions?|cartons?|guns?|ammunition|weapons?)/i;
-
-      const rMatch = lower.match(recoveryRegex);
-      const iMatch = lower.match(itemOnlyRegex);
-
-      if (rMatch && rMatch[1]) {
-        parsedRecoveries = rMatch[1].trim().toUpperCase();
-      } else if (iMatch) {
-        parsedRecoveries = iMatch[0].toUpperCase();
-      }
-
-      return { suspects: parsedSuspects, recoveries: parsedRecoveries };
-    };
-
-    return timeFilteredData(resolvedSuccessStories).map(st => {
-      const intel = parseIntelligence(st.narrative);
-      return {
-        station: st.station || 'UNKNOWN',
-        region: st.region || 'UNKNOWN',
-        parsedSuspects: (st.suspects && st.suspects > 0) ? st.suspects : intel.suspects,
-        parsedClassification: st.category || 'GENERAL OPERATIONS',
-        parsedRecoveries: intel.recoveries,
-        parsedLegalStatus: st.status || 'COMPLETED / SUCCESS'
-      };
-    });
+    return timeFilteredData(resolvedSuccessStories).map(st => ({
+      station: st.station || 'UNKNOWN',
+      region: st.region || 'UNKNOWN',
+      parsedSuspects: st.suspects || 0,
+      parsedClassification: st.category || 'GENERAL OPERATIONS',
+      parsedRecoveries: st.recoveries || '-',
+      parsedLegalStatus: st.status || 'COMPLETED / SUCCESS'
+    }));
   }, [backendSuccessStories, resolvedSuccessStories, selectedMonth, dateFilter]);
 
   const displayCrimeCategories = useMemo(() => {
@@ -379,28 +334,24 @@ const AnalyticsDashboard = ({
 
   const displayFireIncidents = useMemo(() => {
     if (backendFireIntelligence.fireList && backendFireIntelligence.fireList.length > 0) return backendFireIntelligence.fireList;
-    const tfFires = timeFilteredData(resolvedCrimeRegistry).filter(r => (r.category || '').toUpperCase().includes('FIRE') || (r.offence || '').toUpperCase().includes('FIRE'));
-    return tfFires.map(f => {
-      const cleanSummary = stripHtmlTags(f.narrative || '').replace(/&nbsp;/g, ' ').trim();
-      return {
-        station: f.station || 'UNKNOWN',
-        region: f.region || 'UNKNOWN',
-        classification: f.category || 'FIRE OUTBREAK',
-        deaths: f.fatal_fires || 0,
-        injuries: f.victims || 0,
-        summary: cleanSummary || 'No summary provided.'
-      };
-    });
-  }, [backendFireIntelligence.fireList, resolvedCrimeRegistry, selectedMonth, dateFilter]);
+    return [];
+  }, [backendFireIntelligence.fireList]);
 
   const displayFireTotals = useMemo(() => {
-    if (backendFireIntelligence.totalFires > 0) return backendFireIntelligence;
     return {
-        totalFires: displayFireIncidents.length,
-        totalDeaths: displayFireIncidents.reduce((sum, f) => sum + (Number(f.deaths)||0), 0),
-        totalInjuries: displayFireIncidents.reduce((sum, f) => sum + (Number(f.injuries)||0), 0)
+        totalFires: backendFireIntelligence.totalFires || 0,
+        totalDeaths: backendFireIntelligence.totalDeaths || 0,
+        totalInjuries: backendFireIntelligence.totalInjuries || 0
     };
-  }, [backendFireIntelligence, displayFireIncidents]);
+  }, [backendFireIntelligence]);
+
+  const fireCausesChartData = useMemo(() => {
+    return backendFireIntelligence.fireCauses || [];
+  }, [backendFireIntelligence]);
+
+  const fireMonthlyChartData = useMemo(() => {
+    return backendFireIntelligence.fireMonthly || [];
+  }, [backendFireIntelligence]);
 
   const accidentsTimeSeriesData = useMemo(() => {
       return aggregateTimeSeries(timeFilteredDataset, 'date', ['minor', 'serious', 'fatal', 'victims', 'total']);
@@ -443,8 +394,8 @@ const AnalyticsDashboard = ({
       const activeTargetRegion = canViewGlobalLevel ? selectedRegion : userRegClean;
       if (activeTargetRegion !== 'ALL REGIONS') {
         const belongsToRegion = reg.toUpperCase() === activeTargetRegion.toUpperCase() || 
-                                (o.region && o.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
-                                (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
+                              (o.region && o.region.toUpperCase() === activeTargetRegion.toUpperCase()) ||
+                              (REGIONAL_HIERARCHY[activeTargetRegion] && REGIONAL_HIERARCHY[activeTargetRegion].some(s => isStationEquivalent(s, stn)));
         if (!belongsToRegion) return;
       }
       if (selectedStation !== 'ALL STATIONS') {
@@ -494,9 +445,8 @@ const AnalyticsDashboard = ({
       const stn = (ex.station || 'N/A').toUpperCase();
       const status = (ex.status || 'IMPOUNDED').toUpperCase();
       
-      const descRaw = ex.type_make || '';
-      const colRaw = ex.colour || '';
-      let desc = `${descRaw} - ${colRaw}`.replace(/^ - | - $/g, '').trim().toUpperCase();
+      const descRaw = ex.type_make || ex.description || ex.particulars || '';
+      let desc = descRaw.trim().toUpperCase();
       if (!desc) desc = "UNSPECIFIED";
 
       if (canViewGlobalLevel && selectedRegion !== 'ALL REGIONS' && reg !== selectedRegion.toUpperCase()) return;
@@ -520,10 +470,6 @@ const AnalyticsDashboard = ({
     const nom = Array.isArray(resolvedNominalRolls) ? resolvedNominalRolls : [];
     const acc = timeFilteredData(resolvedAccidents);
 
-    const calculatedFireTotal = backendFireIntelligence.totalFires > 0 
-      ? backendFireIntelligence.totalFires 
-      : (Array.isArray(displayFireIncidents) ? displayFireIncidents.length : 0);
-
     return {
       disruptiveOps: ops.length,
       manpowerTotal: nom.length,
@@ -531,11 +477,11 @@ const AnalyticsDashboard = ({
       totalExhibits: ex.length,
       totalDetentions: Object.values(backendDetentionCalendar.dateMap || {}).reduce((acc, curr) => acc + (curr.total || 0), 0),
       totalAccidents: acc.length,
-      totalFires: calculatedFireTotal,
+      totalFires: backendFireIntelligence.totalFires || 0,
       totalArrests: ops.reduce((acc, curr) => acc + (Number(curr.arrests || curr.suspects || curr.arrested) || 0), 0),
       totalCrimes: cr.length
     };
-  }, [resolvedOperationalStats, displaySuccessStories, resolvedCrimeRegistry, resolvedExhibits, resolvedNominalRolls, backendDetentionCalendar, resolvedAccidents, displayFireIncidents, backendFireIntelligence, selectedMonth, dateFilter]);
+  }, [resolvedOperationalStats, displaySuccessStories, resolvedCrimeRegistry, resolvedExhibits, resolvedNominalRolls, backendDetentionCalendar, resolvedAccidents, backendFireIntelligence, selectedMonth, dateFilter]);
 
   const opsChartData = useMemo(() => {
     const regMap = {};
@@ -749,7 +695,7 @@ const AnalyticsDashboard = ({
                 <h3 className="text-[11px] font-black text-[#3a3225] uppercase">Aggregated Regional Crime Volumes</h3>
              </div>
              <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
-               <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
+                <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
                   <thead className="sticky top-0 z-20">
                      <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
                         <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '75%' }}>Command Region</th>
@@ -781,7 +727,7 @@ const AnalyticsDashboard = ({
                         <tr><td colSpan="2" className="text-center py-6 text-[10px] text-[#736450]">No crimes logged for the selected period.</td></tr>
                      )}
                   </tbody>
-               </table>
+                </table>
              </div>
           </div>
         </div>
@@ -1009,6 +955,43 @@ const AnalyticsDashboard = ({
              </div>
           </div>
 
+          {/* 🟢 NEW: Graphical Representations for Fire Causes and Monthly Occurrences */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px]">
+              <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Frequency of Fire Incident Causes & Culprits</h3>
+              {fireCausesChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="90%">
+                  <BarChart data={fireCausesChartData} margin={{ top: 10, right: 20, left: 0, bottom: 25 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2d6c3" />
+                    <XAxis dataKey="cause" tick={{fontSize: 8, fontWeight: 'bold'}} angle={-15} textAnchor="end" />
+                    <YAxis tick={{fontSize: 9}} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Bar dataKey="count" name="Frequency" fill="#C2410C" radius={[4, 4, 0, 0]} barSize={35} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450]">No cause frequency data available.</div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 h-[320px]">
+              <h3 className="text-[11px] font-black text-[#3a3225] uppercase mb-2">Annual Fire Occurrences by Respective Months</h3>
+              {fireMonthlyChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="90%">
+                  <LineChart data={fireMonthlyChartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2d6c3" />
+                    <XAxis dataKey="month" tick={{fontSize: 9, fontWeight: 'bold'}} />
+                    <YAxis tick={{fontSize: 9}} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
+                    <Line type="monotone" dataKey="count" name="Fire Incidents" stroke="#DC2626" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-[10px] text-[#736450]">No monthly occurrence data available.</div>
+              )}
+            </div>
+          </div>
+
           <div className="bg-[#fbf8f3] rounded-xl shadow-xs border border-[#e2d6c3] overflow-hidden">
             <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
               <table className="w-full table-fixed divide-y divide-[#e2d6c3]">
@@ -1018,7 +1001,7 @@ const AnalyticsDashboard = ({
                     <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '22%' }}>Property / Structure Type</th>
                     <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '10%' }}>Deaths</th>
                     <th className="px-3 py-2 text-center text-[10px] uppercase tracking-wide border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '10%' }}>Injuries</th>
-                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '40%' }}>Incident Narrative Summary</th>
+                    <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wide shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" style={{ width: '40%' }}>Incident Findings & Summary</th>
                   </tr>
                 </thead>
                 <tbody className="bg-[#fbf8f3] divide-y divide-[#e2d6c3]">
@@ -1176,7 +1159,7 @@ const AnalyticsDashboard = ({
                 <h3 className="text-[11px] font-black text-[#3a3225] uppercase">General Summary (Deployable Personnel vs Rank Distribution)</h3>
              </div>
              <div className="max-h-[520px] overflow-y-auto custom-scrollbar w-full">
-               <table className="min-w-full divide-y divide-[#e2d6c3]">
+                <table className="min-w-full divide-y divide-[#e2d6c3]">
                   <thead className="sticky top-0 z-20">
                      <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b border-[#d3c2a8]">
                         <th rowSpan={2} className="px-3 py-2 text-left text-[10px] uppercase tracking-wide sticky left-0 bg-[#f4eee2] z-10 w-48 border-r border-[#d3c2a8] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">Command Region / Station</th>
@@ -1227,7 +1210,7 @@ const AnalyticsDashboard = ({
                         );
                      })}
                   </tbody>
-               </table>
+                </table>
              </div>
           </div>
 
