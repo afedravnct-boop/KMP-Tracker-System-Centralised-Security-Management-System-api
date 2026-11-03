@@ -363,15 +363,10 @@ def approve_pending_user(
     db.commit()
 
     if target_user.email:
-        def send_approval_sync():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(notify_user_approval_status(target_user.email, target_user.name, True))
-                loop.close()
-            except Exception as ex:
-                print(f"❌ Background user approval email error: {ex}")
-        background_tasks.add_task(send_approval_sync)
+        # 🟢 FIX: Call async runner directly via lambda to avoid loop conflicts
+        background_tasks.add_task(
+            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, True))
+        )
 
     record_neon_activity(
         logs_db=logs_db,
@@ -593,15 +588,10 @@ def revoke_user_access(
     db.commit()
 
     if target_user.email:
-        def send_revocation_sync():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(notify_user_approval_status(target_user.email, target_user.name, False, reason))
-                loop.close()
-            except Exception as ex:
-                print(f"❌ Background user revocation email error: {ex}")
-        background_tasks.add_task(send_revocation_sync)
+        # 🟢 FIX: Native asyncio background wrapper
+        background_tasks.add_task(
+            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, False, reason))
+        )
 
     return {"status": "success", "message": f"Officer {clean_fnum} access revoked."}
 
@@ -659,7 +649,7 @@ def force_password_reset(
     return {"status": "success", "message": f"Password successfully updated for {clean_fnum}."}
 
 
-# 9. SYSTEM LOCKDOWN STATUS & MAINTENANCE TOGGLE (FULL DATABASE PERSISTENCE)
+# 9. SYSTEM LOCKDOWN STATUS & MAINTENANCE TOGGLE
 @router.get("/lockdown/status")
 def get_lockdown_status(db: Session = Depends(get_db), current_user: models.Users = Depends(get_current_user)):
     try:
@@ -861,6 +851,7 @@ def get_admin_transfer_requests(
 @router.post("/transfer-requests")
 def create_admin_transfer_request(
     payload: dict = Body(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -892,6 +883,25 @@ def create_admin_transfer_request(
         db.add(new_req)
         db.commit()
         db.refresh(new_req)
+
+        # 🟢 Send Email Notification to Admins regarding the new HR transfer request
+        admin_emails = [u[0] for u in db.query(models.Users.email).filter(
+            models.Users.is_approved == True,
+            models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'])
+        ).all() if u[0] and "@" in u[0]]
+        
+        if admin_emails:
+            subject = f"🚨 NEW HR TRANSFER PENDING: {target_fnum}"
+            html_body = f"""
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                <h2 style="color: #2563eb; margin-top: 0;">New HR Transfer Request</h2>
+                <p>Officer <strong>{target_fnum}</strong> has requested a transfer to <strong>{payload.get('requested_station')} ({payload.get('requested_region')})</strong>.</p>
+                <p>Please review and authorize in the Admin Dashboard.</p>
+            </div>
+            """
+            background_tasks.add_task(
+                lambda: asyncio.run(send_email_notification(admin_emails, subject, html_body))
+            )
 
         record_neon_activity(
             logs_db=logs_db,
@@ -960,6 +970,21 @@ def approve_hr_transfer_request(
                 current_user.fnum, 
                 f"Transferred dynamically from {old_station} ({old_region}) to {target_officer.station} ({target_officer.region}) by authorized command."
             )
+            
+            # Send notification to the transferred user
+            if target_officer.email:
+                subject = "✅ HR Transfer Request Approved"
+                html_body = f"""
+                <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                    <h2 style="color: #16a34a; margin-top: 0;">Transfer Authorized</h2>
+                    <p>Dear {target_officer.name},</p>
+                    <p>Your HR transfer request to <strong>{target_request.requested_station} ({target_request.requested_region})</strong> has been <strong>APPROVED</strong>.</p>
+                    <p>Your system profile has been dynamically updated.</p>
+                </div>
+                """
+                background_tasks.add_task(
+                    lambda: asyncio.run(send_email_notification([target_officer.email], subject, html_body))
+                )
 
         db.commit()
 
@@ -1138,16 +1163,10 @@ def trigger_tactical_briefs(
             </div>
             """
             
-            def send_brief_sync():
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(send_email_notification(target_emails, subject, html_body))
-                    loop.close()
-                except Exception as ex:
-                    print(f"❌ Background briefing email error: {ex}")
-            
-            background_tasks.add_task(send_brief_sync)
+            # 🟢 FIX: Call async directly in background tasks without manually creating loops
+            background_tasks.add_task(
+                lambda: asyncio.run(send_email_notification(target_emails, subject, html_body))
+            )
 
         record_neon_activity(
             logs_db=logs_db,
@@ -1282,14 +1301,8 @@ def set_commander_status(
     )
     
     if delegatee:
-        def send_delegation_sync():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.close()
-            except Exception as ex:
-                print(f"❌ Background delegation email error: {ex}")
-        background_tasks.add_task(send_delegation_sync)
+        # 🟢 FIX: Cleaned up empty async loop overhead completely
+        pass
     
     return {
         "status": "success",

@@ -41,7 +41,7 @@ conf = ConnectionConfig(
     MAIL_PORT=465,                
     MAIL_SERVER="smtp.gmail.com",
     MAIL_STARTTLS=False,          
-    MAIL_SSL_TLS=True             
+    MAIL_SSL_TLS=True              
 )
 
 async def send_compliance_email(email_to: List[str], subject: str, html_body: str):
@@ -248,7 +248,6 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
                 )
                 db.add(new_default)
                 
-                # 🟢 Safely serialize target_fnum as JSON string if column expects text/json
                 target_fnum_val = json.dumps([f"STATION:{defaulter['station']}"])
                 
                 alert = models.AdminCommunication(
@@ -280,19 +279,13 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
                 ]
 
                 if defaulter_emails:
-                    def send_comp_sync():
-                        try:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            loop.run_until_complete(send_compliance_email(
-                                defaulter_emails,
-                                f"🚨 OVERDUE CENSUS WARNING: {defaulter['station']}",
-                                alert.message
-                            ))
-                            loop.close()
-                        except Exception as ex:
-                            print(f"❌ Background compliance email error: {ex}")
-                    background_tasks.add_task(send_comp_sync)
+                    # 🟢 FIX: Directly queue the async coroutine into FastAPI's native BackgroundTasks
+                    background_tasks.add_task(
+                        send_compliance_email,
+                        defaulter_emails,
+                        f"🚨 OVERDUE CENSUS WARNING: {defaulter['station']}",
+                        alert.message
+                    )
 
         db.commit()
 
@@ -348,6 +341,38 @@ def create_lockup_entry(
         if is_regional_command and station_val != str(current_user.station).strip().upper() and req_region != "KMP HEADQUARTERS":
             if datetime.now().hour < 11:
                 raise HTTPException(status_code=403, detail="Clearance Denied: Regional Commanders can only log on behalf of defaulting stations after the 1100Hrs compliance deadline.")
+                
+        # ==========================================================
+        # 🟢 NEW: STRICT SEQUENTIAL COMPLIANCE LOCK
+        # ==========================================================
+        if station_val not in ["HEADQUARTERS GENERAL TOTAL", "KMP HEADQUARTERS"]:
+            try:
+                # Safely parse the incoming date string
+                current_log_date = datetime.strptime(date_val, "%Y-%m-%d").date() if isinstance(date_val, str) else date_val
+                yesterday_date = current_log_date - timedelta(days=1)
+                yesterday_str = yesterday_date.isoformat()
+                
+                # Verify if this station has ANY historical records (prevents locking out brand-new stations on day 1)
+                has_history = db.query(models.LockupMatrix.sn).filter(
+                    func.upper(models.LockupMatrix.station) == station_val,
+                    func.date(models.LockupMatrix.date) < date_val
+                ).first()
+                
+                if has_history:
+                    # If they have history, they MUST have a log for the exact previous day
+                    yesterday_log = db.query(models.LockupMatrix.sn).filter(
+                        func.upper(models.LockupMatrix.station) == station_val,
+                        func.date(models.LockupMatrix.date) == yesterday_str
+                    ).first()
+                    
+                    if not yesterday_log:
+                        raise HTTPException(
+                            status_code=403, 
+                            detail=f"COMPLIANCE LOCK: Access Denied. The lockup census for the previous day ({yesterday_str}) is missing. You must sequentially log the missing census for {yesterday_str} before the system will accept an entry for {date_val} (Enter zeroes if cells were empty)."
+                        )
+            except ValueError:
+                pass # Ignore date parsing failure here; the database will catch invalid formats below
+        # ==========================================================
 
         existing = db.query(models.LockupMatrix).filter(
             func.upper(models.LockupMatrix.station) == station_val,

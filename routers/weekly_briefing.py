@@ -256,11 +256,8 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
             except Exception as mail_err:
                 print(f"❌ Failed to dispatch brief to {payload['email']}: {mail_err}")
 
-    # 🟢 BULLETPROOF ASYNC EVENT-LOOP RUNNER FOR CRON OR MANUAL DISPATCHES
+    # 🟢 NATIVE ASYNC RUNNER FOR CRON OR MANUAL DISPATCHES
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(send_all_emails())
-        loop.close()
+        asyncio.run(send_all_emails())
     except Exception as run_err:
         print(f"❌ Failed to execute briefing email batch loop: {run_err}")

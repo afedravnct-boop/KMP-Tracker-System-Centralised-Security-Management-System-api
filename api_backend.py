@@ -131,9 +131,9 @@ conf = ConnectionConfig(
     MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
     MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
     MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=465,               
+    MAIL_PORT=465,                
     MAIL_SERVER="smtp.gmail.com",
-    MAIL_STARTTLS=False,         
+    MAIL_STARTTLS=False,          
     MAIL_SSL_TLS=True            
 )
 
@@ -381,27 +381,21 @@ app.add_middleware(
 # 🟢 STRICT SYSTEM LOCKDOWN ENFORCER
 # ==========================================
 def is_lockdown_exempt(user: models.Users) -> bool:
-    """
-    STRICT EXEMPTION: Only the exact roles and positions specified 
-    can bypass a system or regional lockdown.
-    """
     if not user:
         return False
     
     role = str(user.role or "").strip().upper()
     pos = str(user.position or "").strip().upper()
     
-    # 1. Exact Role Matches
     if role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"]:
         return True
     
-    # 2. Exact Position Matches
     exempt_positions = [
         "KMP COMMANDER", 
         "DEPUTY KMP COMMANDER", 
         "KMP ADMIN", 
         "KMP ADMIN OFFICER",
-        "PRINCIPAL SUPER ADMIN" # Safeguard for A/2408
+        "PRINCIPAL SUPER ADMIN"
     ]
     
     for exempt_pos in exempt_positions:
@@ -411,16 +405,12 @@ def is_lockdown_exempt(user: models.Users) -> bool:
     return False
 
 def enforce_system_lockdown(db: Session, current_user: models.Users):
-    """
-    Checks the SystemConfig table for active locks. If an active lockdown applies 
-    to the user's station, region, or globally, they are forcefully rejected UNLESS strictly exempt.
-    """
     if is_lockdown_exempt(current_user):
-        return  # Supreme command cuts through the lockdown
+        return
 
     ConfigModel = getattr(models, 'SystemConfig', None)
     if not ConfigModel:
-        return # Skip if table doesn't exist
+        return
 
     active_locks = db.query(ConfigModel).filter(
         ConfigModel.config_value == 'ACTIVE',
@@ -438,7 +428,6 @@ def enforce_system_lockdown(db: Session, current_user: models.Users):
             detail=f"🚨 SECURITY LOCKDOWN ACTIVE: System operations for your jurisdiction are currently frozen by High Command [{highest_lock}]. Access is restricted to Supreme Command."
         )
 
-# Create a secure wrapper to inject into your endpoints if you want global enforcement
 def get_secure_current_user(
     db: Session = Depends(get_db), 
     current_user: models.Users = Depends(get_current_user)
@@ -479,12 +468,10 @@ def get_audit_logs(
         details=f"Officer {current_user.name} ({current_user.fnum}) accessed the secure System Audit Logs tab."
     )
     try:
-        # 1. Point to the NeonDB Activity_Logs model
         ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
         if not ActivityModel:
             return []
             
-        # 2. Define the exact "package" of modules this tab should fetch
         admin_auth_modules = [
             "USER_AUTHENTICATION", 
             "SESSION", 
@@ -495,12 +482,10 @@ def get_audit_logs(
             "ACCESS_MATRIX"
         ]
         
-        # 3. Query logs_db and filter out general system activity
         logs = logs_db.query(ActivityModel).filter(
             ActivityModel.module.in_(admin_auth_modules)
         ).order_by(ActivityModel.id.desc()).limit(100).all()
         
-        # 4. Map the NeonDB columns perfectly to your React frontend UI expectations
         return [
             {
                 "id": log.id,
@@ -604,7 +589,6 @@ def export_audit_logs_excel(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
 
-# 🟢 NATIVE ALIAS: Catches the exact 404 URL for HR Transfers bridging directly to admin approvals
 @app.get("/api/v1/requests")
 def get_global_hr_requests_fallback(
     db: Session = Depends(get_db),
@@ -696,8 +680,9 @@ def get_online_users(db: Session = Depends(database.get_db)):
             "permissions": u.permissions
         } for u in active_users
     ]
+
 # ====================================================================
-# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER (Local Only)
+# 6. FULLY DYNAMIC INTELLIGENCE & EVENT-DRIVEN SCHEDULER
 # ====================================================================
 eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler(timezone=eat_tz)
@@ -720,9 +705,13 @@ def run_automated_compliance_sweep():
     class DummyBackgroundTasks(BackgroundTasks):
         def add_task(self, func, *args, **kwargs):
             try:
-                func(*args, **kwargs)
+                # 🟢 Natively execute async coroutines passed via background_tasks
+                if asyncio.iscoroutinefunction(func):
+                    asyncio.run(func(*args, **kwargs))
+                else:
+                    func(*args, **kwargs)
             except Exception as e:
-                print(f"Background task failed: {e}")
+                print(f"Background task execution failed: {e}")
                 
     dummy_tasks = DummyBackgroundTasks()
     
@@ -788,7 +777,6 @@ def export_master_database(
 
             query = apply_opsec_scope(current_user, db.query(ModelClass), ModelClass)
             
-            # 🟢 Allow full unconstrained fetching for massive tables like Nominal Roll (8,000+ records)
             if unlimited:
                 records = query.all()
             else:
@@ -831,7 +819,6 @@ def export_master_database(
                         if cell.row > 1:
                             cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        # 🟢 GENERATE ALL TABS IN EXACT ORDER WITH SEPARATED PRINT & GENERAL INFO SHEETS
         create_sheet("Crime Registry (Print)", "Crime_Reports", is_first=True, exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
         create_sheet("Crime Registry", "Crime_Reports")
         
@@ -845,11 +832,9 @@ def export_master_database(
 
         create_sheet("Success Stories", "Success_Stories", "SuccessStories")
         
-        # 🟢 NOMINAL ROLL (Print & Full Master with all 8,000+ records)
         create_sheet("Nominal Roll (Print)", "Nominal_Roll", "NominalRoll", exclude_cols=["id", "profile_photo_path", "fingerprints"], unlimited=True)
         create_sheet("Nominal Roll", "Nominal_Roll", "NominalRoll", unlimited=True)
         
-        # 🟢 ARCHIVED PERSONNEL (Wired explicitly to NominalRollArchive)
         create_sheet("Archived Personnel", "NominalRollArchive", "Nominal_Roll_Archives", "NominalRollArchives", "Archived_Personnel", unlimited=True)
         
         create_sheet("Impounded Exhibits", "Exhibits", "Impounded_Exhibits", "ImpoundedExhibits")
@@ -880,7 +865,6 @@ def export_master_database(
 # ====================================================================
 # 7. EXTERNAL CRON TRIGGERS (TO BYPASS RENDER SLEEP)
 # ====================================================================
-# Use these endpoints in cron-job.org to wake up the server and run your tasks natively.
 CRON_SECRET = os.getenv("CRON_SECRET_KEY", "kmp-cron-secure-key-2026")
 
 @app.get("/api/v1/cron/trigger-compliance")
@@ -891,8 +875,6 @@ def external_trigger_compliance(background_tasks: BackgroundTasks, db: Session =
     
     try:
         from routers.lockup_matrix import execute_daily_compliance_sweep
-        # 🟢 FIX: Execute synchronously so the DB session stays open during the sweep.
-        # It will queue the actual email dispatching into the 'background_tasks' object.
         result = execute_daily_compliance_sweep(background_tasks=background_tasks, db=db)
         
         return {"status": "success", "message": "Compliance sweep executed successfully.", "details": result}
@@ -907,7 +889,6 @@ def external_trigger_briefing(background_tasks: BackgroundTasks, key: str = Quer
     if key != CRON_SECRET:
         raise HTTPException(status_code=403, detail="Unauthorized Cron Trigger")
     
-    # 🟢 FIX: Execute synchronously to prevent background queue locking issues
     try:
         run_weekly_tactical_briefing_job(conf)
         return {"status": "success", "message": "Weekly tactical briefing generated and dispatched."}

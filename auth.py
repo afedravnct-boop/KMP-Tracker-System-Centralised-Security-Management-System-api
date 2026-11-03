@@ -511,17 +511,10 @@ async def signup(
                 <p>Please log in to the KMP Centralised Security Data Management System to review and authorize this request.</p>
             </div>
             """
-            # 🟢 FIX: Safe background task wrapper preventing event loop collision
-            def send_alerts():
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(send_auth_notification(list(set(approver_emails)), subject, html_body))
-                    loop.close()
-                except Exception as ex:
-                    print(f"❌ Background signup email error: {ex}")
-
-            background_tasks.add_task(send_alerts)
+            # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
+            background_tasks.add_task(
+                lambda: asyncio.run(send_auth_notification(list(set(approver_emails)), subject, html_body))
+            )
 
         return {
             "status": "success",
@@ -582,17 +575,10 @@ def approve_user_account(
             <p style="margin-top: 20px;">Welcome aboard, officer.</p>
         </div>
         """
-        # 🟢 FIX: Safe background task wrapper preventing event loop collision
-        def send_user_email():
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(send_auth_notification([target_user.email], subject, html_body))
-                loop.close()
-            except Exception as ex:
-                print(f"❌ Background approval email error: {ex}")
-
-        background_tasks.add_task(send_user_email)
+        # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
+        background_tasks.add_task(
+            lambda: asyncio.run(send_auth_notification([target_user.email], subject, html_body))
+        )
 
     return {"status": "success", "message": f"User {target_user.name} has been successfully approved and notified."}
 

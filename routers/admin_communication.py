@@ -39,7 +39,7 @@ conf = ConnectionConfig(
     MAIL_PORT=465,                
     MAIL_SERVER="smtp.gmail.com",
     MAIL_STARTTLS=False,          
-    MAIL_SSL_TLS=True             
+    MAIL_SSL_TLS=True              
 )
 
 def get_comm_model():
@@ -210,7 +210,7 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
         
         db.commit()
 
-        # 🟢 5. FIX: Dispatch email asynchronously using create_task without blocking event loop
+        # 🟢 Dispatch email asynchronously using asyncio.run
         high_command_emails = [
             email[0] for email in db.query(models.Users.email).filter(
                 models.Users.is_approved == True,
@@ -232,14 +232,11 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             </div>
             """
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(send_command_briefing(
+                asyncio.run(send_command_briefing(
                     high_command_emails,
                     f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
                     email_html
                 ))
-                loop.close()
             except Exception as mail_err:
                 print(f"❌ Failed to dispatch automated glitch alert email: {mail_err}")
 
@@ -447,17 +444,10 @@ def create_admin_communication(
                 </div>
                 """
                  
-                # 🟢 FIX: Safe background task wrapper preventing async loop collisions
-                def send_email_sync():
-                    try:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        loop.run_until_complete(send_command_briefing(emails, comm.subject, html_body))
-                        loop.close()
-                    except Exception as ex:
-                        print(f"❌ Background email task error: {ex}")
-                 
-                background_tasks.add_task(send_email_sync)
+                # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
+                background_tasks.add_task(
+                    lambda: asyncio.run(send_command_briefing(emails, comm.subject, html_body))
+                )
 
         assigned_id = getattr(db_comm, 'id', getattr(db_comm, 'sn', 1))
         response_payload = {"status": "success", "id": assigned_id, "msg_ref": generated_msg_ref}
