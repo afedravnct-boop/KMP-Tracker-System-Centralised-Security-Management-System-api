@@ -125,6 +125,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const [notification, setNotification] = useState(null);
 
   const [statsDomain, setStatsDomain] = useState('DISRUPTIVE');
+  const [viewMode, setViewMode] = useState('STATION'); // 'STATION' (granular daily entry) vs 'REGIONAL' (summation table)
   
   const [disruptiveStats, setDisruptiveStats] = useState([]);
   const [agricStats, setAgricStats] = useState([]);
@@ -270,6 +271,51 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           return itemDateStr >= start && itemDateStr <= end;
       });
   }, [statsDomain, disruptiveStats, agricStats, accidentStats, fireStats, dateFilter]);
+
+  // 🟢 Automated Regional Rollup Summation for Top-Tier Users
+  const regionalSummationData = useMemo(() => {
+    if (statsDomain !== 'DISRUPTIVE') return [];
+    
+    const stationsList = filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
+      ? REGIONAL_HIERARCHY[filterRegion] 
+      : Object.values(REGIONAL_HIERARCHY).flat();
+
+    const stationMap = {};
+    stationsList.forEach(stn => {
+      stationMap[stn] = {
+        station: stn,
+        arrested: 0,
+        given_bond: 0,
+        cautioned: 0,
+        taken_to_court: 0,
+        released: 0,
+        remanded: 0,
+        convicted: 0
+      };
+    });
+
+    currentDomainStats.forEach(stat => {
+      const stnName = cleanStr(stat.station);
+      // Find matching station in hierarchy or group under station name
+      let matchedKey = Object.keys(stationMap).find(k => isStationEquivalent(k, stnName));
+      if (!matchedKey) {
+        matchedKey = stnName;
+        stationMap[matchedKey] = {
+          station: matchedKey,
+          arrested: 0, given_bond: 0, cautioned: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
+        };
+      }
+      stationMap[matchedKey].arrested += (parseInt(stat.arrested) || 0);
+      stationMap[matchedKey].given_bond += (parseInt(stat.given_bond) || 0);
+      stationMap[matchedKey].cautioned += (parseInt(stat.cautioned) || 0);
+      stationMap[matchedKey].taken_to_court += (parseInt(stat.taken_to_court) || 0);
+      stationMap[matchedKey].released += (parseInt(stat.released) || 0);
+      stationMap[matchedKey].remanded += (parseInt(stat.remanded) || 0);
+      stationMap[matchedKey].convicted += (parseInt(stat.convicted) || 0);
+    });
+
+    return Object.values(stationMap).filter(s => s.arrested > 0 || s.given_bond > 0 || s.cautioned > 0 || s.taken_to_court > 0 || s.released > 0 || s.remanded > 0 || s.convicted > 0 || stationsList.includes(s.station));
+  }, [currentDomainStats, filterRegion, statsDomain]);
 
   const handleExportDomainStats = async () => {
     if (!currentDomainStats.length) {
@@ -702,187 +748,229 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
         </div>
       )}
 
+      {/* 🟢 Top-Tier User View Mode Toggle (Station Entry Form vs Regional Summation Table) */}
+      {canViewGlobalLevel && statsDomain === 'DISRUPTIVE' && (
+        <div className="flex justify-center mb-4">
+          <div className="bg-slate-200 dark:bg-slate-800 p-1 rounded-xl shadow-inner inline-flex gap-2">
+            <button
+              type="button"
+              onClick={() => setViewMode('STATION')}
+              className={`px-4 py-2 rounded-lg font-black text-xs transition cursor-pointer ${viewMode === 'STATION' ? 'bg-blue-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}
+            >
+              📝 Station Daily Entry View (REVISED DIV TEMPLATE)
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('REGIONAL')}
+              className={`px-4 py-2 rounded-lg font-black text-xs transition cursor-pointer ${viewMode === 'REGIONAL' ? 'bg-emerald-700 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}
+            >
+              📊 Regional Summation Table View (REVISED REG TEMPLATE)
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <>
-          <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden">
-              <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center relative z-30">
-                <h3 className="text-white font-semibold flex items-center">
-                  {statsDomain === 'ACCIDENTS' ? <Car className="w-5 h-5 mr-2 text-red-400" /> : statsDomain === 'FIRES' ? <Flame className="w-5 h-5 mr-2 text-amber-400" /> : <BarChart3 className="w-5 h-5 mr-2 text-blue-400" />} 
-                  ⚙️ Log {statsDomain === 'AGRICULTURAL' ? 'Agri-Crimes' : statsDomain === 'ACCIDENTS' ? 'Accident' : statsDomain === 'FIRES' ? 'Fire' : 'Disruptive'} Stats
-                </h3>
-              </div>
-              <div className="p-5 space-y-6 dark:bg-slate-900">
-                <div className="flex space-x-2 bg-gray-100 dark:bg-slate-800 p-1 rounded-lg">
-                  <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'new' ? 'bg-white dark:bg-slate-700 shadow text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
-                  <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-white dark:bg-slate-700 shadow text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
+          {viewMode === 'STATION' ? (
+            <div className="lg:col-span-4 space-y-6">
+              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden">
+                <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center relative z-30">
+                  <h3 className="text-white font-semibold flex items-center">
+                    {statsDomain === 'ACCIDENTS' ? <Car className="w-5 h-5 mr-2 text-red-400" /> : statsDomain === 'FIRES' ? <Flame className="w-5 h-5 mr-2 text-amber-400" /> : <BarChart3 className="w-5 h-5 mr-2 text-blue-400" />} 
+                    ⚙️ Log {statsDomain === 'AGRICULTURAL' ? 'Agri-Crimes' : statsDomain === 'ACCIDENTS' ? 'Accident' : statsDomain === 'FIRES' ? 'Fire' : 'Disruptive'} Stats
+                  </h3>
                 </div>
-                {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-900 text-green-800 dark:text-green-300'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
-                
-                {operation === 'update' && (
-                  <div className="bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 rounded-lg p-3">
-                    <label className="block text-xs font-bold text-blue-800 dark:text-blue-400 mb-2">🔍 Search & Select Record to Update</label>
-                    <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 dark:border-slate-700 rounded outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-900 dark:text-slate-100" />
-                    <div className="max-h-40 overflow-y-auto bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded custom-scrollbar">
-                      {availableUpdateStats.length === 0 ? (
-                        <div className="p-3 text-xs text-gray-500 dark:text-slate-400 text-center">No records found matching your search.</div>
-                      ) : (
-                        availableUpdateStats.map(s => {
-                          const recordKey = s.id !== undefined && s.id !== null ? s.id : s.sn;
-                          const isSelected = formData.sn === recordKey || formData.id === recordKey;
-
-                          return (
-                            <div 
-                              key={recordKey} 
-                              onClick={() => {
-                                populateUpdateForm(s);
-                                setNotification(`Selected Record ID: ${recordKey} (${s.station}) for update.`);
-                              }} 
-                              className={`p-2.5 text-xs border-b dark:border-slate-800 cursor-pointer transition-colors ${isSelected ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 dark:hover:bg-slate-800 text-gray-800 dark:text-slate-200'}`}
-                            >
-                              <span className={isSelected ? 'text-blue-200' : 'text-gray-400'}>ID: {recordKey}</span> | <span className={isSelected ? 'text-white' : 'font-bold text-blue-700 dark:text-blue-400'}>{s.date}</span> | {s.station}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
+                <div className="p-5 space-y-6 dark:bg-slate-900">
+                  <div className="flex space-x-2 bg-gray-100 dark:bg-slate-800 p-1 rounded-lg">
+                    <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'new' ? 'bg-white dark:bg-slate-700 shadow text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-4 h-4 inline mr-1" /> Register New</button>
+                    <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-white dark:bg-slate-700 shadow text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-4 h-4 inline mr-1" /> Update Existing</button>
                   </div>
-                )}
+                  {notification && <div className={`border px-4 py-3 rounded-lg flex items-center mb-4 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-900 text-green-800 dark:text-green-300'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-5 h-5 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-5 h-5 mr-2 text-green-500 shrink-0" />}<span className="text-sm font-medium">{notification}</span></div>}
+                  
+                  {operation === 'update' && (
+                    <div className="bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 rounded-lg p-3">
+                      <label className="block text-xs font-bold text-blue-800 dark:text-blue-400 mb-2">🔍 Search & Select Record to Update</label>
+                      <input type="text" placeholder="Search by SN, Station, or Date..." value={updateSearch} onChange={e => setUpdateSearch(e.target.value)} className="w-full text-sm p-2 mb-2 border border-blue-200 dark:border-slate-700 rounded outline-none focus:ring-2 focus:ring-blue-400 bg-white dark:bg-slate-900 dark:text-slate-100" />
+                      <div className="max-h-40 overflow-y-auto bg-white dark:bg-slate-900 border border-blue-100 dark:border-slate-800 rounded custom-scrollbar">
+                        {availableUpdateStats.length === 0 ? (
+                          <div className="p-3 text-xs text-gray-500 dark:text-slate-400 text-center">No records found matching your search.</div>
+                        ) : (
+                          availableUpdateStats.map(s => {
+                            const recordKey = s.id !== undefined && s.id !== null ? s.id : s.sn;
+                            const isSelected = formData.sn === recordKey || formData.id === recordKey;
 
-                <form onSubmit={handleFormSubmit} className="space-y-5">
-                  {operation === 'update' && (formData.sn || formData.id) && <div className="bg-slate-800 dark:bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record ID: {formData.id || formData.sn}</div>}
-                  <div className="bg-gray-50 dark:bg-slate-800 p-4 rounded-lg border border-gray-200 dark:border-slate-700 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Select Region *</label>
-                        <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
-                          {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Station / Division *</label>
-                        <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalLevel || isRegionalCommand) || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
-                          {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : (canViewGlobalLevel || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={cleanStr(currentUser.station)}>{cleanStr(currentUser.station)}</option>}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Date of Record *</label>
-                        <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm border bg-white dark:bg-slate-900 dark:text-slate-100 p-2 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500" />
+                            return (
+                              <div 
+                                key={recordKey} 
+                                onClick={() => {
+                                  populateUpdateForm(s);
+                                  setNotification(`Selected Record ID: ${recordKey} (${s.station}) for update.`);
+                                }} 
+                                className={`p-2.5 text-xs border-b dark:border-slate-800 cursor-pointer transition-colors ${isSelected ? 'bg-blue-700 text-white font-bold' : 'hover:bg-blue-100 dark:hover:bg-slate-800 text-gray-800 dark:text-slate-200'}`}
+                              >
+                                <span className={isSelected ? 'text-blue-200' : 'text-gray-400'}>ID: {recordKey}</span> | <span className={isSelected ? 'text-white' : 'font-bold text-blue-700 dark:text-blue-400'}>{s.date}</span> | {s.station}
+                              </div>
+                            );
+                          })
+                        )}
                       </div>
                     </div>
-                  </div> 
-                  
-                  {statsDomain === 'ACCIDENTS' ? (
-                      <div className="bg-red-50 dark:bg-slate-800 p-4 rounded-lg border border-red-200 dark:border-slate-700">
-                        <h4 className="text-sm font-bold text-red-900 dark:text-red-300 border-b border-red-200 dark:border-slate-700 pb-2 mb-4 flex items-center">📊 Traffic & Accidents Aggregates</h4>
-                        
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Accident *</label>
-                            <select 
-                              name="nature_of_accident" 
-                              value={formData.nature_of_accident} 
-                              onChange={handleInputChange} 
-                              required 
-                              className="w-full text-sm border border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-2 uppercase cursor-pointer"
-                            >
-                              <option value="" disabled>-- Select Nature of Accident --</option>
-                              {COMMON_ACCIDENTS.map(acc => (
-                                  <option key={acc} value={acc}>{acc}</option>
-                              ))}
-                              {formData.nature_of_accident && formData.nature_of_accident !== 'OTHER' && !COMMON_ACCIDENTS.includes(formData.nature_of_accident) && (
-                                  <option value={formData.nature_of_accident}>{formData.nature_of_accident}</option>
-                              )}
-                              <option value="OTHER">OTHER (SPECIFY BELOW)</option>
-                            </select>
-                            
-                            {formData.nature_of_accident === 'OTHER' && (
-                                <input 
-                                  type="text" 
-                                  name="custom_nature_of_accident" 
-                                  value={formData.custom_nature_of_accident || ''} 
-                                  onChange={handleInputChange} 
-                                  required 
-                                  placeholder="Type specific nature of accident..." 
-                                  className="mt-2 w-full text-sm border border-red-300 dark:border-red-800 rounded-md shadow-sm bg-red-50 dark:bg-slate-900 dark:text-slate-100 p-2 uppercase focus:border-red-500 outline-none" 
-                                />
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-4 gap-3">
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Minor</label><input type="number" name="minor" min="0" value={formData.minor} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Serious</label><input type="number" name="serious" min="0" value={formData.serious} onChange={handleInputChange} className="w-full text-lg font-bold text-orange-600 dark:text-orange-400 border-b-2 border-transparent focus:border-orange-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Fatal</label><input type="number" name="fatal" min="0" value={formData.fatal} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 dark:text-red-400 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-purple-500/20"><label className="block text-[10px] font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1">Victims (Count)</label><input type="number" name="victims" min="0" value={formData.victims} onChange={handleInputChange} className="w-full text-lg font-black text-purple-600 dark:text-purple-400 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
-                        </div>
-                      </div>
-                  ) : statsDomain === 'FIRES' ? (
-                      <div className="bg-amber-50 dark:bg-slate-800 p-4 rounded-lg border border-amber-200 dark:border-slate-700">
-                        <h4 className="text-sm font-bold text-amber-900 dark:text-amber-300 border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">🔥 Fire & Rescue Aggregates</h4>
-                        
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Fire / Cause *</label>
-                            <select 
-                              name="nature_of_fire" 
-                              value={formData.nature_of_fire || ''} 
-                              onChange={handleInputChange} 
-                              required 
-                              className="w-full text-sm border border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-2 uppercase cursor-pointer"
-                            >
-                              <option value="" disabled>-- Select Nature of Fire --</option>
-                              {COMMON_FIRES.map(fire => (
-                                  <option key={fire} value={fire}>{fire}</option>
-                              ))}
-                              {formData.nature_of_fire && formData.nature_of_fire !== 'OTHER' && !COMMON_FIRES.includes(formData.nature_of_fire) && (
-                                  <option value={formData.nature_of_fire}>{formData.nature_of_fire}</option>
-                              )}
-                              <option value="OTHER">OTHER (SPECIFY BELOW)</option>
-                            </select>
-                            
-                            {formData.nature_of_fire === 'OTHER' && (
-                                <input 
-                                  type="text" 
-                                  name="custom_nature_of_fire" 
-                                  value={formData.custom_nature_of_fire || ''} 
-                                  onChange={handleInputChange} 
-                                  required 
-                                  placeholder="Type specific nature or natural cause (e.g. LIGHTNING STRIKE)..." 
-                                  className="mt-2 w-full text-sm border border-amber-300 dark:border-amber-800 rounded-md shadow-sm bg-amber-50 dark:bg-slate-900 dark:text-slate-100 p-2 uppercase focus:border-amber-500 outline-none" 
-                                />
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-4 gap-3">
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Minor</label><input type="number" name="minor_outbreaks" min="0" value={formData.minor_outbreaks || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-amber-600 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Major</label><input type="number" name="major_disasters" min="0" value={formData.major_disasters || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-orange-600 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fatal</label><input type="number" name="fatal_fires" min="0" value={formData.fatal_fires || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-amber-500/20"><label className="block text-[10px] font-extrabold text-amber-600 uppercase mb-1">Victims</label><input type="number" name="victims" min="0" value={formData.victims || 0} onChange={handleInputChange} className="w-full text-lg font-black text-amber-700 outline-none p-1 bg-transparent" /></div>
-                        </div>
-                      </div>
-                  ) : (
-                      <div className="bg-blue-50 dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-slate-700">
-                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-300 border-b border-blue-200 dark:border-slate-700 pb-2 mb-4 flex items-center">📊 Enter Weekly Metric Aggregates (8 Fields)</h4>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-700 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Pending Court</label><input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-lg font-bold text-yellow-600 dark:text-yellow-400 border-b-2 border-transparent focus:border-yellow-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Taken to Court</label><input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Released by Court</label><input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-lg font-bold text-green-600 dark:text-green-400 border-b-2 border-transparent focus:border-green-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 dark:text-red-400 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" /></div>
-                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-xs font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-lg font-bold text-purple-600 dark:text-purple-400 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
-                        </div>
-                      </div>
                   )}
-                  
-                  <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center cursor-pointer">
-                    {operation === 'new' ? '💾 Submit Data Entry' : '💾 Save Updated Figures'}
-                  </button>
-                </form>
+
+                  <form onSubmit={handleFormSubmit} className="space-y-5">
+                    {operation === 'update' && (formData.sn || formData.id) && <div className="bg-slate-800 dark:bg-slate-950 text-white text-xs font-bold px-3 py-2 rounded">Currently Editing Record ID: {formData.id || formData.sn}</div>}
+                    <div className="bg-gray-50 dark:bg-slate-800 p-4 rounded-lg border border-gray-200 dark:border-slate-700 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Select Region *</label>
+                          <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalLevel || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
+                            {canViewGlobalLevel ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Station / Division *</label>
+                          <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalLevel || isRegionalCommand) || operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 border p-2 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500">
+                            {operation === 'update' ? <option value={formData.station}>{formData.station}</option> : (canViewGlobalLevel || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={cleanStr(currentUser.station)}>{cleanStr(currentUser.station)}</option>}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Date of Record *</label>
+                          <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-sm border-gray-300 dark:border-slate-700 rounded-md shadow-sm border bg-white dark:bg-slate-900 dark:text-slate-100 p-2 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500" />
+                        </div>
+                      </div>
+                    </div> 
+                    
+                    {statsDomain === 'ACCIDENTS' ? (
+                        <div className="bg-red-50 dark:bg-slate-800 p-4 rounded-lg border border-red-200 dark:border-slate-700">
+                          <h4 className="text-sm font-bold text-red-900 dark:text-red-300 border-b border-red-200 dark:border-slate-700 pb-2 mb-4 flex items-center">📊 Traffic & Accidents Aggregates</h4>
+                          
+                          <div className="mb-4">
+                              <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Accident *</label>
+                              <select 
+                                name="nature_of_accident" 
+                                value={formData.nature_of_accident} 
+                                onChange={handleInputChange} 
+                                required 
+                                className="w-full text-sm border border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-2 uppercase cursor-pointer"
+                              >
+                                <option value="" disabled>-- Select Nature of Accident --</option>
+                                {COMMON_ACCIDENTS.map(acc => (
+                                    <option key={acc} value={acc}>{acc}</option>
+                                ))}
+                                {formData.nature_of_accident && formData.nature_of_accident !== 'OTHER' && !COMMON_ACCIDENTS.includes(formData.nature_of_accident) && (
+                                    <option value={formData.nature_of_accident}>{formData.nature_of_accident}</option>
+                                )}
+                                <option value="OTHER">OTHER (SPECIFY BELOW)</option>
+                              </select>
+                              
+                              {formData.nature_of_accident === 'OTHER' && (
+                                  <input 
+                                    type="text" 
+                                    name="custom_nature_of_accident" 
+                                    value={formData.custom_nature_of_accident || ''} 
+                                    onChange={handleInputChange} 
+                                    required 
+                                    placeholder="Type specific nature of accident..." 
+                                    className="mt-2 w-full text-sm border border-red-300 dark:border-red-800 rounded-md shadow-sm bg-red-50 dark:bg-slate-900 dark:text-slate-100 p-2 uppercase focus:border-red-500 outline-none" 
+                                  />
+                              )}
+                          </div>
+
+                          <div className="grid grid-cols-4 gap-3">
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Minor</label><input type="number" name="minor" min="0" value={formData.minor} onChange={handleInputChange} className="w-full text-lg font-bold text-blue-600 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Serious</label><input type="number" name="serious" min="0" value={formData.serious} onChange={handleInputChange} className="w-full text-lg font-bold text-orange-600 dark:text-orange-400 border-b-2 border-transparent focus:border-orange-500 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Fatal</label><input type="number" name="fatal" min="0" value={formData.fatal} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 dark:text-red-400 border-b-2 border-transparent focus:border-red-500 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-purple-500/20"><label className="block text-[10px] font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1">Victims (Count)</label><input type="number" name="victims" min="0" value={formData.victims} onChange={handleInputChange} className="w-full text-lg font-black text-purple-600 dark:text-purple-400 border-b-2 border-transparent focus:border-purple-500 outline-none p-1 bg-transparent" /></div>
+                          </div>
+                        </div>
+                    ) : statsDomain === 'FIRES' ? (
+                        <div className="bg-amber-50 dark:bg-slate-800 p-4 rounded-lg border border-amber-200 dark:border-slate-700">
+                          <h4 className="text-sm font-bold text-amber-900 dark:text-amber-300 border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">🔥 Fire & Rescue Aggregates</h4>
+                          
+                          <div className="mb-4">
+                              <label className="block text-xs font-bold text-gray-700 dark:text-slate-300 mb-1">Nature of Fire / Cause *</label>
+                              <select 
+                                name="nature_of_fire" 
+                                value={formData.nature_of_fire || ''} 
+                                onChange={handleInputChange} 
+                                required 
+                                className="w-full text-sm border border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-2 uppercase cursor-pointer"
+                              >
+                                <option value="" disabled>-- Select Nature of Fire --</option>
+                                {COMMON_FIRES.map(fire => (
+                                    <option key={fire} value={fire}>{fire}</option>
+                                ))}
+                                {formData.nature_of_fire && formData.nature_of_fire !== 'OTHER' && !COMMON_FIRES.includes(formData.nature_of_fire) && (
+                                    <option value={formData.nature_of_fire}>{formData.nature_of_fire}</option>
+                                )}
+                                <option value="OTHER">OTHER (SPECIFY BELOW)</option>
+                              </select>
+                              
+                              {formData.nature_of_fire === 'OTHER' && (
+                                  <input 
+                                    type="text" 
+                                    name="custom_nature_of_fire" 
+                                    value={formData.custom_nature_of_fire || ''} 
+                                    onChange={handleInputChange} 
+                                    required 
+                                    placeholder="Type specific nature or natural cause (e.g. LIGHTNING STRIKE)..." 
+                                    className="mt-2 w-full text-sm border border-amber-300 dark:border-amber-800 rounded-md shadow-sm bg-amber-50 dark:bg-slate-900 dark:text-slate-100 p-2 uppercase focus:border-amber-500 outline-none" 
+                                  />
+                              )}
+                          </div>
+
+                          <div className="grid grid-cols-4 gap-3">
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Minor</label><input type="number" name="minor_outbreaks" min="0" value={formData.minor_outbreaks || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-amber-600 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Major</label><input type="number" name="major_disasters" min="0" value={formData.major_disasters || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-orange-600 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Fatal</label><input type="number" name="fatal_fires" min="0" value={formData.fatal_fires || 0} onChange={handleInputChange} className="w-full text-lg font-bold text-red-600 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-amber-500/20"><label className="block text-[10px] font-extrabold text-amber-600 uppercase mb-1">Victims</label><input type="number" name="victims" min="0" value={formData.victims || 0} onChange={handleInputChange} className="w-full text-lg font-black text-amber-700 outline-none p-1 bg-transparent" /></div>
+                          </div>
+                        </div>
+                    ) : (
+                        <div className="bg-blue-50 dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-slate-700 space-y-3">
+                          <h4 className="text-sm font-bold text-blue-900 dark:text-blue-300 border-b border-blue-200 dark:border-slate-700 pb-2 mb-2 flex items-center">📊 Disruptive Operations Form (REVISED DIV TEMPLATE)</h4>
+                          
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-base font-bold text-blue-700 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-base font-bold text-green-700 outline-none p-1 bg-transparent" /></div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-base font-bold text-blue-600 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Pending Court</label><input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-base font-bold text-yellow-600 outline-none p-1 bg-transparent" /></div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Taken to Court</label><input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-base font-bold text-red-600 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Released by Court</label><input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-base font-bold text-green-600 outline-none p-1 bg-transparent" /></div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-base font-bold text-red-700 outline-none p-1 bg-transparent" /></div>
+                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-base font-bold text-purple-600 outline-none p-1 bg-transparent" /></div>
+                          </div>
+                        </div>
+                    )}
+                    
+                    <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center cursor-pointer">
+                      {operation === 'new' ? '💾 Submit Data Entry' : '💾 Save Updated Figures'}
+                    </button>
+                  </form>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            // 🟢 Regional Summation Table View (REVISED REG TEMPLATE)
+            <div className="lg:col-span-12 space-y-4">
+              <div className="bg-[#3a3225] p-4 rounded-xl text-white shadow">
+                <h3 className="text-sm font-black uppercase tracking-wider">📊 Regional Master Summation Table ({filterRegion}) - REVISED REG TEMPLATE</h3>
+                <p className="text-xs text-amber-200 mt-1">Automated regional rollup combining all subordinate station entries into standardized command categories.</p>
+              </div>
+            </div>
+          )}
           
-          <div className="lg:col-span-8 space-y-4">
+          <div className={viewMode === 'STATION' ? "lg:col-span-8 space-y-4" : "lg:col-span-12 space-y-4"}>
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative">
               
               <div className="absolute top-4 right-4 z-10 flex gap-2">
@@ -929,12 +1017,11 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
                   </div>
               ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mt-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mt-4">
                     <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700 dark:text-blue-400" />
                     <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600 dark:text-indigo-400" />
                     <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600 dark:text-slate-400" />
-                    <MetricCard title="Pending Court" value={totals.pending_court} colorClass="text-yellow-600 dark:text-yellow-400" />
-                    <MetricCard title="To Court" value={totals.taken_to_court} colorClass="text-blue-500 dark:text-blue-400" />
+                    <MetricCard title="Taken to Court" value={totals.taken_to_court} colorClass="text-blue-500 dark:text-blue-400" />
                     <MetricCard title="Released" value={totals.released} colorClass="text-green-600 dark:text-green-400" />
                     <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600 dark:text-red-400" />
                     <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600 dark:text-purple-400" />
@@ -973,7 +1060,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
               </div>
             </div>
 
-            <ExpandableTableCard title={`Weekly Metrics Breakdown Ledger (${statsDomain === 'AGRICULTURAL' ? 'Agricultural Crimes' : statsDomain === 'ACCIDENTS' ? 'Accidents' : statsDomain === 'FIRES' ? 'Fires & Rescue' : 'Disruptive OPS'})`} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
+            <ExpandableTableCard title={`Weekly Metrics Breakdown Ledger (${statsDomain === 'AGRICULTURAL' ? 'Agricultural Crimes' : statsDomain === 'ACCIDENTS' ? 'Accidents' : statsDomain === 'FIRES' ? 'Fires & Rescue' : viewMode === 'REGIONAL' ? 'Regional Summation Table' : 'Disruptive OPS'})`} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
               <div className="overflow-x-auto w-full dark:bg-slate-900">
                 
                 {statsDomain === 'ACCIDENTS' ? (
@@ -1081,53 +1168,116 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                       {currentDomainStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No fire statistics logged for this jurisdiction.</td></tr>}
                     </tbody>
                   </table>
-                ) : (
-                  <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800">
-                    <thead className="bg-gray-50 dark:bg-slate-950 sticky top-0">
+                ) : statsDomain === 'DISRUPTIVE' && viewMode === 'REGIONAL' ? (
+                  // 🟢 REVISED REG TEMPLATE (Summation Table View)
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 border border-slate-300 dark:border-slate-800">
+                    <thead className="bg-slate-100 dark:bg-slate-950 sticky top-0">
                       <tr>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">S/N</th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Date</th>
-                        <th className="px-3 py-3 text-left text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Division</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Suspects<br/>arrested</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Given<br/>Bond</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Cautioned</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Pending<br/>Court</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Taken to<br/>Court</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Released<br/>by court</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Suspects<br/>remanded</th>
-                        <th className="px-2 py-3 text-center text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider leading-tight">Suspects<br/>convicted</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider align-middle border-r border-slate-300 dark:border-slate-800">S/N</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider align-middle border-r border-slate-300 dark:border-slate-800">Division</th>
+                        <th rowSpan="2" className="px-2 py-3 text-center text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider align-middle border-r border-slate-300 dark:border-slate-800">Suspects<br/>arrested</th>
+                        <th colSpan="3" className="px-3 py-2 text-center text-xs font-extrabold text-white bg-orange-600 uppercase tracking-wider border-r border-slate-300">ACTION TAKEN</th>
+                        <th colSpan="3" className="px-3 py-2 text-center text-xs font-extrabold text-white bg-red-600 uppercase tracking-wider">STATUS OF THOSE TAKEN TO COURT</th>
+                      </tr>
+                      <tr>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-green-900 bg-green-100 border-r border-slate-300 uppercase">Given Bond</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-blue-900 bg-blue-100 border-r border-slate-300 uppercase">Cautioned</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-200 border-r border-slate-300 uppercase">Taken to Court</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-100 border-r border-slate-300 uppercase">Released by court</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-100 border-r border-slate-300 uppercase">Suspects remanded</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-100 uppercase">Suspects convicted</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
+                      {regionalSummationData.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-blue-50 transition-colors">
+                          <td className="px-3 py-3 text-xs font-bold border-r border-slate-200">{idx + 1}</td>
+                          <td className="px-3 py-3 text-xs font-medium text-blue-700 border-r border-slate-200">{row.station}</td>
+                          <td className="px-2 py-3 text-xs text-center font-bold border-r border-slate-200">{row.arrested}</td>
+                          <td className="px-2 py-3 text-xs text-center font-bold text-green-700 border-r border-slate-200">{row.given_bond}</td>
+                          <td className="px-2 py-3 text-xs text-center font-bold text-blue-700 border-r border-slate-200">{row.cautioned}</td>
+                          <td className="px-2 py-3 text-xs text-center font-bold text-red-700 border-r border-slate-200">{row.taken_to_court}</td>
+                          <td className="px-2 py-3 text-xs text-center font-bold text-red-700 border-r border-slate-200">{row.released}</td>
+                          <td className="px-2 py-3 text-xs text-center font-bold text-red-700 border-r border-slate-200">{row.remanded}</td>
+                          <td className="px-2 py-3 text-xs text-center font-bold text-purple-700">{row.convicted}</td>
+                        </tr>
+                      ))}
+                      {regionalSummationData.length > 0 && (
+                        <tr className="bg-slate-200 dark:bg-slate-800 font-bold border-t-2 border-slate-400">
+                          <td colSpan="2" className="px-3 py-3 text-right text-xs uppercase border-r border-slate-300">TOTAL</td>
+                          <td className="px-2 py-3 text-center text-xs text-blue-800 border-r border-slate-300">{regionalSummationData.reduce((s, r) => s + r.arrested, 0)}</td>
+                          <td className="px-2 py-3 text-center text-xs text-green-800 border-r border-slate-300">{regionalSummationData.reduce((s, r) => s + r.given_bond, 0)}</td>
+                          <td className="px-2 py-3 text-center text-xs text-blue-800 border-r border-slate-300">{regionalSummationData.reduce((s, r) => s + r.cautioned, 0)}</td>
+                          <td className="px-2 py-3 text-center text-xs text-red-800 border-r border-slate-300">{regionalSummationData.reduce((s, r) => s + r.taken_to_court, 0)}</td>
+                          <td className="px-2 py-3 text-center text-xs text-red-800 border-r border-slate-300">{regionalSummationData.reduce((s, r) => s + r.released, 0)}</td>
+                          <td className="px-2 py-3 text-center text-xs text-red-800 border-r border-slate-300">{regionalSummationData.reduce((s, r) => s + r.remanded, 0)}</td>
+                          <td className="px-2 py-3 text-center text-xs text-purple-800">{regionalSummationData.reduce((s, r) => s + r.convicted, 0)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  // 🟢 REVISED DIV TEMPLATE (Daily Breakdown Ledger View)
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 border border-slate-300 dark:border-slate-800">
+                    <thead className="bg-slate-100 dark:bg-slate-950 sticky top-0">
+                      <tr>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider align-middle border-r border-slate-300 dark:border-slate-800">S/N</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider align-middle border-r border-slate-300 dark:border-slate-800">Date</th>
+                        <th rowSpan="2" className="px-3 py-3 text-left text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider align-middle border-r border-slate-300 dark:border-slate-800">Division</th>
+                        <th rowSpan="2" className="px-2 py-3 text-center text-xs font-black text-gray-700 dark:text-slate-300 uppercase tracking-wider align-middle border-r border-slate-300 dark:border-slate-800">Suspects<br/>arrested</th>
+                        
+                        {/* Category Group 1: Action Taken */}
+                        <th colSpan="3" className="px-3 py-2 text-center text-xs font-extrabold text-white bg-orange-600 dark:bg-orange-800 uppercase tracking-wider border-r border-slate-300 dark:border-slate-800">
+                          ACTION TAKEN
+                        </th>
+                        
+                        {/* Category Group 2: Status of Those Taken to Court */}
+                        <th colSpan="3" className="px-3 py-2 text-center text-xs font-extrabold text-white bg-red-600 dark:bg-red-900 uppercase tracking-wider">
+                          STATUS OF THOSE TAKEN TO COURT
+                        </th>
+                      </tr>
+                      <tr>
+                        {/* Action Taken Sub-columns */}
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-green-900 bg-green-100 dark:bg-slate-900 dark:text-green-300 border-r border-slate-300 dark:border-slate-800 uppercase">Given Bond</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-blue-900 bg-blue-100 dark:bg-slate-900 dark:text-blue-300 border-r border-slate-300 dark:border-slate-800 uppercase">Cautioned</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-200 dark:bg-slate-900 dark:text-red-300 border-r border-slate-300 dark:border-slate-800 uppercase">Taken to Court</th>
+                        
+                        {/* Court Status Sub-columns */}
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-100 dark:bg-slate-900 dark:text-red-300 border-r border-slate-300 dark:border-slate-800 uppercase">Released by court</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-100 dark:bg-slate-900 dark:text-red-300 border-r border-slate-300 dark:border-slate-800 uppercase">Suspects remanded</th>
+                        <th className="px-2 py-2 text-center text-[10px] font-extrabold text-red-900 bg-red-100 dark:bg-slate-900 dark:text-red-300 uppercase">Suspects convicted</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
                       {currentDomainStats.map((stat) => (
                         <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900 dark:text-slate-100">{stat.id || stat.sn}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400">{stat.date}</td>
-                          <td className="px-3 py-3 whitespace-nowrap text-xs font-medium text-blue-700 dark:text-blue-400">{stat.station}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700 dark:text-slate-300">{stat.arrested}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700 dark:text-slate-300">{stat.given_bond}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700 dark:text-slate-300">{stat.cautioned}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-yellow-600 dark:text-yellow-400">{stat.pending_court}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-blue-600 dark:text-blue-400">{stat.taken_to_court}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-green-600 dark:text-green-400">{stat.released}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-red-600 dark:text-red-400">{stat.remanded}</td>
-                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-purple-600 dark:text-purple-400">{stat.convicted}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-bold text-gray-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">{stat.id || stat.sn}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">{stat.date}</td>
+                          <td className="px-3 py-3 whitespace-nowrap text-xs font-medium text-blue-700 dark:text-blue-400 border-r border-slate-200 dark:border-slate-800">{stat.station}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-gray-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">{stat.arrested}</td>
+                          
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-green-700 dark:text-green-400 border-r border-slate-200 dark:border-slate-800">{stat.given_bond}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-blue-700 dark:text-blue-400 border-r border-slate-200 dark:border-slate-800">{stat.cautioned}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-red-700 dark:text-red-400 border-r border-slate-200 dark:border-slate-800">{stat.taken_to_court}</td>
+                          
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-red-700 dark:text-red-400 border-r border-slate-200 dark:border-slate-800">{stat.released}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-red-700 dark:text-red-400 border-r border-slate-200 dark:border-slate-800">{stat.remanded}</td>
+                          <td className="px-2 py-3 whitespace-nowrap text-xs text-center font-bold text-purple-700 dark:text-purple-400">{stat.convicted}</td>
                         </tr>
                       ))}
                       {currentDomainStats.length > 0 && (
                         <tr className="bg-slate-200 dark:bg-slate-800 font-bold text-gray-900 dark:text-slate-100 border-t-2 border-slate-400 dark:border-slate-700">
-                          <td colSpan="3" className="px-3 py-3 text-right text-xs uppercase tracking-wider">Total</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.arrested}</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.given_bond}</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.cautioned}</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.pending_court}</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.taken_to_court}</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.released}</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.remanded}</td>
-                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300">{totals.convicted}</td>
+                          <td colSpan="3" className="px-3 py-3 text-right text-xs uppercase tracking-wider border-r border-slate-300 dark:border-slate-800">TOTAL</td>
+                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300 border-r border-slate-300 dark:border-slate-800">{totals.arrested}</td>
+                          <td className="px-2 py-3 text-center text-xs text-green-800 dark:text-green-300 border-r border-slate-300 dark:border-slate-800">{totals.given_bond}</td>
+                          <td className="px-2 py-3 text-center text-xs text-blue-800 dark:text-blue-300 border-r border-slate-300 dark:border-slate-800">{totals.cautioned}</td>
+                          <td className="px-2 py-3 text-center text-xs text-red-800 dark:text-red-300 border-r border-slate-300 dark:border-slate-800">{totals.taken_to_court}</td>
+                          <td className="px-2 py-3 text-center text-xs text-red-800 dark:text-red-300 border-r border-slate-300 dark:border-slate-800">{totals.released}</td>
+                          <td className="px-2 py-3 text-center text-xs text-red-800 dark:text-red-300 border-r border-slate-300 dark:border-slate-800">{totals.remanded}</td>
+                          <td className="px-2 py-3 text-center text-xs text-purple-800 dark:text-purple-300">{totals.convicted}</td>
                         </tr>
                       )}
-                      {currentDomainStats.length === 0 && <tr><td colSpan="11" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No statistics logged for this jurisdiction.</td></tr>}
+                      {currentDomainStats.length === 0 && <tr><td colSpan="10" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium">No statistics logged for this jurisdiction.</td></tr>}
                     </tbody>
                   </table>
                 )}

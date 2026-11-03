@@ -1,3 +1,4 @@
+# routers/consolidated_ledger.py
 import io
 import re
 from datetime import datetime, date, timedelta
@@ -248,7 +249,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
             station_cache[key] = get_official_region_for_station(stn_str, db_reg_str)
         return station_cache[key]
 
-    # 🟢 1. CRIME REPORTS (Query Model Instances directly with robust date validation)
+    # 🟢 1. CRIME REPORTS
     try:
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'crime_reports', 'Reports', 'reports')
         if CrimeModel:
@@ -300,9 +301,9 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
     except Exception as e:
         print(f"CRIMES FETCH ERROR: {e}")
 
-    # 🟢 2. OPERATIONAL STATISTICS (Query Model Instances directly with robust date validation)
+    # 🟢 2. OPERATIONAL STATISTICS (Disruptive Ops Hierarchical Summation)
     try:
-        OpsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'operationl_statistics', 'Disruptive_Operations', 'Stats')
+        OpsModel = get_model_safe('Operational_Statistics', 'OperationalStatistics', 'operational_statistics', 'Disruptive_Operations', 'Stats')
         if OpsModel:
             query = db.query(OpsModel)
             query = apply_opsec_scope(current_user, query, OpsModel)
@@ -337,7 +338,7 @@ def get_ledger_aggregated_data(db: Session, start_dt: Optional[date], end_dt: Op
     except Exception as e:
         print(f"OPS FETCH ERROR: {e}")
 
-    # 🟢 3. SUCCESS STORIES (Query Model Instances directly with robust date validation)
+    # 🟢 3. SUCCESS STORIES
     try:
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'success_stories', 'Stories', 'stories')
         if StoryModel:
@@ -579,15 +580,15 @@ def export_consolidated_ledger(
         for c_i in range(1, 5): ws.cell(row=row_idx, column=c_i).fill = PatternFill(start_color="A9D08E", end_color="A9D08E", fill_type="solid")
         row_idx += 2
 
-        # --- SECTION 3: DISRUPTIVE OPERATIONS ---
-        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=9)
+        # --- SECTION 3: DISRUPTIVE OPERATIONS (Updated Matrix Layout) ---
+        ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=10)
         cell = ws.cell(row=row_idx, column=1, value=f"SUMMARY OF DISRUPTIVE OPERATIONS ({time_range})")
         cell.fill = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
         cell.font = Font(bold=True, size=11)
         cell.alignment = Alignment(horizontal="center", vertical="center")
         row_idx += 1
 
-        headers_ops = ["REGION", "ARRESTED", "GIVEN BOND", "CAUTIONED", "PENDING COURT", "TAKEN TO COURT", "RELEASED", "REMANDED", "CONVICTED"]
+        headers_ops = ["REGION", "ARRESTED", "GIVEN BOND", "CAUTIONED", "PENDING COURT", "TAKEN TO COURT", "RELEASED BY COURT", "SUSPECTS REMANDED", "SUSPECTS CONVICTED"]
         for col_num, h in enumerate(headers_ops, 1):
             c = ws.cell(row=row_idx, column=col_num, value=h)
             c.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")

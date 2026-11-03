@@ -77,11 +77,21 @@ class Operational_Statistics(Base):
     arrested = Column(Integer, default=0)
     given_bond = Column(Integer, default=0)
     cautioned = Column(Integer, default=0)
+    
+    # 🟢 Granular station daily tracking fields (REVISED DIV TEMPLATE)
+    pending_court_prev_ops = Column(Integer, default=0)
+    pending_court_today_ops = Column(Integer, default=0)
+    taken_to_court_prev_lockup = Column(Integer, default=0)
+    taken_to_court_today_ops = Column(Integer, default=0)
+    
+    # Standard / Fallback summary fields for Regional Rollups
     pending_court = Column(Integer, default=0)
     taken_to_court = Column(Integer, default=0)
+    
     released = Column(Integer, default=0)
     remanded = Column(Integer, default=0)
     convicted = Column(Integer, default=0)
+    
     last_updated_by = Column(String)
     created_at = Column(DateTime, default=get_eat_time)
 

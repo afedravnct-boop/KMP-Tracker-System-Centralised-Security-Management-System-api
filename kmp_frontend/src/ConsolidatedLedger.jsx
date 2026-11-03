@@ -404,15 +404,18 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                 </th>
               </tr>
               <tr className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">REGION</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">ARRESTED</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">GIVEN<br/>BOND</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CAUTIONED</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">PENDING<br/>COURT</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">TAKEN TO<br/>COURT</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">RELEASED</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">REMANDED</th>
-                <th className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] leading-tight">CONVICTED</th>
+                <th rowSpan="2" className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] align-middle">REGION</th>
+                <th rowSpan="2" className="p-2 text-center font-bold border-2 border-slate-400 dark:border-slate-700 uppercase text-[10px] align-middle">ARRESTED</th>
+                <th colSpan="3" className="p-2 text-center font-black text-white bg-orange-600 uppercase text-[10px] border-2 border-slate-400">ACTION TAKEN</th>
+                <th colSpan="3" className="p-2 text-center font-black text-white bg-red-600 uppercase text-[10px] border-2 border-slate-400">STATUS OF THOSE TAKEN TO COURT</th>
+              </tr>
+              <tr className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                <th className="p-2 text-center font-bold border border-slate-400 uppercase text-[9px]">GIVEN BOND</th>
+                <th className="p-2 text-center font-bold border border-slate-400 uppercase text-[9px]">CAUTIONED</th>
+                <th className="p-2 text-center font-bold border border-slate-400 uppercase text-[9px]">TAKEN TO COURT</th>
+                <th className="p-2 text-center font-bold border border-slate-400 uppercase text-[9px]">RELEASED BY COURT</th>
+                <th className="p-2 text-center font-bold border border-slate-400 uppercase text-[9px]">REMANDED</th>
+                <th className="p-2 text-center font-bold border border-slate-400 uppercase text-[9px]">CONVICTED</th>
               </tr>
             </thead>
             <tbody>
@@ -422,27 +425,25 @@ const ConsolidatedLedger = ({ onClose, currentUser, canViewGlobal = false }) => 
                   <tr key={`ops-${region}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                     <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-slate-900 dark:text-slate-100 text-xs">{region}</td>
                     <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold">{item.arrested}</td>
-                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold">{item.given_bond}</td>
-                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold">{item.cautioned}</td>
-                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold">{item.pending_court}</td>
-                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold">{item.taken_to_court}</td>
-                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold">{item.released}</td>
+                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-green-700">{item.given_bond}</td>
+                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-blue-700">{item.cautioned}</td>
+                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-red-700">{item.taken_to_court}</td>
+                    <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-red-700">{item.released}</td>
                     <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-red-700 dark:text-red-400">{item.remanded}</td>
                     <td className="px-2 py-2 border border-slate-400 dark:border-slate-700 text-center font-bold text-purple-700 dark:text-purple-400">{item.convicted}</td>
                   </tr>
                 );
               })}
             </tbody>
-            {/* 🟢 NEW: Grand Total Row for Disruptive Operations */}
+            {/* Grand Total Row */}
             <tfoot className="bg-[#e2efda] dark:bg-slate-800 font-extrabold text-slate-900 dark:text-slate-100 border-2 border-slate-400 dark:border-slate-700">
               <tr>
                 <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center uppercase tracking-wider text-xs">GRAND TOTAL</td>
                 <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.arrested}</td>
-                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.given_bond}</td>
-                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.cautioned}</td>
-                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.pending_court}</td>
-                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.taken_to_court}</td>
-                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm">{dataMapping.opsGeneral.released}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-green-800">{dataMapping.opsGeneral.given_bond}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-blue-800">{dataMapping.opsGeneral.cautioned}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-red-800">{dataMapping.opsGeneral.taken_to_court}</td>
+                <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-red-800">{dataMapping.opsGeneral.released}</td>
                 <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-red-700 dark:text-red-400">{dataMapping.opsGeneral.remanded}</td>
                 <td className="px-2 py-3 border border-slate-400 dark:border-slate-700 text-center text-sm text-purple-700 dark:text-purple-400">{dataMapping.opsGeneral.convicted}</td>
               </tr>

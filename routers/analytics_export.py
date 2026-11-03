@@ -453,14 +453,13 @@ def get_dashboard_intelligence(
                 "date": dt, "total": curr_total, "margin": margin, "status": status_note
             })
 
-        # 2. SUCCESS STORIES METRICS (Robust Column + Regex Fallback)
+        # 2. SUCCESS STORIES METRICS
         processed_stories = []
         for st in story_records:
             try:
                 raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
                 parsed = parse_success_story_backend(raw_narrative)
                 
-                # Prioritize explicit database columns, falling back to regex parsing
                 suspects = safe_int(
                     getattr(st, 'suspects_arrested', None) or 
                     getattr(st, 'suspects_arrested_count', None) or 
@@ -539,7 +538,7 @@ def get_dashboard_intelligence(
         fire_causes_data = [{"cause": k, "count": v} for k, v in sorted(fire_causes_map.items(), key=lambda x: x[1], reverse=True)]
         fire_monthly_data = [{"month": m, "count": fire_monthly_map[m]} for m in month_names]
 
-        # 🟢 4. ACCIDENTS INTELLIGENCE (Monthly trends, severity breakdown, and regional pie breakdown)
+        # 4. ACCIDENTS INTELLIGENCE
         accidents_monthly_map = {m: 0 for m in month_names}
         accidents_severity_map = {"MINOR": 0, "SERIOUS": 0, "FATAL": 0}
         accidents_regional_map = {}
@@ -556,15 +555,12 @@ def get_dashboard_intelligence(
                 reg = str(getattr(ac, 'region', 'KMP GENERAL')).upper()
                 nature = str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper()
 
-                # Tally severity
                 accidents_severity_map["MINOR"] += minor_c
                 accidents_severity_map["SERIOUS"] += serious_c
                 accidents_severity_map["FATAL"] += fatal_c
 
-                # Tally regional distribution for pie chart
                 accidents_regional_map[reg] = accidents_regional_map.get(reg, 0) + total_c
 
-                # Tally monthly timeline
                 d_str = str(getattr(ac, 'date', ''))
                 if d_str and d_str != 'None':
                     clean_d = d_str.split('T')[0][:10]
@@ -883,7 +879,7 @@ def export_analytics_report(
             region_ops_totals[reg]["remanded"] += rem
             region_ops_totals[reg]["convicted"] += con
 
-            disruptive_data.append([str(wk), reg, stat, arr, bon, cau, pen, tak, rel, rem, con])
+            disruptive_data.append([str(wk), reg, stat, arr, bon, cau, tak, rel, rem, con])
 
         comp_counts = {}
         for r in cr_records:
@@ -939,7 +935,7 @@ def export_analytics_report(
         add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
         add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
         add_individual_sheet("Exhibits Grouped", exhibit_headers, exhibit_summary_data)
-        add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Taken to Court", "Released by Court", "Suspects Remanded", "Suspects Convicted"], disruptive_data)
         
         add_individual_sheet("Detention Analysis (Weekly)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
         add_individual_sheet("Detention Analysis (Monthly)", ["Time Period", "Entries Logged", "Total Suspects", "Monthly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["monthly"])
@@ -978,7 +974,7 @@ def export_analytics_report(
         append_stacked_section("2. Agricultural Crimes Breakdown", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
         append_stacked_section("3. Success Stories Breakdown", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
         append_stacked_section("4. Exhibits Grouped Summary", exhibit_headers, exhibit_summary_data)
-        append_stacked_section("5. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Bonded", "Cautioned", "Pending Court", "To Court", "Released", "Remanded", "Convicted"], disruptive_data)
+        append_stacked_section("5. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Taken to Court", "Released by Court", "Suspects Remanded", "Suspects Convicted"], disruptive_data)
         append_stacked_section("6. Cell Detentions Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
         append_stacked_section("7. Traffic Accidents Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
         append_stacked_section("8. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)
