@@ -297,16 +297,7 @@ def get_pending_users(
             query = query.filter(func.upper(models.Users.station) == func.upper(current_user.station))
 
     pending_users = query.order_by(models.Users.id.desc()).all()
-
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="VIEW",
-        module="USER_ACCOUNTS",
-        target_id="PENDING_ROSTER",
-        changes_summary=f"{current_user.fnum} inspected pending authorizations roster."
-    )
-
+    # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam.
     return pending_users
 
 
@@ -363,10 +354,8 @@ def approve_pending_user(
     db.commit()
 
     if target_user.email:
-        # 🟢 FIX: Call async runner directly via lambda to avoid loop conflicts
-        background_tasks.add_task(
-            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, True))
-        )
+        # 🟢 FIX: Directly assign the async function and args (removes asyncio.run loop collision)
+        background_tasks.add_task(notify_user_approval_status, target_user.email, target_user.name, True)
 
     record_neon_activity(
         logs_db=logs_db,
@@ -588,10 +577,8 @@ def revoke_user_access(
     db.commit()
 
     if target_user.email:
-        # 🟢 FIX: Native asyncio background wrapper
-        background_tasks.add_task(
-            lambda: asyncio.run(notify_user_approval_status(target_user.email, target_user.name, False, reason))
-        )
+        # 🟢 FIX: Directly assign the async function and args
+        background_tasks.add_task(notify_user_approval_status, target_user.email, target_user.name, False, reason)
 
     return {"status": "success", "message": f"Officer {clean_fnum} access revoked."}
 
@@ -830,15 +817,8 @@ def get_admin_transfer_requests(
                 "created_at": getattr(req, "created_at", None)
             }
             formatted_requests.append(req_dict)
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="VIEW",
-            module="ADMIN_APPROVALS",
-            target_id="HR_TRANSFERS_TAB",
-            changes_summary=f"{current_user.fnum} accessed the HR Transfer Requests command queue."
-        )
+            
+        # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam.
 
         return formatted_requests
 
@@ -899,9 +879,8 @@ def create_admin_transfer_request(
                 <p>Please review and authorize in the Admin Dashboard.</p>
             </div>
             """
-            background_tasks.add_task(
-                lambda: asyncio.run(send_email_notification(admin_emails, subject, html_body))
-            )
+            # 🟢 FIX: Directly assign the async function and args
+            background_tasks.add_task(send_email_notification, admin_emails, subject, html_body)
 
         record_neon_activity(
             logs_db=logs_db,
@@ -982,9 +961,8 @@ def approve_hr_transfer_request(
                     <p>Your system profile has been dynamically updated.</p>
                 </div>
                 """
-                background_tasks.add_task(
-                    lambda: asyncio.run(send_email_notification([target_officer.email], subject, html_body))
-                )
+                # 🟢 FIX: Directly assign the async function and args
+                background_tasks.add_task(send_email_notification, [target_officer.email], subject, html_body)
 
         db.commit()
 
@@ -1039,15 +1017,7 @@ def get_pending_password_resets(
                 query = query.filter(func.upper(ResetModel.station) == func.upper(current_user.station))
 
         requests = query.order_by(ResetModel.id.desc()).all()
-
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="VIEW",
-            module="ADMIN_APPROVALS",
-            target_id="PASSWORD_RESETS_TAB",
-            changes_summary=f"{current_user.fnum} accessed the Password Resets command queue."
-        )
+        # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam.
 
         return requests
 
@@ -1163,10 +1133,8 @@ def trigger_tactical_briefs(
             </div>
             """
             
-            # 🟢 FIX: Call async directly in background tasks without manually creating loops
-            background_tasks.add_task(
-                lambda: asyncio.run(send_email_notification(target_emails, subject, html_body))
-            )
+            # 🟢 FIX: Call async directly in background tasks without wrapping in lambda: asyncio.run
+            background_tasks.add_task(send_email_notification, target_emails, subject, html_body)
 
         record_neon_activity(
             logs_db=logs_db,

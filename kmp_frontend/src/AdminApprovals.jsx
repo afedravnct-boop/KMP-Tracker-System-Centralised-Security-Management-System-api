@@ -1,5 +1,5 @@
 // src/components/AdminApprovals.jsx
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Shield, CheckCircle, AlertTriangle, X, Lock, Unlock, 
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, 
@@ -352,6 +352,7 @@ const UserClearanceDossierModal = ({ user, onClose, currentUser, onUpdatePermiss
               )}
             </div>
           </div>
+
         </div>
 
         <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
@@ -445,8 +446,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     userPosClean.includes('HR');
 
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
-  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true || isReadOnlyObserver;
-  const canToggleKillSwitch = isSuperAdmin || userRoleClean === 'ASSISTANT_SUPER_ADMIN' || hasDelegatedApprovalPower || currentUser?.permissions?.ai_hr_access === true;
   const canViewGlobalActive = canViewGlobal || isGlobalTier || isReadOnlyObserver;
  
   const canTriggerBriefs = 
@@ -678,7 +677,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     finally { setIsProcessingAction(false); }
   };
 
-  // 🟢 Optimized Delegation Method (Fast Mutation UI)
   const handleToggleDelegationPower = async (targetUser, givePower, startDate = null, endDate = null) => {
   if (isReadOnlyObserver) return alert("Read-only clearance restricts delegation.");
   if (!isTopCommand) return alert("SECURITY RESTRICTION: Only System Managers, RPCs, and Super Admins can delegate command powers.");
@@ -690,14 +688,13 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     delegation_start: startDate,
     delegation_end: endDate,
     acting_for_fnum: givePower ? currentUser?.fnum : null,
-    global_open: givePower ? true : (targetUser.permissions?.global_open || false) // Corrected from read-only to open/write access for delegated tier
+    global_open: givePower ? true : (targetUser.permissions?.global_open || false) 
   };
 
   if (givePower) {
     newPermissions._pre_delegation_snapshot = { ...(targetUser.permissions || {}) };
     const myPerms = currentUser?.permissions || {};
     CLEARANCE_MATRIX_COLS.forEach(col => {
-      // Ensure delegatee only receives permissions up to the delegator's level, not exceeding
       if (myPerms[col.key] === true) newPermissions[col.key] = true;
     });
   } else {
@@ -710,7 +707,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     }
   }
 
-  // FAST MUTATION: Updates instantly without freezing the UI
   targetUser.permissions = newPermissions;
   setAllSystemUsers([...allSystemUsers]);
 
@@ -803,7 +799,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     let updatedPermissions = { ...(targetUser.permissions || {}) };
     updatedPermissions[permissionKey] = value;
     
-    // FAST MUTATION
     targetUser.permissions = updatedPermissions;
     setAllSystemUsers([...allSystemUsers]);
 
@@ -926,7 +921,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     if (!hasValidSession()) return;
     setLoadingRequests(true);
     try {
-      const res = await authFetch("/api/v1/requests");
+      const res = await authFetch("/api/v1/admin/requests");
       if (res && res.ok) {
         const data = await res.json();
         setModRequests(Array.isArray(data) ? data : []);
@@ -942,7 +937,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     if (!hasValidSession()) return;
     setLoadingLogs(true);
     try {
-      const res = await authFetch("/api/v1/audit-logs");
+      const res = await authFetch("/api/v1/admin/audit-logs"); 
       if (res && res.ok) {
         const data = await res.json();
         setAuditLogs(Array.isArray(data) ? data : []);
@@ -962,6 +957,35 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     else if (activeTab === 'resets') fetchResets();
     fetchLockdownStatus();
   }, [activeTab, fetchPendingUsers, fetchAllSystemUsers, fetchModRequests, fetchAuditLogs, fetchResets, fetchLockdownStatus]);
+
+  // 🟢 NEW GRAMMATICAL TAB VIEW TRACKER
+  const prevTabRef = useRef(null);
+  
+  useEffect(() => {
+    if (!activeTab || !currentUser?.fnum) return;
+    if (prevTabRef.current === activeTab) return;
+    
+    prevTabRef.current = activeTab;
+    
+    const tabNames = {
+      'approvals': 'Pending Authorizations Roster',
+      'matrix': 'System Clearance Matrix',
+      'roster': 'Command Directory Roster',
+      'requests': 'HR Modification Requests',
+      'logs': 'System Audit Logs',
+      'resets': 'Password Reset Queue'
+    };
+    
+    authFetch('/api/v1/activity-logs', {
+      method: 'POST',
+      body: JSON.stringify({
+        fnum: currentUser.fnum,
+        action: 'TAB VIEW',
+        module: 'ADMIN_APPROVALS',
+        details: `Accessed the ${tabNames[activeTab] || activeTab} tab.`
+      })
+    }).catch(() => {});
+  }, [activeTab, currentUser?.fnum]);
 
   const matchesSearch = (item, fields) => {
     if (!searchTerm.trim()) return true;
@@ -1585,17 +1609,17 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                         <div className="flex-1">
                           <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Absence Reason</label>
                           <select 
-  id="bc-absence-reason"
-  defaultValue="Annual Leave"
-  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-white outline-none cursor-pointer"
->
-  <option value="Annual Leave">Annual Leave</option>
-  <option value="Pass Leave">Pass Leave</option>
-  <option value="Official Course / Training">Official Course / Training</option>
-  <option value="Duty Out / Mission Deployment">Duty Out / Mission Deployment</option>
-  <option value="Medical Leave/ Maternity Leave / Sick Sheet">Medical Leave/Maternity Leave / Sick Sheet</option>
-  <option value="Off Duty / Rest Days">Off Duty / Rest Days</option>
-</select>
+                            id="bc-absence-reason"
+                            defaultValue="Annual Leave"
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-white outline-none cursor-pointer"
+                          >
+                            <option value="Annual Leave">Annual Leave</option>
+                            <option value="Pass Leave">Pass Leave</option>
+                            <option value="Official Course / Training">Official Course / Training</option>
+                            <option value="Duty Out / Mission Deployment">Duty Out / Mission Deployment</option>
+                            <option value="Medical Leave/ Maternity Leave / Sick Sheet">Medical Leave/Maternity Leave / Sick Sheet</option>
+                            <option value="Off Duty / Rest Days">Off Duty / Rest Days</option>
+                          </select>
                         </div>
                         <div className="flex-1">
                           <label className="text-[9px] uppercase font-bold text-slate-400 mb-1 block">Delegatee FNum</label>
@@ -1768,7 +1792,6 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
                                   onChange={async (e) => {
                                     const nextPerms = { ...uPerms, [col.key]: e.target.checked, can_approve: true };
                                     
-                                    // FAST MUTATION
                                     u.permissions = nextPerms;
                                     setAllSystemUsers([...allSystemUsers]);
 
