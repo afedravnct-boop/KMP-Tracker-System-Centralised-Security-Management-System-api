@@ -297,7 +297,9 @@ def get_pending_users(
             query = query.filter(func.upper(models.Users.station) == func.upper(current_user.station))
 
     pending_users = query.order_by(models.Users.id.desc()).all()
-    # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam.
+
+    # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam when loading the badges.
+
     return pending_users
 
 
@@ -354,7 +356,7 @@ def approve_pending_user(
     db.commit()
 
     if target_user.email:
-        # 🟢 FIX: Directly assign the async function and args (removes asyncio.run loop collision)
+        # 🟢 FIX: Directly assign the async function and args (removes nested event loop collision)
         background_tasks.add_task(notify_user_approval_status, target_user.email, target_user.name, True)
 
     record_neon_activity(
@@ -1133,7 +1135,7 @@ def trigger_tactical_briefs(
             </div>
             """
             
-            # 🟢 FIX: Call async directly in background tasks without wrapping in lambda: asyncio.run
+            # 🟢 FIX: Call async directly in background tasks without manually creating loops
             background_tasks.add_task(send_email_notification, target_emails, subject, html_body)
 
         record_neon_activity(

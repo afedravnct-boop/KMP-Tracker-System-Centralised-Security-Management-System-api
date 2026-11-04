@@ -470,7 +470,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       }
       return {
           sn: null, id: null, region: userRegClean, station: currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '',
-          date: getTodayString(), arrested: 0, given_bond: 0, cautioned: 0, pending_court: 0, taken_to_court: 0, released: 0, remanded: 0, convicted: 0
+          date: getTodayString(), arrested: 0, given_bond: 0, cautioned: 0, 
+          pending_court_prev: 0, pending_court_today: 0, 
+          taken_to_court_prev: 0, taken_to_court_today: 0, 
+          released: 0, remanded: 0, convicted: 0
       };
   };
 
@@ -601,6 +604,13 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
             updatedState.custom_nature_of_fire = statData.nature_of_fire;
         }
     }
+    if (statsDomain === 'DISRUPTIVE') {
+        // 🟢 Map the single DB column back to the split UI fields for editing
+        updatedState.pending_court_prev = 0;
+        updatedState.pending_court_today = statData.pending_court || 0;
+        updatedState.taken_to_court_prev = 0;
+        updatedState.taken_to_court_today = statData.taken_to_court || 0;
+    }
     setFormData(updatedState);
   };
 
@@ -650,6 +660,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           if (newStat.nature_of_fire === 'OTHER') {
               newStat.nature_of_fire = formData.custom_nature_of_fire;
           }
+      } else if (statsDomain === 'DISRUPTIVE') {
+          // 🟢 Combines the split frontend fields into the standard DB columns to prevent crashes
+          newStat.pending_court = (parseInt(formData.pending_court_prev) || 0) + (parseInt(formData.pending_court_today) || 0);
+          newStat.taken_to_court = (parseInt(formData.taken_to_court_prev) || 0) + (parseInt(formData.taken_to_court_today) || 0);
       }
       
       try {
@@ -703,6 +717,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           if (updatedRecord.nature_of_fire === 'OTHER') {
               updatedRecord.nature_of_fire = formData.custom_nature_of_fire;
           }
+      } else if (statsDomain === 'DISRUPTIVE') {
+          // 🟢 Combines the split frontend fields into the standard DB columns to prevent crashes
+          updatedRecord.pending_court = (parseInt(formData.pending_court_prev) || 0) + (parseInt(formData.pending_court_today) || 0);
+          updatedRecord.taken_to_court = (parseInt(formData.taken_to_court_prev) || 0) + (parseInt(formData.taken_to_court_today) || 0);
       }
 
       try {
@@ -928,30 +946,35 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                           </div>
                         </div>
                     ) : (
-                        <div className="bg-blue-50 dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-slate-700 space-y-3">
-                          <h4 className="text-sm font-bold text-blue-900 dark:text-blue-300 border-b border-blue-200 dark:border-slate-700 pb-2 mb-2 flex items-center">📊 Disruptive Operations Form (REVISED DIV TEMPLATE)</h4>
-                          
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested} onChange={handleInputChange} className="w-full text-base font-bold text-blue-700 outline-none p-1 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond} onChange={handleInputChange} className="w-full text-base font-bold text-green-700 outline-none p-1 bg-transparent" /></div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned} onChange={handleInputChange} className="w-full text-base font-bold text-blue-600 outline-none p-1 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Pending Court</label><input type="number" name="pending_court" min="0" value={formData.pending_court} onChange={handleInputChange} className="w-full text-base font-bold text-yellow-600 outline-none p-1 bg-transparent" /></div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Taken to Court</label><input type="number" name="taken_to_court" min="0" value={formData.taken_to_court} onChange={handleInputChange} className="w-full text-base font-bold text-red-600 outline-none p-1 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Released by Court</label><input type="number" name="released" min="0" value={formData.released} onChange={handleInputChange} className="w-full text-base font-bold text-green-600 outline-none p-1 bg-transparent" /></div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded} onChange={handleInputChange} className="w-full text-base font-bold text-red-700 outline-none p-1 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted} onChange={handleInputChange} className="w-full text-base font-bold text-purple-600 outline-none p-1 bg-transparent" /></div>
-                          </div>
+                      <div className="bg-blue-50 dark:bg-slate-800 p-4 rounded-lg border border-blue-200 dark:border-slate-700 space-y-4">
+                        <h4 className="text-sm font-bold text-blue-900 dark:text-blue-300 border-b border-blue-200 dark:border-slate-700 pb-2 mb-2 flex items-center">📊 Disruptive Operations Form (REVISED DIV TEMPLATE)</h4>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested || 0} onChange={handleInputChange} className="w-full text-base font-bold text-blue-700 dark:text-blue-400 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond || 0} onChange={handleInputChange} className="w-full text-base font-bold text-green-700 dark:text-green-400 outline-none p-1 bg-transparent" /></div>
                         </div>
-                    )}
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned || 0} onChange={handleInputChange} className="w-full text-base font-bold text-blue-600 dark:text-blue-400 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Pending Court (Prev Day)</label><input type="number" name="pending_court_prev" min="0" value={formData.pending_court_prev || 0} onChange={handleInputChange} className="w-full text-base font-bold text-yellow-600 dark:text-yellow-400 outline-none p-1 bg-transparent" /></div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Pending Court (Today's OPS)</label><input type="number" name="pending_court_today" min="0" value={formData.pending_court_today || 0} onChange={handleInputChange} className="w-full text-base font-bold text-yellow-600 dark:text-yellow-400 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Taken to Court (Prev Lockup)</label><input type="number" name="taken_to_court_prev" min="0" value={formData.taken_to_court_prev || 0} onChange={handleInputChange} className="w-full text-base font-bold text-red-600 dark:text-red-400 outline-none p-1 bg-transparent" /></div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Taken to Court (Today's OPS)</label><input type="number" name="taken_to_court_today" min="0" value={formData.taken_to_court_today || 0} onChange={handleInputChange} className="w-full text-base font-bold text-red-600 dark:text-red-400 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Released by Court</label><input type="number" name="released" min="0" value={formData.released || 0} onChange={handleInputChange} className="w-full text-base font-bold text-green-600 dark:text-green-400 outline-none p-1 bg-transparent" /></div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded || 0} onChange={handleInputChange} className="w-full text-base font-bold text-red-700 dark:text-red-400 outline-none p-1 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-2 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[10px] font-bold text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-1">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted || 0} onChange={handleInputChange} className="w-full text-base font-bold text-purple-600 dark:text-purple-400 outline-none p-1 bg-transparent" /></div>
+                        </div>
+                      </div>
+                  )}
                     
                     <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-4 py-4 font-bold rounded-lg shadow text-lg flex justify-center items-center cursor-pointer">
                       {operation === 'new' ? '💾 Submit Data Entry' : '💾 Save Updated Figures'}
