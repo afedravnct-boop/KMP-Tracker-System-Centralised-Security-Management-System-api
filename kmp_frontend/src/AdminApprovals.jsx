@@ -446,6 +446,8 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     userPosClean.includes('HR');
 
   const hasDelegatedApprovalPower = currentUser?.permissions?.can_approve === true || currentUser?.permissions?.system_admin === true;
+  const canAccessApprovalsPage = isTopCommand || hasDelegatedApprovalPower || currentUser?.permissions?.acc_approvals === true || isReadOnlyObserver;
+  const canToggleKillSwitch = isSuperAdmin || userRoleClean === 'ASSISTANT_SUPER_ADMIN' || hasDelegatedApprovalPower || currentUser?.permissions?.ai_hr_access === true;
   const canViewGlobalActive = canViewGlobal || isGlobalTier || isReadOnlyObserver;
  
   const canTriggerBriefs = 
@@ -905,7 +907,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     if (!hasValidSession()) return;
     setLoadingUsers(true);
     try {
-      const res = await authFetch("/api/v1/users");
+      const res = await authFetch("/api/v1/users"); // 🟢 Reverted to correct root URL
       if (res && res.ok) {
         const data = await res.json();
         setAllSystemUsers(Array.isArray(data) ? data.filter(u => u.fnum !== 'A/2408' && (isSuperAdmin || u.role !== 'SUPER_ADMIN')) : []);
@@ -921,7 +923,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     if (!hasValidSession()) return;
     setLoadingRequests(true);
     try {
-      const res = await authFetch("/api/v1/admin/requests");
+      const res = await authFetch("/api/v1/requests"); // 🟢 Reverted to correct root URL
       if (res && res.ok) {
         const data = await res.json();
         setModRequests(Array.isArray(data) ? data : []);
@@ -937,7 +939,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
     if (!hasValidSession()) return;
     setLoadingLogs(true);
     try {
-      const res = await authFetch("/api/v1/admin/audit-logs"); 
+      const res = await authFetch("/api/v1/audit-logs"); // 🟢 Reverted to correct root URL
       if (res && res.ok) {
         const data = await res.json();
         setAuditLogs(Array.isArray(data) ? data : []);
@@ -1486,11 +1488,15 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
       )}
 
       {activeTab === 'logs' && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full">
-          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase">System Audit & Authentication Logs</div>
-          <div className="w-full overflow-x-auto custom-scrollbar">
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200 dark:border-slate-800 overflow-hidden w-full flex flex-col">
+          <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 text-white font-semibold text-xs uppercase shrink-0">
+            System Audit & Authentication Logs
+          </div>
+          {/* 🟢 Added max-h-[65vh] and overflow-auto to strictly contain the vertical scroll */}
+          <div className="w-full overflow-auto max-h-[65vh] custom-scrollbar">
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800 text-xs">
-              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] whitespace-nowrap">
+              {/* 🟢 Added sticky top-0, z-20, and shadow-md so the header stays pinned while scrolling */}
+              <thead className="bg-slate-900 dark:bg-slate-950 text-blue-100 uppercase font-black text-[11px] whitespace-nowrap sticky top-0 z-20 shadow-md">
                 <tr>
                   <th className="px-4 py-3.5 text-left w-32">Timestamp</th>
                   <th className="px-4 py-3.5 text-left w-48">User</th>
