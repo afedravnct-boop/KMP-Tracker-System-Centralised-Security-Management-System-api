@@ -257,10 +257,16 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
                 print(f"❌ Failed to dispatch brief to {payload['email']}: {mail_err}")
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # If triggered manually, safely queue it in the active FastAPI loop
             loop.create_task(send_all_emails())
         else:
+            # If triggered by automated Cron, safely spin up a temporary loop
             asyncio.run(send_all_emails())
     except Exception as run_err:
         print(f"❌ Failed to execute briefing email batch loop: {run_err}")

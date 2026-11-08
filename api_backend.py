@@ -707,15 +707,21 @@ def run_automated_compliance_sweep():
             import asyncio
             try:
                 if asyncio.iscoroutinefunction(func):
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(func(*args, **kwargs))
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                        
+                    if loop and loop.is_running():
+                        loop.create_task(func(*args, **kwargs))
+                    else:
+                        asyncio.run(func(*args, **kwargs))
                 else:
-                    loop = asyncio.get_running_loop()
-                    loop.run_in_executor(None, lambda: func(*args, **kwargs))
+                    # If it's a standard synchronous function, run it directly
+                    func(*args, **kwargs)
             except Exception as e:
                 print(f"Background task execution failed: {e}")
                 
-    # 👇 Ensure this line aligns with 'class', NOT with 'try' or 'except'
     dummy_tasks = DummyBackgroundTasks()
     
     try:
