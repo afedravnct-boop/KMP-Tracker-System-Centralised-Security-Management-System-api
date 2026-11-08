@@ -755,6 +755,46 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
             db.rollback()
             print(f"⚠️ Failed to dispatch Admin Communication alert: {comm_err}")
 
+# 5. Dispatch email asynchronously using the safe event loop pattern
+        try:
+            high_command_emails = [
+                email[0] for email in db.query(models.Users.email).filter(
+                    models.Users.is_approved == True,
+                    models.Users.email.isnot(None),
+                    models.Users.role != 'REVOKED',
+                    or_(
+                        models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN']),
+                        func.upper(models.Users.position).like('%KMP COMMANDER%'),
+                        func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
+                    )
+                ).all() if email[0] and "@" in email[0]
+            ]
+            
+            if high_command_emails:
+                email_html = f"""
+                <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    <h2 style="color: #b91c1c; margin-top: 0;">SYSTEM CRASH TELEMETRY</h2>
+                    {glitch_summary}
+                </div>
+                """
+                
+                # The correct, thread-safe way to call the async SMTP dispatcher
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(send_command_briefing(
+                        high_command_emails,
+                        f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]",
+                        email_html
+                    ))
+                else:
+                    asyncio.run(send_command_briefing(
+                        high_command_emails,
+                        f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]",
+                        email_html
+                    ))
+        except Exception as mail_err:
+            print(f"❌ Failed to dispatch automated glitch alert email: {mail_err}")
+
         # 5. Log System Activity
         try:
             from routers.activity_logger import log_independent_activity

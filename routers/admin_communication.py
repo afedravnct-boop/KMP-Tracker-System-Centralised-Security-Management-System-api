@@ -446,8 +446,11 @@ def create_admin_communication(
                  
                 # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
                 background_tasks.add_task(
-                    lambda: asyncio.run(send_command_briefing(emails, comm.subject, html_body))
-                )
+    send_command_briefing, 
+    emails, 
+    comm.subject, 
+    html_body
+)
 
         assigned_id = getattr(db_comm, 'id', getattr(db_comm, 'sn', 1))
         response_payload = {"status": "success", "id": assigned_id, "msg_ref": generated_msg_ref}

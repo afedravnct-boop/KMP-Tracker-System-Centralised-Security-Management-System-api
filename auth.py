@@ -513,8 +513,11 @@ async def signup(
             """
             # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
             background_tasks.add_task(
-                lambda: asyncio.run(send_auth_notification(list(set(approver_emails)), subject, html_body))
-            )
+    send_auth_notification, 
+    list(set(approver_emails)), 
+    subject, 
+    html_body
+)
 
         return {
             "status": "success",

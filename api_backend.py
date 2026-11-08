@@ -702,17 +702,20 @@ def run_automated_compliance_sweep():
     db = next(db_gen)
     
     # Create a mock BackgroundTasks instance to satisfy the router function signature
-    class DummyBackgroundTasks(BackgroundTasks):
+    class DummyBackgroundTasks:
         def add_task(self, func, *args, **kwargs):
+            import asyncio
             try:
-                # 🟢 Natively execute async coroutines passed via background_tasks
                 if asyncio.iscoroutinefunction(func):
-                    asyncio.run(func(*args, **kwargs))
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(func(*args, **kwargs))
                 else:
-                    func(*args, **kwargs)
+                    loop = asyncio.get_running_loop()
+                    loop.run_in_executor(None, lambda: func(*args, **kwargs))
             except Exception as e:
                 print(f"Background task execution failed: {e}")
                 
+    # 👇 Ensure this line aligns with 'class', NOT with 'try' or 'except'
     dummy_tasks = DummyBackgroundTasks()
     
     try:
