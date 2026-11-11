@@ -298,8 +298,6 @@ def get_pending_users(
 
     pending_users = query.order_by(models.Users.id.desc()).all()
 
-    # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam when loading the badges.
-
     return pending_users
 
 
@@ -356,7 +354,7 @@ def approve_pending_user(
     db.commit()
 
     if target_user.email:
-        # 🟢 FIX: Directly assign the async function and args (removes nested event loop collision)
+        # NATIVE FASTAPI ASYNC QUEUE - SAFE
         background_tasks.add_task(notify_user_approval_status, target_user.email, target_user.name, True)
 
     record_neon_activity(
@@ -579,7 +577,7 @@ def revoke_user_access(
     db.commit()
 
     if target_user.email:
-        # 🟢 FIX: Directly assign the async function and args
+        # NATIVE FASTAPI ASYNC QUEUE - SAFE
         background_tasks.add_task(notify_user_approval_status, target_user.email, target_user.name, False, reason)
 
     return {"status": "success", "message": f"Officer {clean_fnum} access revoked."}
@@ -819,8 +817,6 @@ def get_admin_transfer_requests(
                 "created_at": getattr(req, "created_at", None)
             }
             formatted_requests.append(req_dict)
-            
-        # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam.
 
         return formatted_requests
 
@@ -881,7 +877,7 @@ def create_admin_transfer_request(
                 <p>Please review and authorize in the Admin Dashboard.</p>
             </div>
             """
-            # 🟢 FIX: Directly assign the async function and args
+            # NATIVE FASTAPI ASYNC QUEUE - SAFE
             background_tasks.add_task(send_email_notification, admin_emails, subject, html_body)
 
         record_neon_activity(
@@ -963,7 +959,7 @@ def approve_hr_transfer_request(
                     <p>Your system profile has been dynamically updated.</p>
                 </div>
                 """
-                # 🟢 FIX: Directly assign the async function and args
+                # NATIVE FASTAPI ASYNC QUEUE - SAFE
                 background_tasks.add_task(send_email_notification, [target_officer.email], subject, html_body)
 
         db.commit()
@@ -1019,7 +1015,6 @@ def get_pending_password_resets(
                 query = query.filter(func.upper(ResetModel.station) == func.upper(current_user.station))
 
         requests = query.order_by(ResetModel.id.desc()).all()
-        # 🟢 REMOVED Redundant 'VIEW' Logging to prevent tab sync spam.
 
         return requests
 
@@ -1135,7 +1130,7 @@ def trigger_tactical_briefs(
             </div>
             """
             
-            # 🟢 FIX: Call async directly in background tasks without manually creating loops
+            # NATIVE FASTAPI ASYNC QUEUE - SAFE
             background_tasks.add_task(send_email_notification, target_emails, subject, html_body)
 
         record_neon_activity(

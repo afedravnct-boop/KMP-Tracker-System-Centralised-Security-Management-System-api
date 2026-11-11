@@ -7,6 +7,8 @@ import tempfile
 import zipfile
 import pyzipper
 import pandas as pd
+import threading
+import asyncio
 from datetime import date, datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -14,7 +16,6 @@ from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, text
 import pytz
-import asyncio
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
 
@@ -213,10 +214,15 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
     Scans all expected stations, permanently logs defaulters, and dispatches UI and SMTP email alerts.
     """
     try:
+        # 1. Safely fetch exact model names to prevent AttributeErrors and 500 Crashes
+        LockupModel = get_model_safe('Lockup_Matrix', 'LockupMatrix')
+        TrackerModel = get_model_safe('Daily_Compliance_Tracker', 'DailyComplianceTracker')
+        AdminCommsModel = get_model_safe('Admin_Communication', 'AdminCommunication', 'AdminCommunications')
+
         today_str = date.today().isoformat()
         
-        submitted_logs = db.query(models.LockupMatrix.station).filter(
-            models.LockupMatrix.date == today_str
+        submitted_logs = db.query(LockupModel.station).filter(
+            LockupModel.date == today_str
         ).all()
         
         submitted_stations = {log[0].strip().upper() for log in submitted_logs}
@@ -234,13 +240,13 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
             return {"status": "success", "message": "100% System Compliance. No alerts dispatched."}
 
         for defaulter in defaulting_stations:
-            existing_flag = db.query(models.DailyComplianceTracker).filter(
-                models.DailyComplianceTracker.date == today_str,
-                func.upper(models.DailyComplianceTracker.station) == defaulter["station"]
+            existing_flag = db.query(TrackerModel).filter(
+                TrackerModel.date == today_str,
+                func.upper(TrackerModel.station) == defaulter["station"]
             ).first()
             
             if not existing_flag:
-                new_default = models.DailyComplianceTracker(
+                new_default = TrackerModel(
                     date=today_str,
                     region=defaulter["region"],
                     station=defaulter["station"],
@@ -250,7 +256,7 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
                 
                 target_fnum_val = json.dumps([f"STATION:{defaulter['station']}"])
                 
-                alert = models.AdminCommunication(
+                alert = AdminCommsModel(
                     msg_ref=f"WARN-{today_str.replace('-','')}-{defaulter['station'][:3]}",
                     sender_fnum="SYSTEM_AUTO",
                     sender_name="KMP COMPLIANCE ENGINE",
@@ -279,13 +285,26 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
                 ]
 
                 if defaulter_emails:
-                    # 🟢 FIX: Directly queue the async coroutine into FastAPI's native BackgroundTasks
-                    background_tasks.add_task(
-                        send_compliance_email,
-                        defaulter_emails,
-                        f"🚨 OVERDUE CENSUS WARNING: {defaulter['station']}",
-                        alert.message
-                    )
+                    # 🟢 FIX: Use a dedicated daemon thread for robust, crash-proof execution
+                    def run_email_thread(emails, stn, msg):
+                        try:
+                            # Re-import asyncio inside the thread to guarantee a fresh loop
+                            import asyncio
+                            asyncio.run(
+                                send_compliance_email(
+                                    emails,
+                                    f"🚨 OVERDUE CENSUS WARNING: {stn}",
+                                    msg
+                                )
+                            )
+                        except Exception as e:
+                            print(f"❌ Threaded compliance email failed for {stn}: {e}")
+
+                    threading.Thread(
+                        target=run_email_thread, 
+                        args=(defaulter_emails, defaulter['station'], alert.message),
+                        daemon=True
+                    ).start()
 
         db.commit()
 

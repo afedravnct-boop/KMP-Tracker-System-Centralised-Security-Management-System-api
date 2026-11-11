@@ -4,6 +4,7 @@ import asyncio
 import json
 import traceback
 import sys
+import threading
 from datetime import datetime, timedelta
 from typing import Optional, List, Union
 from urllib.parse import unquote
@@ -81,7 +82,16 @@ def is_regional_admin_or_above(user):
     pos = str(user.position or "").strip().upper()
     return role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or "COMMANDER" in pos or "RPC" in pos
 
-# 🟢 BULLETPROOF ASYNC EMAIL DISPATCHER (Safe for BackgroundTasks)
+# 🟢 ISOLATED DAEMON DISPATCHER (100% Crash-Proof against Thread Deadlocks)
+def fire_and_forget_email(coroutine):
+    """Safely executes an async email task in a totally isolated background thread."""
+    def runner():
+        try:
+            asyncio.run(coroutine)
+        except Exception as e:
+            print(f"❌ Background Email Thread Failed: {e}")
+    threading.Thread(target=runner, daemon=True).start()
+
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
         return
@@ -98,6 +108,7 @@ async def send_command_briefing(email_to: List[str], subject: str, html_body: st
     except Exception as e:
         print(f"❌ Failed to dispatch command email via SMTP: {e}")
 
+
 class GlitchTelemetryPayload(BaseModel):
     console_logs: Optional[List[str]] = []
     network_errors: Optional[List[str]] = []
@@ -107,6 +118,7 @@ class GlitchTelemetryPayload(BaseModel):
     glitch_category: Optional[str] = "FRONTEND_UNHANDLED_CRASH_WSOD"
     element_point: Optional[str] = "React Component Tree"
     description: Optional[str] = "Automated telemetry capture"
+
 
 def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, current_user_dict: dict):
     db_gen = get_db()
@@ -210,7 +222,7 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
         
         db.commit()
 
-        # 🟢 Dispatch email asynchronously using asyncio.run
+        # 🟢 Dispatch email securely with Daemon Threading
         high_command_emails = [
             email[0] for email in db.query(models.Users.email).filter(
                 models.Users.is_approved == True,
@@ -231,14 +243,14 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
                 {glitch_summary}
             </div>
             """
-            try:
-                asyncio.run(send_command_briefing(
+            # Launch async email worker in a non-blocking daemon thread
+            fire_and_forget_email(
+                send_command_briefing(
                     high_command_emails,
                     f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
                     email_html
-                ))
-            except Exception as mail_err:
-                print(f"❌ Failed to dispatch automated glitch alert email: {mail_err}")
+                )
+            )
 
         from routers.activity_logger import record_neon_activity
         record_neon_activity(
@@ -294,6 +306,7 @@ def diagnose_client_glitch(
                 "description": f"Automated console probe intercepted exception: {str(e)}"
             }
         }
+
 
 @router.post("/communications")
 @router.post("/Admin_Communication")
@@ -444,13 +457,14 @@ def create_admin_communication(
                 </div>
                 """
                  
-                # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
-                background_tasks.add_task(
-    send_command_briefing, 
-    emails, 
-    comm.subject, 
-    html_body
-)
+                # 🟢 Dispatch email securely with Daemon Threading
+                fire_and_forget_email(
+                    send_command_briefing(
+                        emails, 
+                        comm.subject, 
+                        html_body
+                    )
+                )
 
         assigned_id = getattr(db_comm, 'id', getattr(db_comm, 'sn', 1))
         response_payload = {"status": "success", "id": assigned_id, "msg_ref": generated_msg_ref}
@@ -608,6 +622,7 @@ def get_admin_communications(
         })
 
     return clean_comms
+
 
 @router.post("/communications/{comm_id:path}/acknowledge")
 @router.post("/Admin_Communication/{comm_id:path}/acknowledge")

@@ -704,24 +704,21 @@ def run_automated_compliance_sweep():
     # Create a mock BackgroundTasks instance to satisfy the router function signature
     class DummyBackgroundTasks:
         def add_task(self, func, *args, **kwargs):
+            import threading
             import asyncio
-            try:
-                if asyncio.iscoroutinefunction(func):
-                    try:
-                        loop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        loop = None
-                        
-                    if loop and loop.is_running():
-                        loop.create_task(func(*args, **kwargs))
-                    else:
+            def background_runner():
+                try:
+                    if asyncio.iscoroutinefunction(func):
+                        # Safely spin up a fresh, isolated loop just for this email
                         asyncio.run(func(*args, **kwargs))
-                else:
-                    # If it's a standard synchronous function, run it directly
-                    func(*args, **kwargs)
-            except Exception as e:
-                print(f"Background task execution failed: {e}")
-                
+                    else:
+                        func(*args, **kwargs)
+                except Exception as e:
+                    print(f"❌ Cron Background Task Failed: {e}")
+            
+            # Spawn a temporary invisible thread so APScheduler never freezes
+            threading.Thread(target=background_runner, daemon=True).start()
+            
     dummy_tasks = DummyBackgroundTasks()
     
     try:
