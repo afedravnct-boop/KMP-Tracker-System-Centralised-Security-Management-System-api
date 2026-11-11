@@ -132,7 +132,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
         
     user_role = str(current_user.role).strip().upper() if current_user.role else ""
     user_pos = str(current_user.position).strip().upper() if current_user.position else ""
-    user_reg = str(current_user.region).strip().upper() if current_user.region else ""
+    user_region = str(current_user.region).strip().upper() if current_user.region else ""
     user_stn = str(current_user.station).strip().upper() if current_user.station else ""
 
     perms = current_user.permissions or {}
@@ -152,13 +152,13 @@ def apply_opsec_scope(current_user, query, ModelClass):
 
     is_kmp_sys_mgr = (
         user_role == "SYSTEM_MANAGER" and
-        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
         "KMP" in user_pos
     )
 
     is_kmp_specialist = (
         user_role == "ASSISTANT_SYSTEM_MANAGER" and
-        user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
         "KMP" in user_pos
     )
 
@@ -185,17 +185,17 @@ def apply_opsec_scope(current_user, query, ModelClass):
                     conds.append(func.upper(ModelClass.dir).ilike(f"%{spec}%"))
             return query.filter(or_(*conds))
         elif hasattr(ModelClass, 'region'):
-            return query.filter(func.upper(ModelClass.region) == user_reg)
+            return query.filter(func.upper(ModelClass.region) == user_region)
         return query
         
-    elif is_regional_command or user_reg in REGIONAL_HIERARCHY:
+    elif is_regional_command or user_region in REGIONAL_HIERARCHY:
         conds = []
         if hasattr(ModelClass, 'region'):
-            conds.append(func.upper(ModelClass.region) == user_reg)
+            conds.append(func.upper(ModelClass.region) == user_region)
         
-        if hasattr(ModelClass, 'station') and user_reg in REGIONAL_HIERARCHY:
+        if hasattr(ModelClass, 'station') and user_region in REGIONAL_HIERARCHY:
             expanded_stns = set()
-            for s in REGIONAL_HIERARCHY[user_reg]:
+            for s in REGIONAL_HIERARCHY[user_region]:
                 expanded_stns.add(s)
                 expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
                 expanded_stns.add(s + ' HEADQUARTERS')
@@ -778,7 +778,7 @@ def create_report(
             user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
             "KMP COMMANDER" in user_pos or
             "DEPUTY KMP COMMANDER" in user_pos or
-            user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+            user_region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
             perms.get("view_global_roster") is True or
             perms.get("global_observer") is True
         )
@@ -792,7 +792,7 @@ def create_report(
         target_station = (data.get("station") or "").strip().upper()
         target_region = (data.get("region") or "").strip().upper()
 
-        stations_in_region = [s.upper() for s in REGIONAL_HIERARCHY.get(user_reg, [])]
+        stations_in_region = [s.upper() for s in REGIONAL_HIERARCHY.get(user_region, [])]
         station_belongs_to_regional_commander = is_regional_commander and (
             target_station in stations_in_region or
             any(is_station_equivalent(target_station, s) for s in stations_in_region)
@@ -949,7 +949,7 @@ def update_report(
         
         user_role = str(current_user.role or "").strip().upper()
         user_pos = str(current_user.position or "").strip().upper()
-        user_reg = str(current_user.region or "").strip().upper()
+        user_region = str(current_user.region or "").strip().upper()
 
         perms = current_user.permissions or {}
         if isinstance(perms, str):
@@ -960,7 +960,7 @@ def update_report(
             user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
             "KMP COMMANDER" in user_pos or
             "DEPUTY KMP COMMANDER" in user_pos or
-            user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+            user_region in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
             perms.get("view_global_roster") is True or
             perms.get("global_observer") is True
         )
@@ -972,7 +972,7 @@ def update_report(
         )
 
         target_station = (data.get("station") or "").strip().upper()
-        stations_in_region = [s.upper() for s in REGIONAL_HIERARCHY.get(user_reg, [])]
+        stations_in_region = [s.upper() for s in REGIONAL_HIERARCHY.get(user_region, [])]
         station_belongs_to_regional_commander = is_regional_commander and (
             target_station in stations_in_region or
             any(is_station_equivalent(target_station, s) for s in stations_in_region)
