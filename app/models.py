@@ -40,6 +40,7 @@ class Crime_Reports(Base):
 
     suspect_details = relationship("Suspect_Lockup", back_populates="crime_report", cascade="all, delete-orphan")
 
+    statements = relationship("Case_Statements", back_populates="crime_report", cascade="all, delete-orphan")
 
 class Suspect_Lockup(Base):
     __tablename__ = "suspect_lockup"
@@ -61,6 +62,26 @@ class Suspect_Lockup(Base):
     created_at = Column(DateTime, default=get_eat_time)
 
     crime_report = relationship("Crime_Reports", back_populates="suspect_details")
+
+class Case_Statements(Base):
+    __tablename__ = "case_statements"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_id = Column(Integer, ForeignKey("crime_reports.id", ondelete="CASCADE"), nullable=False)
+    
+    statement_category = Column(String(50), nullable=False) # COMPLAINANT, WITNESS, ACCUSED, REFERENCE_UPGRADE
+    person_name = Column(String(150), nullable=False)
+    date_recorded = Column(String(20))
+    time_recorded = Column(String(20))
+    place_recorded = Column(String(100))
+    sd_ref = Column(String(50))
+    content = Column(Text, nullable=False)
+    recorded_by = Column(String(150))
+    
+    created_at = Column(DateTime, default=get_eat_time)
+
+    crime_report = relationship("Crime_Reports", back_populates="statements")
 
 # ==========================================
 # 2. DISRUPTIVE & AGRICULTURAL STATISTICS
@@ -646,3 +667,6 @@ agricultural_crime_summary = Agricultural_Crime_Summary
 
 ImpoundedExhibits = Impounded_Exhibits
 Exhibits = Impounded_Exhibits
+
+CaseStatements = Case_Statements
+case_statements = Case_Statements

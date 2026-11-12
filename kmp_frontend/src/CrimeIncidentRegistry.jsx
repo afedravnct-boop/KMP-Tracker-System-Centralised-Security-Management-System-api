@@ -1,11 +1,12 @@
 // src/CrimeIncidentRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import {  
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame, Box
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame, Box, FileText, Download, ArrowUpRight
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { authFetch, hasValidSession } from './api';
+import { jsPDF } from 'jspdf'; 
 
 export const stripHtmlTags = (str) => {
   if (str === null || str === undefined) return '';
@@ -102,10 +103,312 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
+// 🟢 EMBEDDED COMPONENT: Statement Recorder
+const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) => {
+    const [category, setCategory] = useState('COMPLAINANT');
+    const [personName, setPersonName] = useState('');
+    const [content, setContent] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    const [meta, setMeta] = useState({
+        date: '',
+        time: '',
+        place: stripHtmlTags(report?.station || currentUser?.station || 'UNKNOWN STATION'),
+        sdRef: stripHtmlTags(report?.sdRef || report?.sd_ref || 'UNKNOWN REF')
+    });
+
+    useEffect(() => {
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, ' ').toUpperCase();
+        const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'C'; 
+        
+        setMeta(prev => ({ ...prev, date: dateStr, time: timeStr }));
+    }, []);
+
+    const dynamicTitle = `STATEMENT OF ${category}`;
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+        setIsSaving(true);
+
+        const payload = {
+            statement_category: category,
+            person_name: personName,
+            date_recorded: meta.date,
+            time_recorded: meta.time,
+            place_recorded: meta.place,
+            sd_ref: meta.sdRef,
+            content: content
+        };
+
+        try {
+            const reportId = report.sn || report.id;
+            const res = await authFetch(`/api/v1/reports/${reportId}/statements`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) throw new Error("Failed to save statement.");
+            alert("Statement securely attached to case file.");
+            if (onStatementSaved) onStatementSaved();
+            onClose();
+        } catch (err) {
+            alert(`Error: ${err.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const generatePDF = () => {
+        const doc = new jsPDF();
+        
+        doc.setFont("helvetica");
+        const leftMargin = 15;
+        const contentLeft = 45; 
+        const rightMargin = 195;
+        let currentY = 20;
+
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text(dynamicTitle, 105, currentY, { align: "center", textTransform: "uppercase" });
+        
+        currentY += 15;
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+
+        doc.text("DATE:", leftMargin, currentY);
+        doc.text(meta.date, leftMargin, currentY + 5);
+
+        doc.text("TIME:", leftMargin, currentY + 15);
+        doc.text(meta.time, leftMargin, currentY + 20);
+
+        doc.text("PLACE:", leftMargin, currentY + 30);
+        doc.text(doc.splitTextToSize(meta.place, 25), leftMargin, currentY + 35);
+
+        doc.text("SD REF:", leftMargin, currentY + 55);
+        doc.text(doc.splitTextToSize(meta.sdRef, 25), leftMargin, currentY + 60);
+
+        const profileHeader = `${personName.toUpperCase()} STATES THAT;`;
+        doc.setFont("helvetica", "bold");
+        doc.text(profileHeader, contentLeft, currentY);
+        
+        currentY += 8;
+        doc.setFont("helvetica", "normal");
+        
+        const maxLineWidth = rightMargin - contentLeft;
+        const textLines = doc.splitTextToSize(content, maxLineWidth);
+        
+        textLines.forEach(line => {
+            if (currentY > 280) {
+                doc.addPage();
+                currentY = 20;
+                doc.setFontSize(8);
+                doc.text(`SD REF: ${meta.sdRef}`, leftMargin, currentY);
+                doc.setFontSize(10);
+            }
+            doc.text(line, contentLeft, currentY);
+            currentY += 6;
+        });
+
+        currentY += 15;
+        if (currentY > 280) { doc.addPage(); currentY = 20; }
+        doc.setFont("helvetica", "bold");
+        doc.text("RECORDED BY:", contentLeft, currentY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${currentUser.fnum} ${currentUser.rank} ${currentUser.name}`, contentLeft + 35, currentY);
+
+        doc.save(`${meta.sdRef.replace(/\//g, '_')}_${category}_${personName.replace(/ /g, '_')}.pdf`);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                
+                <div className="bg-slate-800 px-6 py-4 flex justify-between items-center text-white shrink-0 border-b border-amber-500">
+                    <h3 className="font-black text-sm uppercase tracking-wider flex items-center">
+                        <FileText className="mr-2 w-4 h-4 text-amber-400" /> Official Statement Recording
+                    </h3>
+                    <button onClick={onClose} className="hover:bg-slate-700 p-1.5 rounded transition"><X size={18}/></button>
+                </div>
+
+                <div className="p-6 overflow-y-auto flex-1 bg-slate-50 dark:bg-slate-950">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        
+                        <div className="md:col-span-1 space-y-4 bg-slate-200/50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-300 dark:border-slate-700 h-max">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase">Statement Category</label>
+                                <select value={category} onChange={e => setCategory(e.target.value)} className="w-full mt-1 p-2 text-xs font-bold rounded border outline-none bg-white dark:bg-slate-900 focus:border-amber-500">
+                                    <option value="COMPLAINANT">COMPLAINANT</option>
+                                    <option value="WITNESS">WITNESS</option>
+                                    <option value="ACCUSED">ACCUSED</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase">Date</label>
+                                <div className="font-mono text-sm font-bold">{meta.date}</div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase">Time</label>
+                                <div className="font-mono text-sm font-bold">{meta.time}</div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase">Place (Station)</label>
+                                <div className="text-xs font-bold uppercase">{meta.place}</div>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase">File Ref</label>
+                                <div className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase">{meta.sdRef}</div>
+                            </div>
+                        </div>
+
+                        <div className="md:col-span-3 space-y-4">
+                            <h2 className="text-center font-black text-lg text-slate-800 dark:text-slate-100 uppercase underline underline-offset-4 decoration-2">
+                                {dynamicTitle}
+                            </h2>
+
+                            <div>
+                                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">Name & Identity Details of {category} *</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="E.g. AIP AFEDRA VINCENT, 32 YEARS, POLICE OFFICER..."
+                                    value={personName}
+                                    onChange={e => setPersonName(e.target.value)}
+                                    className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded outline-none uppercase font-bold text-sm bg-white dark:bg-slate-900 focus:border-amber-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">Narrative / Statement Content *</label>
+                                <textarea 
+                                    rows="12"
+                                    placeholder="States that; On Monday 31 Mar 25 at about 1500 Hrs..."
+                                    value={content}
+                                    onChange={e => setContent(e.target.value)}
+                                    className="w-full p-3 border border-slate-300 dark:border-slate-700 rounded outline-none font-medium text-sm leading-relaxed bg-white dark:bg-slate-900 custom-scrollbar focus:border-amber-500"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-slate-100 dark:bg-slate-800 px-6 py-4 flex justify-between items-center shrink-0 border-t border-slate-200 dark:border-slate-700">
+                    <button type="button" onClick={generatePDF} className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-xs font-bold uppercase rounded shadow flex items-center transition cursor-pointer">
+                        <Download className="w-4 h-4 mr-2" /> Download PDF Draft
+                    </button>
+                    
+                    <button type="button" onClick={handleSave} disabled={isSaving || !content.trim() || !personName.trim()} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900/50 text-white text-xs font-black uppercase rounded shadow flex items-center transition cursor-pointer">
+                        <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Saving to Ledger...' : 'Commit Statement to Case File'}
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    );
+};
+
+// 🟢 EMBEDDED COMPONENT: Reference Escalator
+const ReferenceEscalator = ({ report, onClose, onEscalationComplete }) => {
+    const [refType, setRefType] = useState('CRB:');
+    const [refNumber, setRefNumber] = useState('');
+    const [reason, setReason] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    const oldRef = stripHtmlTags(report?.sdRef || report?.sd_ref || 'UNKNOWN');
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+
+        const cleanRefNumber = refNumber.trim().toUpperCase();
+        const finalRef = `${refType} ${cleanRefNumber}`.trim();
+        
+        const caseRegex = /^\d{1,4}\/\d{4}$/;
+        if (!caseRegex.test(cleanRefNumber)) {
+            return alert(`Invalid ${refType} format! Must follow the format 001/2026 (Incident Number / Year).`);
+        }
+
+        setIsSaving(true);
+        const now = new Date();
+
+        const payload = {
+            new_reference: finalRef,
+            reason: reason.trim().toUpperCase(),
+            date_recorded: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, ' ').toUpperCase(),
+            time_recorded: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'C'
+        };
+
+        try {
+            const reportId = report.sn || report.id;
+            const res = await authFetch(`/api/v1/reports/${reportId}/upgrade-reference`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.detail || "Database rejected escalation.");
+            }
+            alert(`✅ Case successfully escalated to ${finalRef}.`);
+            if (onEscalationComplete) onEscalationComplete();
+            onClose();
+        } catch (err) {
+            alert(`Error: ${err.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-xl shadow-2xl overflow-hidden border border-blue-400">
+                <div className="bg-blue-700 text-white px-5 py-3 flex justify-between items-center shrink-0">
+                    <h3 className="font-extrabold flex items-center text-xs tracking-wider uppercase"><ArrowUpRight size={16} className="mr-2"/> Escalate / Transition Case Reference</h3>
+                    <button onClick={onClose} className="hover:bg-blue-800 p-1 rounded transition"><X size={16}/></button>
+                </div>
+                <div className="p-6 bg-slate-50 dark:bg-slate-900 space-y-4">
+                    <div className="bg-slate-200 dark:bg-slate-800 p-3 rounded text-center">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Current Reference</div>
+                        <div className="font-black text-lg text-slate-800 dark:text-slate-200">{oldRef}</div>
+                    </div>
+
+                    <div>
+                        <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">New Upgraded Reference Prefix & Number *</label>
+                        <div className="flex shadow-sm rounded w-full">
+                            <select value={refType} onChange={e => setRefType(e.target.value)} className="bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-200 text-xs rounded-l px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer">
+                                <option value="CRB:">CRB:</option><option value="DEF:">DEF:</option><option value="GEF:">GEF:</option><option value="CID:">CID:</option>
+                            </select>
+                            <input type="text" value={refNumber} onChange={e => setRefNumber(e.target.value)} required className="flex-1 text-xs border-blue-300 dark:border-blue-700 border-y border-r rounded-r p-2 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100" placeholder="e.g. 001/2026" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">Reason for Transition / Escalation *</label>
+                        <textarea 
+                            rows="3"
+                            placeholder="e.g. Investigations revealed malice, upgrading to CRB..."
+                            value={reason}
+                            onChange={e => setReason(e.target.value)}
+                            required
+                            className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded outline-none uppercase font-bold text-xs bg-white dark:bg-slate-950 custom-scrollbar"
+                        />
+                    </div>
+                </div>
+                <div className="bg-slate-100 dark:bg-slate-800 p-3 border-t dark:border-slate-700 flex justify-end space-x-2">
+                    <button onClick={onClose} className="px-3 py-1.5 bg-slate-300 hover:bg-slate-400 text-slate-800 rounded font-bold text-xs cursor-pointer">Cancel</button>
+                    <button onClick={handleSave} disabled={isSaving || !refNumber || !reason} className="px-4 py-1.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-900 text-white rounded font-bold text-xs uppercase shadow cursor-pointer flex items-center">
+                        {isSaving ? <Loader2 size={14} className="mr-2 animate-spin"/> : <Save size={14} className="mr-2"/>} Commit Transition
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) {
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
-   
+    
   const [lockupData, setLockupData] = useState([]);
   const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
   const [showAccidentsOnly, setShowAccidentsOnly] = useState(false);
@@ -124,7 +427,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
 
   const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
   const canViewGlobalActive = canViewGlobalLevel;
-   
+    
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
 
   const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
@@ -150,14 +453,17 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
   const [operation, setOperation] = useState('new');
   const [notification, setNotification] = useState(null);
   const [selectedCase, setSelectedCase] = useState(null);
-   
+  
+  const [showStatementRecorder, setShowStatementRecorder] = useState(false);
+  const [showReferenceEscalator, setShowReferenceEscalator] = useState(false);
+    
   const [showHqGrandModal, setShowHqGrandModal] = useState(false);
   const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
   const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
 
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-   
+    
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const [updateSearch, setUpdateSearch] = useState('');
   
@@ -168,7 +474,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
   const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
   const [editingSuspectId, setEditingSuspectId] = useState(null);
 
-  // 🟢 Exhibit Modal States
   const [showExhibitModal, setShowExhibitModal] = useState(false);
   const [currentExhibitSuspectId, setCurrentExhibitSuspectId] = useState(null);
   const [newExhibit, setNewExhibit] = useState({
@@ -220,7 +525,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], exhibitDetails: [], updateText: ''
   });
 
-  // 🟢 Synchronized Filter Toggles (Automatically updates form category)
   const handleToggleAgric = () => {
     const next = !showAgriculturalOnly;
     setShowAgriculturalOnly(next);
@@ -330,13 +634,19 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         const data = await response.json();
         setServerReports(data);
         if (setReports) setReports(data);
+        
+        // Refresh selected case dynamically to hydrate UI updates
+        if (selectedCase) {
+            const updatedCase = data.find(r => (r.id || r.sn) === (selectedCase.id || selectedCase.sn));
+            if (updatedCase) setSelectedCase(updatedCase);
+        }
       }
     } catch (err) {
       console.error("Failed to execute SQL fetch:", err);
     } finally {
       setIsFetchingReports(false);
     }
-  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, showAccidentsOnly, showFiresOnly, dateFilter, debouncedSearch, setReports, canViewGlobalActive]);
+  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, showAccidentsOnly, showFiresOnly, dateFilter, debouncedSearch, setReports, canViewGlobalActive, selectedCase]);
 
   useEffect(() => {
     fetchFilteredDatabaseReports();
@@ -452,7 +762,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     };
   }, [finalFilteredReports, lockupData, filterRegion, filterStation]);
 
-  // 🟢 Bidirectional Form Input Handler (Updates filters when form category changes)
   const handleInputChange = (e) => {
     const { name, value, type } = e.target;
     const cleanValue = stripHtmlTags(value);
@@ -559,7 +868,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     }
   };
 
-  // 🟢 Exhibit Photo Upload Handler
   const handleExhibitPhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -589,7 +897,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
     }
   };
 
-  // 🟢 Add Exhibit to Local Draft State
   const handleAddExhibit = () => {
     if (!newExhibit.type_make.trim() || !newExhibit.reason.trim()) return alert("Item Description and Reason are required.");
     
@@ -654,7 +961,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
   const handleFormSubmit = async (e) => {
     e.preventDefault();
           
-    // 🟢 Mandatory Category Selection Validation Check
     if (!formData.category || formData.category.trim() === "") {
       return setNotification("⚠️ Error: Operation Category selection is mandatory. Please select a valid category.");
     }
@@ -707,7 +1013,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         suspects: formData.suspectDetails.length, 
         last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`, 
         suspectDetails: formData.suspectDetails,
-        exhibitDetails: formData.exhibitDetails, // 🟢 Passed right through to the backend atomically
+        exhibitDetails: formData.exhibitDetails, 
         daily_lock_up: 0 
       };
               
@@ -845,7 +1151,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         </div>
       )}
 
-      {/* 🟢 FLOATING EXHIBIT MODAL */}
       {showExhibitModal && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-[200] flex justify-center items-center p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-lg border border-amber-500 overflow-hidden">
@@ -1001,7 +1306,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                           </button>
                         </div>
 
-                        {/* 🟢 Attached Exhibits Mini-List inside Suspect Card */}
                         {formData.exhibitDetails && formData.exhibitDetails.filter(e => e.linked_suspect_id === suspect.id).length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1 pt-2 border-t dark:border-slate-800">
                             {formData.exhibitDetails.filter(e => e.linked_suspect_id === suspect.id).map(ex => (
@@ -1038,6 +1342,31 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
             </div>
           </div>
         </div>
+      )}
+
+      {/* 🟢 MODAL: STATEMENT RECORDER */}
+      {showStatementRecorder && selectedCase && (
+         <StatementRecorder 
+             report={selectedCase} 
+             currentUser={currentUser} 
+             onClose={() => setShowStatementRecorder(false)} 
+             onStatementSaved={() => {
+                 fetchFilteredDatabaseReports();
+                 setShowStatementRecorder(false);
+             }}
+         />
+      )}
+
+      {/* 🟢 MODAL: REFERENCE ESCALATOR */}
+      {showReferenceEscalator && selectedCase && (
+         <ReferenceEscalator 
+             report={selectedCase} 
+             onClose={() => setShowReferenceEscalator(false)} 
+             onEscalationComplete={() => {
+                 fetchFilteredDatabaseReports();
+                 setShowReferenceEscalator(false);
+             }}
+         />
       )}
 
       <div className="text-center mb-3 flex flex-col items-center">
@@ -1183,14 +1512,14 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                     {STANDARD_OFFENCES.map(off => (
                       <option key={off} value={off}>{off}</option>
                     ))}
-                     
+                      
                     {formData.offence && formData.offence !== 'Other' && !STANDARD_OFFENCES.some(o => o.toUpperCase() === formData.offence.toUpperCase()) && (
                       <option value={formData.offence}>{formData.offence}</option>
                     )}
-                     
+                      
                     <option value="Other">Other (Specify Below)</option>
                   </select>
-                   
+                    
                   {formData.offence === 'Other' && operation === 'new' && (
                     <input type="text" name="customOffence" required value={stripHtmlTags(formData.customOffence || '')} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-1.5 w-full text-xs border-blue-400 dark:border-slate-700 rounded shadow-sm border p-1.5 focus:ring-blue-500 bg-blue-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 uppercase" />
                   )}
@@ -1278,7 +1607,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                <input type="text" placeholder="Search Reference, narrative, station or offence..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-1.5 border dark:border-slate-700 rounded-lg text-xs shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
              </div>
 
-             {/* 🟢 Synchronized Agri-Crimes Toggle */}
              <button
                type="button"
                onClick={handleToggleAgric}
@@ -1292,7 +1620,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
              </button>
 
-             {/* 🟢 Synchronized Accidents Toggle */}
              <button
                type="button"
                onClick={handleToggleAccidents}
@@ -1306,7 +1633,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                {showAccidentsOnly ? 'Accidents: ON' : 'Filter Accidents'}
              </button>
 
-             {/* 🟢 Synchronized Fires Toggle */}
              <button
                type="button"
                onClick={handleToggleFires}
@@ -1476,6 +1802,29 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                   <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
                   <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
                  </div>
+              
+              {/* 🟢 ACTION BAR: Statement Recorder & Escalation Tool */}
+              <div className="flex justify-end gap-2 mb-[-10px] flex-wrap">
+                  <button 
+                      onClick={() => { populateUpdateCrimeForm(selectedCase); setSelectedCase(null); setOperation('update'); setUpdateSearch(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref || '')); }} 
+                      className="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <Edit size={12} className="mr-1.5" /> Modify Ledger
+                  </button>
+                  <button 
+                      onClick={() => setShowStatementRecorder(true)} 
+                      className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <FileText size={12} className="mr-1.5" /> Record Statement
+                  </button>
+                  <button 
+                      onClick={() => setShowReferenceEscalator(true)} 
+                      className="inline-flex items-center justify-center bg-slate-700 hover:bg-slate-800 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <ArrowUpRight size={12} className="mr-1.5" /> Escalate Reference
+                  </button>
+              </div>
+
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
                 <div className="border-l-4 border-blue-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Database SN (ID)</div><div className="text-xs font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
                 <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Time & Date Logged</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
@@ -1495,6 +1844,50 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                 <div className="text-xs text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere w-full max-w-full p-0 min-h-[100px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
               </div>
               </div>
+
+              {/* 🟢 UI BLOCK: Rendering Chronological Case History (Statements & Escalations) */}
+              {selectedCase.caseHistory && selectedCase.caseHistory.length > 0 && (
+                <div className="bg-amber-50/50 dark:bg-slate-800/50 p-4 border border-amber-200 dark:border-slate-700 shadow-sm rounded-lg mt-4">
+                  <div className="text-[10px] font-extrabold text-amber-800 dark:text-amber-500 uppercase tracking-widest border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">
+                    <FileText size={14} className="mr-1.5"/> Case Diary: Associated Statements & File Activity ({selectedCase.caseHistory.length})
+                  </div>
+                  
+                  <div className="space-y-4">
+                      {selectedCase.caseHistory.map((historyItem, idx) => {
+                          const isUpgrade = historyItem.statement_category === 'REFERENCE_UPGRADE';
+                          return (
+                              <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-lg shadow-sm">
+                                  <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2 mb-3">
+                                      <div>
+                                          <div className={`text-[10px] font-black tracking-widest ${isUpgrade ? 'text-blue-600' : 'text-slate-800 dark:text-slate-200'}`}>
+                                              {isUpgrade ? historyItem.content.split('\n')[0] : `STATEMENT OF ${historyItem.statement_category}: ${historyItem.person_name}`}
+                                          </div>
+                                          <div className="text-[9px] text-slate-500 font-bold mt-1">Logged on: {historyItem.date_recorded} @ {historyItem.time_recorded}</div>
+                                      </div>
+                                      {!isUpgrade && (
+                                          <a 
+                                            href={`${import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com"}/api/v1/reports/statements/${historyItem.id}/export`}
+                                            className="bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded text-[9px] font-bold uppercase transition flex items-center shadow-sm cursor-pointer"
+                                            title="Download Exact Replica PDF"
+                                          >
+                                              <Download size={12} className="mr-1"/> Fetch Sheet
+                                          </a>
+                                      )}
+                                  </div>
+                                  <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
+                                      {isUpgrade ? historyItem.content.replace(historyItem.content.split('\n')[0] + '\n', '') : historyItem.content}
+                                  </div>
+                                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                                      <div className="text-[9px] text-slate-400 font-bold">Ref Locked: {historyItem.sd_ref}</div>
+                                      <div className="text-[9px] text-slate-500 uppercase tracking-widest font-black">Officer: {historyItem.recorded_by}</div>
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+                </div>
+              )}
+
               {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
                 <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
                   <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
@@ -1531,7 +1924,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                             )}
                           </div>
                           
-                          {/* 🟢 Redirect button to Exhibits Registry */}
                           <div className="mt-3 w-full sm:w-auto shrink-0 self-end sm:self-center">
                             <a 
                               href={`/exhibits?incident_ref=${encodeURIComponent(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref))}&suspect_id=${encodeURIComponent(s.id)}`}

@@ -5,17 +5,20 @@ import re
 import html
 import boto3
 import io
+import json
 import requests
 import pyzipper
 from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
 from botocore.exceptions import ClientError
 import openpyxl
+import pytz
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from app import models
@@ -41,6 +44,27 @@ REGIONAL_HIERARCHY = {
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
+# ====================================================================
+# SCHEMAS
+# ====================================================================
+class StatementPayload(BaseModel):
+    statement_category: str
+    person_name: str
+    date_recorded: str
+    time_recorded: str
+    place_recorded: str
+    sd_ref: str
+    content: str
+
+class ReferenceUpgradePayload(BaseModel):
+    new_reference: str
+    reason: str
+    date_recorded: str
+    time_recorded: str
+
+# ====================================================================
+# HELPERS
+# ====================================================================
 def strip_html_tags(text_str: str) -> str:
     if not text_str:
         return ""
@@ -123,6 +147,45 @@ def clean_model_dict(obj):
         clean['date'] = clean.get('created_at') or clean.get('timestamp') or ''
 
     return clean
+
+# 🟢 CENTRALIZED OPSEC MUTATION GUARD (STRICT)
+def verify_record_mutation_clearance(current_user, target_station, target_region) -> bool:
+    user_role = str(current_user.role or "").strip().upper()
+    user_pos = str(current_user.position or "").strip().upper()
+    user_reg = str(current_user.region or "").strip().upper()
+    user_stn = str(current_user.station or "").strip().upper()
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"] or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True
+    )
+    if is_global: 
+        return True
+
+    is_regional_commander = (
+        user_role in ["RPC", "DEPUTY_RPC", "DEPUTY COMMANDER"] or
+        "RPC" in user_pos or
+        "DEPUTY COMMANDER" in user_pos
+    )
+    stations_in_region = [s.upper() for s in REGIONAL_HIERARCHY.get(user_reg, [])]
+    
+    if is_regional_commander and (target_station in stations_in_region or any(is_station_equivalent(target_station, s) for s in stations_in_region)):
+        return True
+
+    if is_station_equivalent(user_stn, target_station):
+        return True
+
+    return False
+
 
 def apply_opsec_scope(current_user, query, ModelClass):
     import json
@@ -219,8 +282,9 @@ def apply_opsec_scope(current_user, query, ModelClass):
         
     return query.filter(text("1=0"))
 
+
 # ====================================================================
-# 1. RETRIEVE CRIME REPORTS (WITH RESTORED AGRI, ACCIDENT & FIRE FILTERING)
+# 1. RETRIEVE CRIME REPORTS (CHRONOLOGICAL HYDRATION ENHANCED)
 # ====================================================================
 @router.get("/reports")
 def get_reports(
@@ -320,6 +384,7 @@ def get_reports(
         reports = query.limit(limit).all()
     
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
+    StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
     
     result = []
     for r in reports:
@@ -330,6 +395,12 @@ def get_reports(
             c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
         else:
             c_dict['suspectDetails'] = getattr(r, 'suspect_details', getattr(r, 'suspectDetails', []))
+
+        # 🟢 NEW: Fetch chronological case history (Statements & Upgrades)
+        c_dict['caseHistory'] = []
+        if StatementModel and hasattr(r, 'id'):
+            history = db.query(StatementModel).filter(StatementModel.report_id == r.id).order_by(StatementModel.created_at.asc()).all()
+            c_dict['caseHistory'] = [clean_model_dict(h) for h in history]
             
         c_dict['sn'] = getattr(r, 'sn', getattr(r, 'id', 1))
         c_dict['sdRef'] = getattr(r, 'sd_ref', getattr(r, 'sdRef', ''))
@@ -827,7 +898,7 @@ def create_report(
                 raise HTTPException(status_code=400, detail=f"Duplicate Rejection: Reference '{data.get('sd_ref')}' already exists for this station.")
 
         suspects_data = data.pop('suspectDetails', []) 
-        exhibits_data = data.pop('exhibitDetails', [])  # 🟢 Pop the exhibits array from payload
+        exhibits_data = data.pop('exhibitDetails', [])
 
         valid_cols = [c.key for c in CrimeModel.__table__.columns]
         safe_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -868,7 +939,6 @@ def create_report(
                 safe_s_payload = {k: v for k, v in s_payload.items() if k in valid_s_cols}
                 db.add(SuspectModel(**safe_s_payload))
             
-        # 🟢 NEW: Backend atomic creation of all attached exhibits
         ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
         if ExhibitModel and hasattr(new_record, 'id'):
             for ex in exhibits_data:
@@ -916,7 +986,7 @@ def create_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
-# 4. UPDATE CRIME REPORT (WITH RESTORED CATEGORY PERSISTENCE)
+# 4. UPDATE CRIME REPORT 
 # ====================================================================
 @router.put("/reports/{sn}")
 def update_report(
@@ -1137,3 +1207,181 @@ def get_consolidated_ledger(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated ledger compilation error: {str(e)}")
+
+
+# ====================================================================
+# 6. ADD STATEMENT TO CASE FILE (NEW)
+# ====================================================================
+@router.post("/reports/{sn}/statements")
+def add_case_statement(
+    sn: int,
+    payload: StatementPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
+    StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
+
+    if not StatementModel or not CrimeModel:
+        raise HTTPException(status_code=500, detail="Database models not configured.")
+
+    report = db.query(CrimeModel).filter(getattr(CrimeModel, 'sn', CrimeModel.id) == sn).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Crime report not found.")
+
+    # 🟢 STRICT OPSEC JURISDICTION CHECK
+    if not verify_record_mutation_clearance(current_user, str(report.station).upper(), str(report.region).upper()):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: You lack clearance to modify records at this station.")
+
+    new_statement = StatementModel(
+        report_id=report.id,
+        statement_category=payload.statement_category.upper(),
+        person_name=payload.person_name.upper(),
+        date_recorded=payload.date_recorded,
+        time_recorded=payload.time_recorded,
+        place_recorded=payload.place_recorded.upper(),
+        sd_ref=payload.sd_ref.upper(),
+        content=payload.content,
+        recorded_by=get_officer_signature(current_user)
+    )
+    
+    db.add(new_statement)
+    db.commit()
+    
+    record_neon_activity(
+        logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
+        target_id=str(sn), changes_summary=f"Appended {payload.statement_category} statement for {payload.person_name} to case file."
+    )
+    return {"status": "success", "message": "Statement securely logged to case file."}
+
+
+# ====================================================================
+# 7. UPGRADE / MODIFY CASE REFERENCE (NEW)
+# ====================================================================
+@router.put("/reports/{sn}/upgrade-reference")
+def upgrade_case_reference(
+    sn: int,
+    payload: ReferenceUpgradePayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
+    StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
+
+    report = db.query(CrimeModel).filter(getattr(CrimeModel, 'sn', CrimeModel.id) == sn).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Crime report not found.")
+
+    if not verify_record_mutation_clearance(current_user, str(report.station).upper(), str(report.region).upper()):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: You lack clearance to modify records at this station.")
+
+    old_ref = getattr(report, 'sd_ref', getattr(report, 'sdRef', 'UNKNOWN'))
+    new_ref = payload.new_reference.strip().upper()
+
+    # Update actual record
+    if hasattr(report, 'sd_ref'): report.sd_ref = new_ref
+    if hasattr(report, 'sdRef'): report.sdRef = new_ref
+    report.last_updated_by = get_officer_signature(current_user)
+
+    # 🟢 Log transition as a chronological statement block for the UI ledger
+    if StatementModel:
+        transition_log = StatementModel(
+            report_id=report.id,
+            statement_category="REFERENCE_UPGRADE",
+            person_name="SYSTEM DIRECTIVE",
+            date_recorded=payload.date_recorded,
+            time_recorded=payload.time_recorded,
+            place_recorded=str(report.station).upper(),
+            sd_ref=new_ref,
+            content=f"CASE ESCALATION / TRANSITION:\nOriginal Reference: {old_ref}\nNew Reference: {new_ref}\nReason: {payload.reason.upper()}",
+            recorded_by=get_officer_signature(current_user)
+        )
+        db.add(transition_log)
+
+    db.commit()
+    
+    record_neon_activity(
+        logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
+        target_id=str(sn), changes_summary=f"Upgraded case reference from {old_ref} to {new_ref}. Reason: {payload.reason}"
+    )
+    return {"status": "success", "message": f"Case escalated to {new_ref}"}
+
+
+# ====================================================================
+# 8. AES-256 SECURE STATEMENT EXPORT (NEW)
+# ====================================================================
+@router.get("/reports/statements/{stmt_id}/export")
+def export_statement_secure(
+    stmt_id: int,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
+    CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
+
+    stmt = db.query(StatementModel).filter(StatementModel.id == stmt_id).first()
+    if not stmt:
+        raise HTTPException(status_code=404, detail="Statement not found.")
+        
+    report = db.query(CrimeModel).filter(CrimeModel.id == stmt.report_id).first()
+    
+    if report and not verify_record_mutation_clearance(current_user, str(report.station).upper(), str(report.region).upper()):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: You lack clearance to export records from this station.")
+
+    officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+    timestamp_str = datetime.now(pytz.timezone('Africa/Nairobi')).strftime("%Y-%m-%d %H:%M:%S EAT")
+
+    # 🟢 Generate Official Formatted Text Document
+    document_content = f"""
+======================================================================
+RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED
+OFFICER: {get_officer_signature(current_user)}
+TIMESTAMP: {timestamp_str}
+======================================================================
+
+                              STATEMENT OF {stmt.statement_category}
+
+DATE:     {stmt.date_recorded}
+TIME:     {stmt.time_recorded}
+PLACE:    {stmt.place_recorded}
+SD REF:   {stmt.sd_ref}
+
+{stmt.person_name} STATES THAT;
+
+{stmt.content}
+
+----------------------------------------------------------------------
+RECORDED BY: {stmt.recorded_by}
+======================================================================
+"""
+
+    import io
+    import pyzipper
+
+    zip_buffer = io.BytesIO()
+    with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        zf.setpassword(officer_fnum.encode('utf-8'))
+        zf.comment = f"Creator: {officer_fnum} | Subject: Statement Export | Timestamp: {timestamp_str}".encode('utf-8')
+        
+        safe_name = stmt.person_name.replace(' ', '_').replace('/', '_')
+        safe_ref = stmt.sd_ref.replace('/', '_')
+        filename = f"STATEMENT_{stmt.statement_category}_{safe_name}_{safe_ref}.txt"
+        
+        zf.writestr(filename, document_content)
+
+    zip_buffer.seek(0)
+    zip_filename = f"SECURE_STATEMENT_{safe_ref}.zip"
+
+    record_neon_activity(
+        logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="CRIME_REGISTRY",
+        target_id=f"STMT_{stmt_id}", changes_summary=f"Exported AES-256 secure statement for {stmt.person_name}."
+    )
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+    )
