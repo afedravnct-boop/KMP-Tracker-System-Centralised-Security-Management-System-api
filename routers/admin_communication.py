@@ -121,21 +121,17 @@ class GlitchTelemetryPayload(BaseModel):
 
 
 def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, current_user_dict: dict):
-    db_gen = get_db()
-    logs_db_gen = get_logs_db()
-    db = next(db_gen)
-    logs_db = next(logs_db_gen)
+    # 1. PROCESS AI NETWORK CALLS FIRST (BEFORE TOUCHING THE DATABASE)
+    captured_logs = payload.console_logs or []
+    if payload.auto_probe and not captured_logs:
+        captured_logs.append(f"Runtime telemetry probe active for user {current_user_dict['fnum']} at state: {payload.current_page}")
 
-    try:
-        captured_logs = payload.console_logs or []
-        if payload.auto_probe and not captured_logs:
-            captured_logs.append(f"Runtime telemetry probe active for user {current_user_dict['fnum']} at state: {payload.current_page}")
-
-        network_logs = payload.network_errors or []
-        
-        ai_diagnosis = "Autonomous diagnosis unavailable (AI bypass or timeout)."
-        api_key = os.getenv("GEMINI_API_KEY")
-        
+    network_logs = payload.network_errors or []
+    
+    ai_diagnosis = "Autonomous diagnosis unavailable (AI bypass or timeout)."
+    api_key = os.getenv("GEMINI_API_KEY")
+    
+    if api_key and (captured_logs or network_logs):
         prompt_text = (
             f"Analyze this UI glitch on page '{payload.current_page}'.\n"
             f"User Identity: {current_user_dict['fnum']} ({current_user_dict['name']})\n"
@@ -148,21 +144,26 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             "3. The User: Who experienced this?\n"
             "4. The Remedy: Actionable fix for the development/admin team."
         )
-        
-        if api_key and (captured_logs or network_logs):
-            try:
-                client = genai.Client(api_key=api_key)
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=prompt_text,
-                    config=types.GenerateContentConfig(
-                        system_instruction="You are a strict QA system debugger for law enforcement software. Return only the requested report concisely."
-                    )
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt_text,
+                config=types.GenerateContentConfig(
+                    system_instruction="You are a strict QA system debugger for law enforcement software. Return only the requested report concisely."
                 )
-                ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
-            except Exception as ai_err:
-                print(f"AI Auto-Diagnosis skipped: {ai_err}")
+            )
+            ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
+        except Exception as ai_err:
+            print(f"AI Auto-Diagnosis skipped: {ai_err}")
 
+    # 2. OPEN DATABASE CONNECTIONS ONLY AFTER AI HAS RESPONDED
+    db_gen = get_db()
+    logs_db_gen = get_logs_db()
+    db = next(db_gen)
+    logs_db = next(logs_db_gen)
+
+    try:
         LogModel = getattr(models, 'AI_Command_Logs', getattr(models, 'AICommandLogs', None))
         if LogModel:
             new_ai_log = LogModel(
@@ -243,7 +244,6 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
                 {glitch_summary}
             </div>
             """
-            # Launch async email worker in a non-blocking daemon thread
             fire_and_forget_email(
                 send_command_briefing(
                     high_command_emails,
