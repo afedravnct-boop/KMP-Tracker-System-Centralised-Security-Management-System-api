@@ -1264,7 +1264,7 @@ const WorkspaceSecurityCurtain = () => {
     );
   }
 
-  const orbitText = "KAMPALA METROPOLITAN POLICE • CENTRALISED SECURITY DATA MANAGEMENT SYSTEM • ".split('');
+  const orbitText = "KAMPALA METROPOLITAN POLICE • INFORMATION SYSTEM • ".split('');
 
   return (
     <div 

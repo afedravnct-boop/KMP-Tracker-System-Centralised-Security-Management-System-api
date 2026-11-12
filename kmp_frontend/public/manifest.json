@@ -1,7 +1,7 @@
 {
   "name": "KMP Centralised Security Data Management System",
   "short_name": "KMP-CSDMS-TRACKER SYSTEM",
-  "description": "Uganda Police Force - Kampala Metropolitan Police Centralised Security Data Management System",
+  "description": "UPF - Kampala Metropolitan Police Centralised Security Data Management System",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",

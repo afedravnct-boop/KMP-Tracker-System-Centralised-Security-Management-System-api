@@ -11,6 +11,12 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 };
 
+// 🟢 THE FIX: Explicitly define specialized units that do not operate holding cells
+const NON_DETENTION_UNITS = [
+  "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE", 
+  "NAGURU", "OPERATIONS", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"
+];
+
 const formatOfficerDisplay = (rawSignature) => {
   if (!rawSignature) return 'SYSTEM RECORD';
   return stripHtmlTags(rawSignature);
@@ -64,8 +70,8 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                           ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean);
 
   const isRegionalCommandTier = ['RPC', 'DEPUTY_RPC', 'RPC KMP', 'DEPUTY COMMANDER', 'REGIONAL_ADMIN'].includes(userRole) || 
-                              userPos.includes('RPC') || 
-                              userPos.includes('DEPUTY COMMANDER');
+                                userPos.includes('RPC') || 
+                                userPos.includes('DEPUTY COMMANDER');
 
   const canLogGlobally = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRole) || (isAbsoluteGlobal && userRegClean !== 'POLICE HEADQUARTERS');
   
@@ -103,6 +109,13 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     zero_anomaly_reason: '' 
   });
 
+  // 🟢 Identify if the currently viewed/selected station is exempt from lockup forms
+  const activeHeaderStation = ledgerFilterStation === 'ALL STATIONS' ? userStnClean : ledgerFilterStation;
+  const isNonDetentionHeader = NON_DETENTION_UNITS.includes(activeHeaderStation);
+
+  const activeFormStation = (canLogGlobally || isRegionalCommandTier) ? formInput.station : userStnClean;
+  const isNonDetentionForm = NON_DETENTION_UNITS.includes(activeFormStation);
+
   const [registerOperation, setRegisterOperation] = useState('new');
   const [suspectFormInput, setSuspectFormInput] = useState({
     id: null,
@@ -113,7 +126,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     region: stripHtmlTags(currentUser?.region || '')
   });
 
-  // 🟢 Exclusively map Master to KMP HEADQUARTERS
   const getDropdownStations = (region) => {
     return REGIONAL_HIERARCHY[region] || [];
   };
@@ -178,7 +190,7 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     return lockupEntries.find(r => 
         r.date === formInput.date && 
         stripHtmlTags(r.station || '').toUpperCase() === formInput.station.toUpperCase() &&
-        formInput.station.toUpperCase() !== 'KMP HEADQUARTERS' // Allow updates to master
+        formInput.station.toUpperCase() !== 'KMP HEADQUARTERS' 
     );
   }, [lockupEntries, formInput.date, formInput.station]);
 
@@ -203,7 +215,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
         }
     }
 
-    // 🟢 STRICT MATH BYPASS: Only applies directly to "KMP HEADQUARTERS" Master Target
     const isMasterHQTarget = submissionStation === 'KMP HEADQUARTERS';
     const bypassMath = canManageMasterLockup && isMasterHQTarget;
 
@@ -381,7 +392,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
     }
   };
 
-  // 🟢 NEW: Trigger Database Sweep API Call from UI
   const handleTriggerComplianceSweep = async () => {
     if (!window.confirm("EXECUTE COMMAND SWEEP?\n\nThis will permanently log defaulters in the database and dispatch official command warning alerts. Proceed?")) return;
     
@@ -405,7 +415,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
     let filtered = Array.isArray(lockupEntries) ? [...lockupEntries] : [];
     
-    // 🟢 Exclude KMP HEADQUARTERS Master logs from standard computations
     filtered = filtered.filter(row => stripHtmlTags(row.station || '').trim().toUpperCase() !== 'KMP HEADQUARTERS');
     
     filtered = filtered.filter(row => {
@@ -476,19 +485,16 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
 
   const [expandedDefaulter, setExpandedDefaulter] = useState(null);
 
-  // 🟢 Enhanced Compliance Engine (Calculates Last 7 Days History)
   const complianceData = useMemo(() => {
     if (ledgerViewType !== 'COMPLIANCE') return { logged: [], defaulted: [] };
     const todayStr = getTodayString();
     
-    // Generate dates for the last 7 days
     const last7Days = Array.from({length: 7}, (_, i) => {
         const d = new Date();
         d.setDate(d.getDate() - i);
         return d.toISOString().split('T')[0];
     });
     
-    // Map existing records to a Set for O(1) lookups
     const loggedStationsSet = new Set(
         lockupEntries.map(r => r.date + "|" + getOfficialRegionForStation(r.station, r.region) + "|" + stripHtmlTags(r.station || '').toUpperCase())
     );
@@ -502,7 +508,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
         stations.forEach(stn => {
             const keyToday = todayStr + "|" + reg + "|" + stn;
             
-            // Calculate how many times they failed to log in the last 7 days
             const missingDates = last7Days.filter(date => {
                 return !loggedStationsSet.has(date + "|" + reg + "|" + stn);
             });
@@ -546,9 +551,16 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
             </h3>
             
             <div className="flex flex-wrap gap-2 items-center">
+              {/* 🟢 THE FIX: Conditionally mark exempt sub-units as 'EXEMPT' instead of 'NOT LOGGED' */}
               <span className="text-[10px] text-white/90 font-bold bg-black/20 px-2 py-1 rounded border border-white/10 flex items-center">
                 <span className="opacity-70 mr-1.5">{ledgerFilterStation === 'ALL STATIONS' ? 'Selected Station:' : `${ledgerFilterStation}:`}</span>
-                <span className={stationSummary.todaysTotal !== null ? "text-emerald-400 font-black" : "text-red-400 font-black"}>{stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'NOT LOGGED'}</span>
+                {isNonDetentionHeader ? (
+                   <span className="text-slate-300 font-black">EXEMPT (NON-DETENTION)</span>
+                ) : (
+                   <span className={stationSummary.todaysTotal !== null ? "text-emerald-400 font-black" : "text-red-400 font-black"}>
+                     {stationSummary.todaysTotal !== null ? stationSummary.todaysTotal : 'NOT LOGGED'}
+                   </span>
+                )}
               </span>
               
               <span className="text-[10px] text-white/80 font-bold bg-black/20 px-2 py-1 rounded border border-white/10 hidden md:flex items-center">
@@ -597,7 +609,6 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
               </button>
             </div>
             
-            {/* 🟢 EXPAND / COLLAPSE BUTTON */}
             <button onClick={() => setIsExpanded(!isExpanded)} className="text-white/80 hover:text-white p-1.5 rounded transition-colors cursor-pointer bg-black/20 hover:bg-black/40 ml-1" title={isExpanded ? "Collapse view" : "Expand to full screen"}>
               {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
@@ -668,6 +679,14 @@ const LockupMatrixLedger = ({ lockupEntries, allTimeLockupTotal, onClose, select
                       <h4 className="text-sm font-black uppercase mb-1">Census Already Logged</h4>
                       <p className="font-semibold text-xs opacity-90">The daily census for <strong>{formInput.station}</strong> on <strong>{formInput.date}</strong> has already been submitted.</p>
                       <p className="mt-4 text-xs font-bold bg-white/50 dark:bg-black/20 p-2 rounded-lg inline-block">To make corrections, please navigate to the Matrix Ledger and click the blue Edit button.</p>
+                  </div>
+              ) : isNonDetentionForm ? (
+                  // 🟢 THE FIX: Completely hide the form and display an exempt warning for specialized units
+                  <div className="bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-300 p-6 rounded-xl text-center shadow-inner my-6 animate-in fade-in duration-300">
+                      <Shield className="w-10 h-10 mx-auto text-slate-500 mb-3" />
+                      <h4 className="text-sm font-black uppercase mb-1">Non-Detention Unit</h4>
+                      <p className="font-semibold text-xs opacity-90"><strong>{formInput.station}</strong> does not operate an active cell facility. Suspects are handed over to designated lockups.</p>
+                      <p className="mt-4 text-xs font-bold bg-white/50 dark:bg-black/20 p-2 rounded-lg inline-block">No Daily Census is required from this jurisdiction.</p>
                   </div>
               ) : (
                   <>
