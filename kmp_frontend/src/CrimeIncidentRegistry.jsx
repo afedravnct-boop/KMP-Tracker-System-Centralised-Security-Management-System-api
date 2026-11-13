@@ -17,7 +17,7 @@ const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
   "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "TRAFFIC", "LOGISTICS", "FLYING SQUAD", "CRIME INTELLIGENCE", "PRO"],
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "TRAFFIC", "LOGISTICS", "FLYING SQUAD", "CRIME INTELLIGENCE", "PRO", "KMP CID"],
   "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
@@ -405,6 +405,7 @@ const ReferenceEscalator = ({ report, onClose, onEscalationComplete }) => {
     );
 };
 
+
 export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) {
   const [serverReports, setServerReports] = useState([]);
   const [isFetchingReports, setIsFetchingReports] = useState(false);
@@ -635,7 +636,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         setServerReports(data);
         if (setReports) setReports(data);
         
-        // Refresh selected case dynamically to hydrate UI updates
         if (selectedCase) {
             const updatedCase = data.find(r => (r.id || r.sn) === (selectedCase.id || selectedCase.sn));
             if (updatedCase) setSelectedCase(updatedCase);
@@ -1129,6 +1129,10 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
   return (
     <div className="p-4 max-w-[1600px] mx-auto space-y-4 relative z-10 font-sans">
         
+      {/* ========================================== */}
+      {/* 🟢 MODAL REGISTRY */}
+      {/* ========================================== */}
+
       {showHqGrandModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
@@ -1344,6 +1348,183 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         </div>
       )}
 
+      {showLockupMatrixModal && (
+        <Suspense fallback={null}>
+          <LockupMatrixLedger 
+            lockupEntries={lockupData} 
+            allTimeLockupTotal={null} 
+            onClose={() => setShowLockupMatrixModal(false)} 
+            selectedRegion={filterRegion}
+            selectedStation={filterStation}
+          />
+        </Suspense>
+      )}
+
+      {/* 🟢 MODAL: OFFICIAL CRIME DOSSIER */}
+      {selectedCase && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700">
+            <div className="bg-slate-900 dark:bg-slate-950 text-white px-5 py-3 flex justify-between items-center shrink-0 shadow-md z-10">
+              <h3 className="font-bold flex items-center text-xs uppercase tracking-wider"><Shield className="text-blue-400 mr-2" size={16} /> OFFICIAL CRIME DOSSIER — REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</h3>
+              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1 rounded transition-colors cursor-pointer"><X size={18} /></button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900 text-xs" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+              <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 dark:border-slate-700 pb-4">
+                  <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
+                  <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
+                 </div>
+              
+              {/* 🟢 ACTION BAR: Statement Recorder & Escalation Tool */}
+              <div className="flex justify-end gap-2 mb-[-10px] flex-wrap">
+                  <button 
+                      onClick={() => { populateUpdateCrimeForm(selectedCase); setSelectedCase(null); setOperation('update'); setUpdateSearch(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref || '')); }} 
+                      className="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <Edit size={12} className="mr-1.5" /> Modify Ledger
+                  </button>
+                  <button 
+                      onClick={() => setShowStatementRecorder(true)} 
+                      className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <FileText size={12} className="mr-1.5" /> Record Statement
+                  </button>
+                  <button 
+                      onClick={() => setShowReferenceEscalator(true)} 
+                      className="inline-flex items-center justify-center bg-slate-700 hover:bg-slate-800 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <ArrowUpRight size={12} className="mr-1.5" /> Escalate Reference
+                  </button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
+                <div className="border-l-4 border-blue-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Database SN (ID)</div><div className="text-xs font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Time & Date Logged</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Command Jurisdiction</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.station)}</div><div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{getOfficialRegionForStation(selectedCase.station, selectedCase.region)}</div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Investigation Status</div><div className="text-xs font-extrabold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(selectedCase.status)}</div></div>
+              </div>
+              
+              <div className="bg-white dark:bg-slate-800 p-5 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
+                <div className="mb-4">
+                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Primary Offence Matrix</div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="text-sm font-black text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(selectedCase.offence || 'UNSPECIFIED OFFENCE')}</div>
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 shadow-sm">REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Official Incident Narrative</div>
+                  <div className="text-xs text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere w-full max-w-full p-0 min-h-[100px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+                </div>
+              </div>
+
+              {/* 🟢 UI BLOCK: Rendering Chronological Case History (Statements & Escalations) */}
+              {selectedCase.caseHistory && selectedCase.caseHistory.length > 0 && (
+                <div className="bg-amber-50/50 dark:bg-slate-800/50 p-4 border border-amber-200 dark:border-slate-700 shadow-sm rounded-lg mt-4">
+                  <div className="text-[10px] font-extrabold text-amber-800 dark:text-amber-500 uppercase tracking-widest border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">
+                    <FileText size={14} className="mr-1.5"/> Case Diary: Associated Statements & File Activity ({selectedCase.caseHistory.length})
+                  </div>
+                  
+                  <div className="space-y-4">
+                      {selectedCase.caseHistory.map((historyItem, idx) => {
+                          const isUpgrade = historyItem.statement_category === 'REFERENCE_UPGRADE';
+                          return (
+                              <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-lg shadow-sm">
+                                  <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2 mb-3">
+                                      <div>
+                                          <div className={`text-[10px] font-black tracking-widest ${isUpgrade ? 'text-blue-600' : 'text-slate-800 dark:text-slate-200'}`}>
+                                              {isUpgrade ? historyItem.content.split('\n')[0] : `STATEMENT OF ${historyItem.statement_category}: ${historyItem.person_name}`}
+                                          </div>
+                                          <div className="text-[9px] text-slate-500 font-bold mt-1">Logged on: {historyItem.date_recorded} @ {historyItem.time_recorded}</div>
+                                      </div>
+                                      {!isUpgrade && (
+                                          <a 
+                                            href={`${import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com"}/api/v1/reports/statements/${historyItem.id}/export`}
+                                            className="bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded text-[9px] font-bold uppercase transition flex items-center shadow-sm cursor-pointer"
+                                            title="Download Exact Replica PDF"
+                                          >
+                                              <Download size={12} className="mr-1"/> Fetch Sheet
+                                          </a>
+                                      )}
+                                  </div>
+                                  <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
+                                      {isUpgrade ? historyItem.content.replace(historyItem.content.split('\n')[0] + '\n', '') : historyItem.content}
+                                  </div>
+                                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                                      <div className="text-[9px] text-slate-400 font-bold">Ref Locked: {historyItem.sd_ref}</div>
+                                      <div className="text-[9px] text-slate-500 uppercase tracking-widest font-black">Officer: {historyItem.recorded_by}</div>
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
+                <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
+                  <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
+                    <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
+                  </div>
+                    
+                  <div className="flex flex-col gap-4 w-full">
+                    {selectedCase.suspectDetails.map((s, idx) => {
+                      const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
+
+                      return (
+                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
+                            
+                          <div className="shrink-0">
+                            {isValidPhoto ? ( 
+                              <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
+                            ) : ( 
+                              <div className="w-28 h-28 rounded-lg bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-300 dark:border-red-800 text-center p-2 uppercase leading-tight shadow-inner">
+                                <Camera size={24} className="mb-2 opacity-60"/>
+                                No Photo
+                              </div> 
+                            )}
+                          </div>
+                            
+                          <div className="flex-1 min-w-0 py-1">
+                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
+                            <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
+                            <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
+                                
+                            {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( 
+                              <div className="inline-flex mt-1 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-black px-2.5 py-1 rounded shadow-sm uppercase tracking-wider w-max">
+                                Status: {stripHtmlTags(s.mental_health_status)}
+                              </div> 
+                            )}
+                          </div>
+                          
+                          <div className="mt-3 w-full sm:w-auto shrink-0 self-end sm:self-center">
+                            <a 
+                              href={`/exhibits?incident_ref=${encodeURIComponent(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref))}&suspect_id=${encodeURIComponent(s.id)}`}
+                              className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg shadow border border-amber-500 text-[10px] uppercase transition cursor-pointer w-full"
+                            >
+                              <Camera size={14} className="mr-1.5" />
+                              Log Exhibit
+                            </a>
+                            </div>
+
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+              <div className="text-center pt-4 opacity-40"><p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">End of Official Record Extract</p><p className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
+            </div>
+            
+            <div className="bg-slate-100 dark:bg-slate-950 p-3 border-t border-slate-300 dark:border-slate-800 flex justify-end shrink-0 shadow-inner z-10">
+              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg text-xs transition-all shadow border border-slate-950 flex items-center cursor-pointer"><X size={14} className="mr-1.5"/> Close Dossier</button>
+            </div>
+            
+          </div>
+        </div>
+      )}
+
       {/* 🟢 MODAL: STATEMENT RECORDER */}
       {showStatementRecorder && selectedCase && (
          <StatementRecorder 
@@ -1369,6 +1550,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
          />
       )}
 
+      {/* --- MAIN UI SECTION --- */}
       <div className="text-center mb-3 flex flex-col items-center">
         <img src="/upf_badge.png" alt="UPF Logo" className="w-10 h-10 mb-1 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
         <h1 className="text-xl text-red-500 mt-0.5 font-bold">Crime/Incident Registry</h1>
@@ -1777,177 +1959,6 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         </div>
       </div>
 
-      {showLockupMatrixModal && (
-        <Suspense fallback={null}>
-          <LockupMatrixLedger 
-            lockupEntries={lockupData} 
-            allTimeLockupTotal={null} 
-            onClose={() => setShowLockupMatrixModal(false)} 
-            selectedRegion={filterRegion}
-            selectedStation={filterStation}
-          />
-        </Suspense>
-      )}
-
-      {selectedCase && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
-          <div className="bg-white dark:bg-slate-900 shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700">
-            <div className="bg-slate-900 dark:bg-slate-950 text-white px-5 py-3 flex justify-between items-center shrink-0 shadow-md z-10">
-              <h3 className="font-bold flex items-center text-xs uppercase tracking-wider"><Shield className="text-blue-400 mr-2" size={16} /> OFFICIAL CRIME DOSSIER — REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</h3>
-              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1 rounded transition-colors cursor-pointer"><X size={18} /></button>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900 text-xs" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-              <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 dark:border-slate-700 pb-4">
-                  <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
-                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
-                  <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
-                 </div>
-              
-              {/* 🟢 ACTION BAR: Statement Recorder & Escalation Tool */}
-              <div className="flex justify-end gap-2 mb-[-10px] flex-wrap">
-                  <button 
-                      onClick={() => { populateUpdateCrimeForm(selectedCase); setSelectedCase(null); setOperation('update'); setUpdateSearch(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref || '')); }} 
-                      className="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
-                  >
-                      <Edit size={12} className="mr-1.5" /> Modify Ledger
-                  </button>
-                  <button 
-                      onClick={() => setShowStatementRecorder(true)} 
-                      className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
-                  >
-                      <FileText size={12} className="mr-1.5" /> Record Statement
-                  </button>
-                  <button 
-                      onClick={() => setShowReferenceEscalator(true)} 
-                      className="inline-flex items-center justify-center bg-slate-700 hover:bg-slate-800 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
-                  >
-                      <ArrowUpRight size={12} className="mr-1.5" /> Escalate Reference
-                  </button>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
-                <div className="border-l-4 border-blue-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Database SN (ID)</div><div className="text-xs font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
-                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Time & Date Logged</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
-                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Command Jurisdiction</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.station)}</div><div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{getOfficialRegionForStation(selectedCase.station, selectedCase.region)}</div></div>
-                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Investigation Status</div><div className="text-xs font-extrabold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(selectedCase.status)}</div></div>
-              </div>
-              <div className="bg-white dark:bg-slate-800 p-5 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
-                <div className="mb-4">
-                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Primary Offence Matrix</div>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="text-sm font-black text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(selectedCase.offence || 'UNSPECIFIED OFFENCE')}</div>
-                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 shadow-sm">REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</div>
-                  </div>
-                </div>
-                <div>
-                <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Official Incident Narrative</div>
-                <div className="text-xs text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere w-full max-w-full p-0 min-h-[100px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
-              </div>
-              </div>
-
-              {/* 🟢 UI BLOCK: Rendering Chronological Case History (Statements & Escalations) */}
-              {selectedCase.caseHistory && selectedCase.caseHistory.length > 0 && (
-                <div className="bg-amber-50/50 dark:bg-slate-800/50 p-4 border border-amber-200 dark:border-slate-700 shadow-sm rounded-lg mt-4">
-                  <div className="text-[10px] font-extrabold text-amber-800 dark:text-amber-500 uppercase tracking-widest border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">
-                    <FileText size={14} className="mr-1.5"/> Case Diary: Associated Statements & File Activity ({selectedCase.caseHistory.length})
-                  </div>
-                  
-                  <div className="space-y-4">
-                      {selectedCase.caseHistory.map((historyItem, idx) => {
-                          const isUpgrade = historyItem.statement_category === 'REFERENCE_UPGRADE';
-                          return (
-                              <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-lg shadow-sm">
-                                  <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2 mb-3">
-                                      <div>
-                                          <div className={`text-[10px] font-black tracking-widest ${isUpgrade ? 'text-blue-600' : 'text-slate-800 dark:text-slate-200'}`}>
-                                              {isUpgrade ? historyItem.content.split('\n')[0] : `STATEMENT OF ${historyItem.statement_category}: ${historyItem.person_name}`}
-                                          </div>
-                                          <div className="text-[9px] text-slate-500 font-bold mt-1">Logged on: {historyItem.date_recorded} @ {historyItem.time_recorded}</div>
-                                      </div>
-                                      {!isUpgrade && (
-                                          <a 
-                                            href={`${import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com"}/api/v1/reports/statements/${historyItem.id}/export`}
-                                            className="bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded text-[9px] font-bold uppercase transition flex items-center shadow-sm cursor-pointer"
-                                            title="Download Exact Replica PDF"
-                                          >
-                                              <Download size={12} className="mr-1"/> Fetch Sheet
-                                          </a>
-                                      )}
-                                  </div>
-                                  <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
-                                      {isUpgrade ? historyItem.content.replace(historyItem.content.split('\n')[0] + '\n', '') : historyItem.content}
-                                  </div>
-                                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                                      <div className="text-[9px] text-slate-400 font-bold">Ref Locked: {historyItem.sd_ref}</div>
-                                      <div className="text-[9px] text-slate-500 uppercase tracking-widest font-black">Officer: {historyItem.recorded_by}</div>
-                                  </div>
-                              </div>
-                          );
-                      })}
-                  </div>
-                </div>
-              )}
-
-              {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
-                <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
-                  <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
-                    <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
-                  </div>
-                    
-                  <div className="flex flex-col gap-4 w-full">
-                    {selectedCase.suspectDetails.map((s, idx) => {
-                      const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
-
-                      return (
-                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
-                            
-                          <div className="shrink-0">
-                            {isValidPhoto ? ( 
-                              <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
-                            ) : ( 
-                              <div className="w-28 h-28 rounded-lg bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-300 dark:border-red-800 text-center p-2 uppercase leading-tight shadow-inner">
-                                <Camera size={24} className="mb-2 opacity-60"/>
-                                No Photo
-                              </div> 
-                            )}
-                          </div>
-                            
-                          <div className="flex-1 min-w-0 py-1">
-                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
-                            <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
-                            <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
-                                
-                            {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( 
-                              <div className="inline-flex mt-1 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-black px-2.5 py-1 rounded shadow-sm uppercase tracking-wider w-max">
-                                Status: {stripHtmlTags(s.mental_health_status)}
-                              </div> 
-                            )}
-                          </div>
-                          
-                          <div className="mt-3 w-full sm:w-auto shrink-0 self-end sm:self-center">
-                            <a 
-                              href={`/exhibits?incident_ref=${encodeURIComponent(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref))}&suspect_id=${encodeURIComponent(s.id)}`}
-                              className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg shadow border border-amber-500 text-[10px] uppercase transition cursor-pointer w-full"
-                            >
-                              <Camera size={14} className="mr-1.5" />
-                              Log Exhibit
-                            </a>
-                            </div>
-
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-              <div className="text-center pt-4 opacity-40"><p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">End of Official Record Extract</p><p className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
-            </div>
-            <div className="bg-slate-100 dark:bg-slate-950 p-3 border-t border-slate-300 dark:border-slate-800 flex justify-end shrink-0 shadow-inner z-10">
-              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg text-xs transition-all shadow border border-slate-950 flex items-center cursor-pointer"><X size={14} className="mr-1.5"/> Close Dossier</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>  
   );
 }

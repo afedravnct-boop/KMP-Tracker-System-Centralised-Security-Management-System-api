@@ -461,9 +461,12 @@ def auto_infer_geography(station_name: str, current_region: Optional[str] = None
 
     return region_norm, district_norm
 
-def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
+# 🟢 THE FIX: Unified OPSEC Clearance Scope & Frontend Filter Engine
+def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, target_region: str = None, target_station: str = None):
     query = db.query(Model)
-    user_role = (current_user.role or "").upper()
+    
+    user_role = str(current_user.role or "").strip().upper()
+    user_pos = str(current_user.position or "").strip().upper()
     user_region = normalize_region_name(current_user.region)
     user_station = normalize_station_name(current_user.station)
     
@@ -471,42 +474,122 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model):
     if isinstance(perms, str):
         try: perms = json.loads(perms)
         except Exception: perms = {}
-    
+        
+    # ==========================================
+    # 1. ESTABLISH COMMAND CLEARANCE LEVELS
+    # ==========================================
     is_absolute_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
         perms.get("view_global_roster") is True or
         perms.get("global_observer") is True
     )
 
-    is_regional_command = user_role in ["RPC", "DEPUTY_RPC", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"]
+    is_kmp_sys_mgr = (
+        user_role == "SYSTEM_MANAGER" and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
 
-    if is_absolute_global:
-        return query
-    elif is_regional_command:
-        # 🟢 Gather all stations under the regional hierarchy including regional headquarters
-        allowed_stations = REGIONAL_HIERARCHY.get(user_region, [])
-        return query.filter(
-            or_(
-                func.upper(Model.region) == user_region,
-                func.upper(Model.station).in_([s.upper() for s in allowed_stations]),
-                func.upper(Model.station).ilike(f"%{user_region}%")
-            )
-        )
-    elif user_station:
-        station_pattern = f"%{user_station}%"
-        return query.filter(
+    is_kmp_specialist = (
+        user_role == "ASSISTANT_SYSTEM_MANAGER" and
+        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
+        "KMP" in user_pos
+    )
+
+    is_regional_command = (
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
+        not is_kmp_sys_mgr and
+        not is_kmp_specialist
+    )
+
+    # ==========================================
+    # 2. APPLY BASE JURISDICTIONAL LIMITATIONS
+    # ==========================================
+    if is_absolute_global or is_kmp_sys_mgr:
+        pass # Unrestricted base access
+        
+    elif is_kmp_specialist:
+        # Specialists are locked to their operational domains
+        specs = []
+        if "CID" in user_pos: specs.append("CID")
+        if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
+        if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
+        
+        if specs and hasattr(Model, 'section'):
+            conds = []
+            for spec in specs:
+                conds.append(func.upper(Model.section).ilike(f"%{spec}%"))
+                if hasattr(Model, 'dir'):
+                    conds.append(func.upper(Model.dir).ilike(f"%{spec}%"))
+            query = query.filter(or_(*conds))
+        elif hasattr(Model, 'region'):
+            query = query.filter(func.upper(Model.region) == user_region)
+            
+    elif is_regional_command or user_region in REGIONAL_HIERARCHY:
+        # Regional Commanders see all stations mapped under their umbrella
+        conds = []
+        if hasattr(Model, 'region'):
+            conds.append(func.upper(Model.region) == user_region)
+        
+        if hasattr(Model, 'station') and user_region in REGIONAL_HIERARCHY:
+            expanded_stns = set()
+            for s in REGIONAL_HIERARCHY[user_region]:
+                expanded_stns.add(s)
+                expanded_stns.add(s.replace(' HEADQUARTERS', '').replace(' HQ', ''))
+                expanded_stns.add(s + ' HEADQUARTERS')
+                expanded_stns.add(s + ' HQ')
+            conds.append(func.upper(Model.station).in_(list(expanded_stns)))
+            
+        if conds:
+            query = query.filter(or_(*conds))
+        else:
+            query = query.filter(text("1=0"))
+            
+    elif hasattr(Model, 'station'):
+        # Standard local officer is permanently locked to their station.
+        clean_user_stn = user_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        query = query.filter(
             or_(
                 func.upper(Model.station) == user_station,
-                func.upper(Model.station).ilike(station_pattern)
+                func.upper(Model.station) == clean_user_stn,
+                func.upper(Model.station) == f"{clean_user_stn} HEADQUARTERS"
             )
         )
-    return query.filter(Model.id == -1)
+        return query # Terminate early: Standard users cannot apply cross-station filters
+        
+    else:
+        query = query.filter(text("1=0"))
+
+    # ==========================================
+    # 3. APPLY EXPLICIT FRONTEND UI FILTERS
+    # ==========================================
+    if target_region and target_region.upper() not in ["ALL REGIONS", "ALL"]:
+        if hasattr(Model, 'region'):
+            query = query.filter(func.upper(Model.region) == target_region.upper())
+        
+    if target_station and target_station.upper() not in ["ALL STATIONS", "ALL"]:
+        if hasattr(Model, 'station'):
+            clean_target = target_station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
+            query = query.filter(
+                or_(
+                    func.upper(Model.station) == target_station.upper(),
+                    func.upper(Model.station) == clean_target,
+                    func.upper(Model.station).ilike(f"%{clean_target}%")
+                )
+            )
+
+    return query
 
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(
     search: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None),
     category_filter: Optional[str] = Query(default=None),
+    region: Optional[str] = Query(default=None),  # 🟢 Ensure these are defined
+    station: Optional[str] = Query(default=None), # 🟢 Ensure these are defined
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -514,8 +597,15 @@ def get_Nominal_Rolls(
     ActiveModel = get_active_model()
     ArchiveModel = get_archive_model()
     
-    active_query = get_scoped_nominal_query(db, current_user, ActiveModel)
-    archive_query = get_scoped_nominal_query(db, current_user, ArchiveModel)
+    # 🟢 THE FIX: Pass the region and station explicitly to the query builder
+    active_query = get_scoped_nominal_query(
+        db, current_user, ActiveModel, 
+        target_region=region, target_station=station
+    )
+    archive_query = get_scoped_nominal_query(
+        db, current_user, ArchiveModel, 
+        target_region=region, target_station=station
+    )
     
     if search:
         term = f"%{search.strip().upper()}%"
