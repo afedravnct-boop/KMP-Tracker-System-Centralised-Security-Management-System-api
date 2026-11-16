@@ -21,35 +21,37 @@ const REGIONAL_HIERARCHY = {
   "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 };
 
-// 🟢 Base Name Extractor (Strips suffixes including P/POST and P POST)
+// 🟢 Base Name Extractor (Strips suffixes but protects specific KMP complexities)
 const getBaseName = (str) => {
     if (!str) return '';
     let val = cleanStr(str);
+    
+    // 1. Explicit Overrides (Protects these exact names from being chopped)
     if (["OLD KLA", "OK", "OLD K", "O/K", "OLD KAMPALA DIVISION"].includes(val)) return "OLD KAMPALA";
-    return val.replace(/\s+(P\.?S\.?|P\/S|PS|P\s*STN|P\/STN|POL\s*STN|POLICE\s*STATION|DIVISION|P\.?P\.?|P\/P|P\/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$/, '').trim();
+    if (["KIRA DIVISION", "KIRA DIV", "KIRA DIVISIONAL HQ"].includes(val)) return "KIRA DIV";
+    if (["KIRA ROAD", "KIRA RD"].includes(val)) return "KIRA ROAD";
+    if (val === "KIRA") return "KIRA";
+
+    // 2. Standard suffix stripping for everything else
+    return val.replace(/\s+(P\.?S\.?|P\/S|PS|P\s*STN|P\/STN|POL\s*STN|POLICE\s*STATION|DIVISION|DIV|P\.?P\.?|P\/P|P\/POST|P\s*POST|PP|P|POLICE\s*POST|HEADQUARTERS|HQ)$/, '').trim();
 };
 
-// 🟢 Advanced Classifier (Determines if a string is a Major CPS, Station, or Post)
 const classifyStation = (stationStr) => {
     const val = cleanStr(stationStr);
     const base = getBaseName(val);
     
-    // 1. Is it a Major Station / CPS?
     for (const stations of Object.values(REGIONAL_HIERARCHY)) {
         for (const s of stations) {
             if (getBaseName(s) === base) return 'MAJOR';
         }
     }
     
-    // 2. Is it a Police Post? (Includes PP, P.P, P/P, P/POST, P POST, P, POLICE POST)
     const postPattern = /\s+(P\.?P\.?|P\/P|P\/POST|P\s*POST|PP|P|POLICE\s*POST)$/;
     if (postPattern.test(val)) return 'POST';
     
-    // 3. Otherwise, it is a standard smaller Police Station
     return 'STATION';
 };
 
-// 🟢 Name Normalizer (For dropdown UI & filtering without touching DB data)
 const normalizeStationName = (stationStr) => {
     if (!stationStr) return "UNKNOWN";
     const val = cleanStr(stationStr);
@@ -68,15 +70,21 @@ const normalizeStationName = (stationStr) => {
     return `${base} POLICE STATION`;
 };
 
-// 🟢 PRECISION REGIONAL ROLLUP: Automatically maps regional HQ staff to their parent region
+// 🟢 FIX 1: Geography now strictly overrides database typos
 const getOfficialRegionForStation = (stationName, dbRegion) => {
     const baseStation = getBaseName(stationName);
     const cleanDbRegion = cleanStr(dbRegion);
 
+    // Pass 1: Strict geographical check (Ignores DB Region entirely)
     for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
-        if (stationsList.some(s => getBaseName(s) === baseStation) || regionName === cleanDbRegion) {
-            return regionName;
+        if (stationsList.some(s => getBaseName(s) === baseStation)) {
+            return regionName; 
         }
+    }
+
+    // Pass 2: Fallback to DB Region only if the station isn't in the hierarchy
+    for (const regionName of Object.keys(REGIONAL_HIERARCHY)) {
+        if (regionName === cleanDbRegion) return regionName;
     }
 
     if (baseStation.includes("KMP EAST") || cleanDbRegion.includes("KMP EAST")) return "KMP EAST";
@@ -529,7 +537,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
     }
   };
 
-  // 🟢 Core Engine: Filters records matching the active region and station via getOfficialRegionForStation
+  // 🟢 FIX 2: Bulletproof, forgiving string matching
   const filterDataset = (dataset) => {
     if (!Array.isArray(dataset)) return [];
 
@@ -544,7 +552,11 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
       
       // 2. Station/Post Layer
       if (filterStation !== 'ALL STATIONS') {
-        if (normStn !== filterStation) return false;
+        const isMatch = normStn === filterStation || 
+                        normStn.includes(filterStation) || 
+                        filterStation.includes(normStn) ||
+                        getBaseName(normStn) === getBaseName(filterStation);
+        if (!isMatch) return false;
       }
 
       // 3. Search Engine

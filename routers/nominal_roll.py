@@ -127,7 +127,7 @@ def get_station_priority_weight(station, region) -> int:
     reg = clean_str(region)
     if 'KMP HEADQUARTERS' in stn or 'KMP HEADQUARTERS' in reg or stn == 'HQ':
         return 0
-    if 'HEADQUARTERS' in stn or 'RPC' in stn:
+    if 'HEADQUARTERS' in stn or 'RPC' in stn or 'RPC' in region:
         return 1
     return 2
 
@@ -138,7 +138,7 @@ def get_command_weight(officer) -> int:
             return 1
         if 'DEPUTY KMP' in pos or 'DEP KMP' in pos or 'DEP. KMP' in pos or (('DEP' in pos or 'DEPUTY' in pos) and 'KMP' in pos):
             return 2
-        if 'ADMIN KMP' in pos or 'ADMIN. KMP' in pos or 'KMP ADMIN OFFICER' in pos:
+        if 'ADMIN KMP' in pos or 'KMP ADMIN' in pos or 'KMP ADMIN OFFICER' in pos:
             return 3
         if 'RPC' in pos and not ('DEPUTY' in pos or 'DEP' in pos):
             return 1

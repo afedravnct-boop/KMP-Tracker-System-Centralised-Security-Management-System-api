@@ -1043,7 +1043,12 @@ def clear_password_reset_request(
         if not ResetModel:
             raise HTTPException(status_code=500, detail="System model for password resets is unavailable.")
 
-        target_request = db.query(ResetModel).filter(ResetModel.id == request_id).first()
+        # 🟢 THE FIX: Dynamically target the primary key (id or sn)
+        pk_col = getattr(ResetModel, 'id', getattr(ResetModel, 'sn', None))
+        if pk_col is None:
+             raise HTTPException(status_code=500, detail="Primary key column (id or sn) not found on ResetModel.")
+
+        target_request = db.query(ResetModel).filter(pk_col == request_id).first()
         
         if not target_request:
             raise HTTPException(status_code=404, detail="Password reset request not found or already purged.")
