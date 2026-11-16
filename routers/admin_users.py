@@ -1022,69 +1022,89 @@ def get_pending_password_resets(
         raise HTTPException(status_code=500, detail=f"Database fetch failed: {str(e)}")
 
 
-# 14. CLEAR / RESOLVE PASSWORD RESET REQUEST
-@router.patch("/reset-requests/{request_id}/clear")
-@router.put("/reset-requests/{request_id}/clear")
-def clear_password_reset_request(
+# ==========================================================
+# 14.5 EXECUTE PASSWORD RESET FROM REQUEST (WITH EMAIL DISPATCH)
+# ==========================================================
+@router.post("/execute-reset/{request_id}")
+def execute_password_reset_from_request(
     request_id: int,
+    background_tasks: BackgroundTasks,
+    payload: Optional[dict] = Body(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    delegation = verify_admin_delegation(current_user, db)
-    if not delegation["is_admin"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Clearance Denied: You lack administrative delegation to clear reset requests."
-        )
+    import secrets
+    import string
+    
+    if (current_user.role or "").strip().upper() != "SUPER_ADMIN":
+        raise HTTPException(status_code=403, detail="Security Restriction: Only Super Admins can execute password resets.")
 
-    try:
-        ResetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
-        if not ResetModel:
-            raise HTTPException(status_code=500, detail="System model for password resets is unavailable.")
+    ResetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
+    if not ResetModel:
+        raise HTTPException(status_code=500, detail="System model for password resets is unavailable.")
 
-        # 🟢 THE FIX: Dynamically target the primary key (id or sn)
-        pk_col = getattr(ResetModel, 'id', getattr(ResetModel, 'sn', None))
-        if pk_col is None:
-             raise HTTPException(status_code=500, detail="Primary key column (id or sn) not found on ResetModel.")
+    # Dynamically find the primary key (id or sn)
+    pk_col = getattr(ResetModel, 'id', getattr(ResetModel, 'sn', None))
+    if pk_col is None:
+         raise HTTPException(status_code=500, detail="Primary key column not found on ResetModel.")
 
-        target_request = db.query(ResetModel).filter(pk_col == request_id).first()
-        
-        if not target_request:
-            raise HTTPException(status_code=404, detail="Password reset request not found or already purged.")
+    target_request = db.query(ResetModel).filter(pk_col == request_id).first()
+    if not target_request:
+        raise HTTPException(status_code=404, detail="Password reset request not found in the database.")
 
-        if not delegation["is_global"]:
-            user_role = (current_user.role or "").upper()
-            user_pos = (current_user.position or "").upper()
-            is_regional = user_role in ["REGIONAL_ADMIN", "RPC"] or "RPC" in user_pos
-            
-            if is_regional and current_user.region:
-                if target_request.region and target_request.region.upper() != current_user.region.upper():
-                    raise HTTPException(status_code=403, detail="Delegation Denied: Request is outside your regional scope.")
-            elif current_user.station:
-                if target_request.station and target_request.station.upper() != current_user.station.upper():
-                    raise HTTPException(status_code=403, detail="Delegation Denied: Request is outside your station scope.")
+    target_fnum = target_request.fnum.strip().upper()
+    target_user = db.query(models.Users).filter(func.trim(func.upper(models.Users.fnum)) == target_fnum).first()
+    
+    if not target_user:
+        raise HTTPException(status_code=404, detail=f"User {target_fnum} not found in the system.")
 
-        target_request.status = "CLEARED" 
-        db.commit()
+    # 1. Generate a highly secure random temporary password
+    alphabet = string.ascii_letters + string.digits
+    temp_password = "UPF-" + "".join(secrets.choice(alphabet) for i in range(8))
 
-        record_neon_activity(
-            logs_db=logs_db,
-            fnum=current_user.fnum,
-            action_type="UPDATE",
-            module="ADMIN_APPROVALS",
-            target_id=f"RESET_REQ_{request_id}",
-            changes_summary=f"{current_user.fnum} cleared and resolved password reset request for officer {target_request.fnum}."
-        )
+    # 2. Hash the new temporary password and apply it
+    from passlib.context import CryptContext
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    target_user.hashed_password = pwd_context.hash(temp_password)
+    
+    # 3. Update the request status to clear it from the dashboard
+    target_request.status = "CLEARED"
+    
+    append_user_audit_event(target_user, "PASSWORD_RESET", current_user.fnum, f"Password reset executed via dashboard request #{request_id}. Temporary password dispatched.")
+    
+    db.commit()
 
-        return {"status": "success", "message": f"Password reset request for {target_request.fnum} successfully cleared."}
+    # 4. Dispatch the temporary password to the user's email
+    if target_user.email and "@" in target_user.email:
+        subject = "🔐 UPF System: Temporary Password Reset"
+        html_body = f"""
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 8px; max-width: 600px;">
+            <h2 style="color: #1e3a8a; margin-top: 0;">Password Reset Completed</h2>
+            <p>Dear {target_user.name},</p>
+            <p>Your password reset request has been processed and authorized by Command Administration.</p>
+            <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ef4444;">
+                <p style="margin: 0; font-size: 14px; color: #475569; text-transform: uppercase; font-weight: bold;">Your Temporary Password:</p>
+                <p style="margin: 5px 0 0 0; font-size: 24px; font-family: monospace; font-weight: bold; color: #b91c1c;">{temp_password}</p>
+            </div>
+            <p style="color: #475569; font-size: 13px;"><strong>Immediate Action Required:</strong> Please log in to the KMP Centralised Security Data Management System using this temporary password. Once logged in, navigate to your Profile to create a new, secure password.</p>
+        </div>
+        """
+        background_tasks.add_task(send_email_notification, [target_user.email], subject, html_body)
+    
+    record_neon_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action_type="UPDATE",
+        module="ADMIN_APPROVALS",
+        target_id=f"RESET_REQ_{request_id}",
+        changes_summary=f"{current_user.fnum} executed password reset and cleared request for officer {target_fnum}."
+    )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logs_db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to clear reset request: {str(e)}")
+    return {
+        "status": "success", 
+        "message": f"Password reset successfully for {target_fnum}. Temporary credentials dispatched to their registered email."
+    }
 
 # 15. TRIGGER TACTICAL BRIEFINGS (MANUAL & AUTOMATED CRON)
 @router.post("/trigger-briefs")
