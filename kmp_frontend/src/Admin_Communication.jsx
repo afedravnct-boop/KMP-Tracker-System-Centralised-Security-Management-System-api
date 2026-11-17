@@ -1,6 +1,7 @@
 // src/components/Admin_Communication.jsx
 import React, { useState, useEffect } from 'react';
 import { Send, Mail, AlertTriangle, CheckCircle, RadioReceiver, Users, Shield, Inbox, Filter, Clock, ArrowLeft, Eye, X, Edit3, UserPlus, Reply, CornerDownRight, Wrench, Search, Loader2 } from 'lucide-react';
+import { isStationEquivalent, stripHtmlTags } from './helpers';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -50,18 +51,6 @@ if (typeof window !== 'undefined' && !window._telemetryHooked) {
   };
   window._telemetryHooked = true;
 }
-
-const isStationEquivalent = (statA, statB) => {
-  const a = (statA || '').trim().toUpperCase();
-  const b = (statB || '').trim().toUpperCase();
-  if (!a || !b) return false;
-  if (a === b) return true;
-
-  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
-  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
-
-  return cleanA === cleanB && cleanA.length > 0;
-};
 
 const autoCapitalizeSentences = (str) => {
   if (!str) return str;
@@ -136,30 +125,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     (currentUser?.position || '').toUpperCase().includes('RPC') ||
     (currentUser?.position || '').toUpperCase().includes('COMMANDER');
 
-  // Add this state hook with your other useState declarations:
-const [unreadInboxCount, setUnreadInboxCount] = useState(0);
-
-// Add this useEffect to poll the backend unread count every 30 seconds:
-useEffect(() => {
-  const fetchUnreadInboxCount = async () => {
-    try {
-      const token = sessionStorage.getItem('kmp_authToken');
-      const res = await fetch(`${API_URL}/api/v1/communications/unread-count`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUnreadInboxCount(data.unread_count || 0);
-      }
-    } catch (e) {
-      console.error("Failed to fetch inbox unread count:", e);
-    }
-  };
-  
-  fetchUnreadInboxCount();
-  const interval = setInterval(fetchUnreadInboxCount, 30000); // Sync every 30 seconds
-  return () => clearInterval(interval);
-}, [inboxMessages]);
+  const [unreadInboxCount, setUnreadInboxCount] = useState(0);
 
   const [activeTab, setActiveTab] = useState(
     initialTab ? initialTab.toLowerCase() : (canBroadcast ? 'dispatch' : 'inbox')
@@ -204,6 +170,27 @@ useEffect(() => {
   const [loadingReceipts, setLoadingReceipts] = useState(false);
 
   const [expandedMsgs, setExpandedMsgs] = useState({});
+
+  useEffect(() => {
+    const fetchUnreadInboxCount = async () => {
+      try {
+        const token = sessionStorage.getItem('kmp_authToken');
+        const res = await fetch(`${API_URL}/api/v1/communications/unread-count`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUnreadInboxCount(data.unread_count || 0);
+        }
+      } catch (e) {
+        console.error("Failed to fetch inbox unread count:", e);
+      }
+    };
+    
+    fetchUnreadInboxCount();
+    const interval = setInterval(fetchUnreadInboxCount, 30000); 
+    return () => clearInterval(interval);
+  }, [inboxMessages]);
 
   useEffect(() => {
     fetchRecipientsList();
