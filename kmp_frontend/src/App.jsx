@@ -692,26 +692,24 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage, onLogout })
         headers: { "Content-Type": "application/json" }, 
         body: JSON.stringify(passwordData)
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to update password.");
-      setNotification(`✅ ${data.message}`);
+      
+      const data = await response.json().catch(() => ({}));
+      
+      if (!response.ok) {
+        // 🟢 FIX: Handle FastAPI's Array of Objects (422 Validation Errors)
+        let errorMsg = "Failed to update password.";
+        if (Array.isArray(data.detail)) {
+            errorMsg = data.detail.map(err => `${err.msg}`).join(', ');
+        } else if (data.detail) {
+            errorMsg = typeof data.detail === 'object' ? JSON.stringify(data.detail) : data.detail;
+        }
+        throw new Error(errorMsg);
+      }
+      
+      setNotification(`✅ ${data.message || 'Password successfully updated'}`);
       setPasswordData({ old_password: '', new_password: '' });
     } catch (err) { 
-      // 🟢 FIX: Handle the error gracefully without rendering an Object 
-      let errorMsg = "An unexpected error occurred.";
-      if (err instanceof Response) {
-          try {
-              const errData = await err.json();
-              errorMsg = errData.detail || err.statusText;
-          } catch (e) {
-              errorMsg = err.statusText || "Server error";
-          }
-      } else if (err.message) {
-          errorMsg = err.message;
-      } else if (typeof err === 'string') {
-          errorMsg = err;
-      }
-      setNotification(`❌ Error: ${errorMsg}`); 
+      setNotification(`❌ Error: ${err.message}`); 
     }
   };
 
