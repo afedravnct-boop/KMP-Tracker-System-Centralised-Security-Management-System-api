@@ -7,6 +7,7 @@ import asyncio
 import json
 import boto3
 import pytz
+import threading
 from typing import Optional, List
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
@@ -511,13 +512,18 @@ async def signup(
                 <p>Please log in to the KMP Centralised Security Data Management System to review and authorize this request.</p>
             </div>
             """
-            # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
-            background_tasks.add_task(
-    send_auth_notification, 
-    list(set(approver_emails)), 
-    subject, 
-    html_body
-)
+            # 🟢 FIX: Run email via a thread to avoid BackgroundTasks asyncio conflicts
+            def send_signup_email_thread(emails, sub, body):
+                try:
+                    asyncio.run(send_auth_notification(emails, sub, body))
+                except Exception as e:
+                    print(f"❌ Threaded signup email failed: {e}")
+                    
+            threading.Thread(
+                target=send_signup_email_thread, 
+                args=(list(set(approver_emails)), subject, html_body),
+                daemon=True
+            ).start()
 
         return {
             "status": "success",
@@ -578,10 +584,18 @@ def approve_user_account(
             <p style="margin-top: 20px;">Welcome aboard, officer.</p>
         </div>
         """
-        # 🟢 FIX: Safe background task wrapper using lambda: asyncio.run
-        background_tasks.add_task(
-            lambda: asyncio.run(send_auth_notification([target_user.email], subject, html_body))
-        )
+        # 🟢 FIX: Run email via a thread to avoid BackgroundTasks asyncio conflicts
+        def send_approval_email_thread(email, sub, body):
+            try:
+                asyncio.run(send_auth_notification([email], sub, body))
+            except Exception as e:
+                print(f"❌ Threaded approval email failed: {e}")
+                
+        threading.Thread(
+            target=send_approval_email_thread, 
+            args=(target_user.email, subject, html_body),
+            daemon=True
+        ).start()
 
     return {"status": "success", "message": f"User {target_user.name} has been successfully approved and notified."}
 

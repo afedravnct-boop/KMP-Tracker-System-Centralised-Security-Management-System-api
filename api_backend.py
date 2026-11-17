@@ -687,45 +687,36 @@ def get_online_users(db: Session = Depends(database.get_db)):
 eat_tz = pytz.timezone('Africa/Nairobi')
 scheduler = BackgroundScheduler(timezone=eat_tz)
 
-# Existing Tactical Briefing
+# --- 1. MONDAY TACTICAL BRIEFING ---
+def trigger_scheduled_briefing():
+    print("⏰ Executing 06:00 AM Weekly Tactical Briefing...")
+    try:
+        run_weekly_tactical_briefing_job(conf=conf, manual_dispatcher=None, brief_type="ALL")
+        print("✅ Weekly Tactical Briefing Dispatched.")
+    except Exception as e:
+        print(f"🚨 Scheduled Tactical Briefing Failed: {e}")
+
 scheduler.add_job(
-    lambda: run_weekly_tactical_briefing_job(conf), 
+    trigger_scheduled_briefing, 
     CronTrigger(day_of_week='mon', hour=6, minute=0, timezone=eat_tz),
     id='monday_tactical_briefing',
     replace_existing=True,
     misfire_grace_time=3600
 )
 
+# --- 2. DAILY 1100HRS COMPLIANCE SWEEP ---
 def run_automated_compliance_sweep():
     print("⏰ Executing 11:00 AM Lockup Matrix Compliance Sweep...")
     db_gen = get_db()
     db = next(db_gen)
     
-    # Create a mock BackgroundTasks instance to satisfy the router function signature
-    class DummyBackgroundTasks:
-        def add_task(self, func, *args, **kwargs):
-            import threading
-            import asyncio
-            def background_runner():
-                try:
-                    if asyncio.iscoroutinefunction(func):
-                        # Safely spin up a fresh, isolated loop just for this email
-                        asyncio.run(func(*args, **kwargs))
-                    else:
-                        func(*args, **kwargs)
-                except Exception as e:
-                    print(f"❌ Cron Background Task Failed: {e}")
-            
-            # Spawn a temporary invisible thread so APScheduler never freezes
-            threading.Thread(target=background_runner, daemon=True).start()
-            
-    dummy_tasks = DummyBackgroundTasks()
-    
     try:
-        from routers.lockup_matrix import execute_daily_compliance_sweep
-        result = execute_daily_compliance_sweep(background_tasks=dummy_tasks, db=db)
-        print(f"✅ Compliance Sweep Result: {result.get('message', result.get('action', 'Success'))}")
+        from routers.lockup_matrix import run_core_compliance_sweep
+        result = run_core_compliance_sweep(db)
+        print(f"✅ Compliance Sweep Result: {result.get('message', 'Success')} | Count: {result.get('count', 0)}")
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"🚨 Scheduled Compliance Sweep Failed: {str(e)}")
     finally:
         db.close()
@@ -738,6 +729,7 @@ scheduler.add_job(
     misfire_grace_time=3600
 )
 
+# --- SCHEDULER LIFECYCLE MANAGEMENT ---
 @app.on_event("startup")
 def start_scheduler():
     if not scheduler.running:
@@ -875,13 +867,13 @@ CRON_SECRET = os.getenv("CRON_SECRET_KEY", "kmp-cron-secure-key-2026")
 
 @app.get("/api/v1/cron/trigger-compliance")
 @app.post("/api/v1/cron/trigger-compliance")
-def external_trigger_compliance(background_tasks: BackgroundTasks, db: Session = Depends(get_db), key: str = Query(None)):
+def external_trigger_compliance(db: Session = Depends(get_db), key: str = Query(None)):
     if key != CRON_SECRET:
         raise HTTPException(status_code=403, detail="Unauthorized Cron Trigger")
     
     try:
-        from routers.lockup_matrix import execute_daily_compliance_sweep
-        result = execute_daily_compliance_sweep(background_tasks=background_tasks, db=db)
+        from routers.lockup_matrix import run_core_compliance_sweep
+        result = run_core_compliance_sweep(db)
         
         return {"status": "success", "message": "Compliance sweep executed successfully.", "details": result}
     except Exception as e:
@@ -891,12 +883,13 @@ def external_trigger_compliance(background_tasks: BackgroundTasks, db: Session =
 
 @app.get("/api/v1/cron/trigger-briefing")
 @app.post("/api/v1/cron/trigger-briefing")
-def external_trigger_briefing(background_tasks: BackgroundTasks, key: str = Query(None)):
+def external_trigger_briefing(key: str = Query(None)):
     if key != CRON_SECRET:
         raise HTTPException(status_code=403, detail="Unauthorized Cron Trigger")
     
     try:
-        run_weekly_tactical_briefing_job(conf)
+        # Directly call the core engine
+        run_weekly_tactical_briefing_job(conf=conf, manual_dispatcher=None, brief_type="ALL")
         return {"status": "success", "message": "Weekly tactical briefing generated and dispatched."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Briefing generation failed: {str(e)}")

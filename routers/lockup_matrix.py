@@ -207,11 +207,13 @@ def apply_opsec_scope(current_user, query, ModelClass):
         
     return query.filter(text("1=0"))
 
-@router.post("/compliance/trigger-1100hrs-sweep")
-def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+# ==========================================================
+# A. THE DUTY: CORE AUTONOMOUS COMPLIANCE ENGINE
+# ==========================================================
+def run_core_compliance_sweep(db: Session):
     """
-    Automated execution endpoint. 
-    Scans all expected stations, permanently logs defaulters, and dispatches UI and SMTP email alerts.
+    Core engine that scans all expected stations, logs defaulters, 
+    and dispatches UI/SMTP alerts. Runs synchronously in the background.
     """
     try:
         # 1. Safely fetch exact model names to prevent AttributeErrors and 500 Crashes
@@ -237,7 +239,7 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
                     defaulting_stations.append({"region": region, "station": stn})
 
         if not defaulting_stations:
-            return {"status": "success", "message": "100% System Compliance. No alerts dispatched."}
+            return {"status": "success", "message": "100% System Compliance. No alerts dispatched.", "count": 0}
 
         for defaulter in defaulting_stations:
             existing_flag = db.query(TrackerModel).filter(
@@ -310,13 +312,71 @@ def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Sessio
 
         return {
             "status": "success", 
-            "action": f"Compliance sweep completed. {len(defaulting_stations)} defaulting stations permanently logged and notified."
+            "message": f"Compliance sweep completed. {len(defaulting_stations)} defaulting stations permanently logged and notified.",
+            "count": len(defaulting_stations)
         }
         
     except Exception as e:
         db.rollback()
         print(f"🚨 Compliance Sweep Failed: {str(e)}")
+        raise
+
+# ==========================================================
+# B. THE MANUAL OVERRIDE ROUTE (For Dashboard Buttons)
+# ==========================================================
+@router.post("/compliance/trigger-1100hrs-sweep")
+def execute_daily_compliance_sweep(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """
+    Manual execution endpoint to trigger the compliance sweep on demand.
+    """
+    try:
+        result = run_core_compliance_sweep(db)
+        if result.get("count", 0) == 0:
+            return {"status": "success", "message": result["message"]}
+        
+        return {
+            "status": "success", 
+            "action": result["message"]
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"Compliance sweep aborted: {str(e)}")
+
+
+# ==========================================================
+# C. THE AUTONOMOUS CRON SCHEDULER
+# ==========================================================
+def automated_daily_compliance_job():
+    """This function is executed autonomously by the internal scheduler at 11:00 AM daily."""
+    from app.database import SessionLocal # Ensure this matches your project's raw DB session generator
+    
+    db = SessionLocal()
+    try:
+        print("🕒 Executing Autonomous 1100Hrs Compliance Sweep...")
+        result = run_core_compliance_sweep(db)
+        print(f"✅ Compliance Sweep Finished: {result['message']}")
+    except Exception as e:
+        print(f"❌ Automated Compliance Sweep Failed: {e}")
+    finally:
+        db.close()
+
+# 🟢 Initialize the background duty scheduler
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    
+    # We initialize the scheduler only if it hasn't been instantiated elsewhere
+    if 'scheduler' not in globals():
+        scheduler = BackgroundScheduler()
+        scheduler.start()
+        
+    # Runs the duty autonomously every day at 11:00 AM EAT
+    scheduler.add_job(
+        automated_daily_compliance_job, 
+        CronTrigger(day_of_week='mon-sun', hour=11, minute=0, timezone='Africa/Nairobi')
+    )
+    print("✅ Autonomous 1100Hrs Compliance Sweep Duty initialized and active.")
+except Exception as e:
+    print(f"❌ Failed to initialize Autonomous Compliance Duty: {e}")
 
 # ====================================================================
 # 1. LOCKUP MATRIX ENDPOINTS

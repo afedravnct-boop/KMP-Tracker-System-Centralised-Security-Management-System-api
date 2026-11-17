@@ -82,16 +82,6 @@ def is_regional_admin_or_above(user):
     pos = str(user.position or "").strip().upper()
     return role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or "COMMANDER" in pos or "RPC" in pos
 
-# 🟢 ISOLATED DAEMON DISPATCHER (100% Crash-Proof against Thread Deadlocks)
-def fire_and_forget_email(coroutine):
-    """Safely executes an async email task in a totally isolated background thread."""
-    def runner():
-        try:
-            asyncio.run(coroutine)
-        except Exception as e:
-            print(f"❌ Background Email Thread Failed: {e}")
-    threading.Thread(target=runner, daemon=True).start()
-
 async def send_command_briefing(email_to: List[str], subject: str, html_body: str):
     if not email_to or not conf.MAIL_USERNAME or not conf.MAIL_PASSWORD:
         return
@@ -107,6 +97,18 @@ async def send_command_briefing(email_to: List[str], subject: str, html_body: st
         print(f"✅ Secure email successfully dispatched via SMTP to: {', '.join(email_to)}")
     except Exception as e:
         print(f"❌ Failed to dispatch command email via SMTP: {e}")
+
+# 🟢 FIX: ISOLATED DAEMON DISPATCHER (100% Crash-Proof against Thread Deadlocks)
+def fire_and_forget_email(email_to: List[str], subject: str, html_body: str):
+    """Safely executes an async email task in a totally isolated background thread."""
+    def runner():
+        try:
+            import asyncio
+            # We instantiate the coroutine INSIDE the new thread to avoid loop conflicts
+            asyncio.run(send_command_briefing(email_to, subject, html_body))
+        except Exception as e:
+            print(f"❌ Background Email Thread Failed: {e}")
+    threading.Thread(target=runner, daemon=True).start()
 
 
 class GlitchTelemetryPayload(BaseModel):
@@ -245,11 +247,9 @@ def process_and_diagnose_client_glitch_bg(payload: GlitchTelemetryPayload, curre
             </div>
             """
             fire_and_forget_email(
-                send_command_briefing(
-                    high_command_emails,
-                    f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
-                    email_html
-                )
+                high_command_emails,
+                f"⚠️ TECHNICAL FAULT ISOLATED: {payload.current_page}",
+                email_html
             )
 
         from routers.activity_logger import record_neon_activity
@@ -459,11 +459,9 @@ def create_admin_communication(
                  
                 # 🟢 Dispatch email securely with Daemon Threading
                 fire_and_forget_email(
-                    send_command_briefing(
-                        emails, 
-                        comm.subject, 
-                        html_body
-                    )
+                    emails, 
+                    comm.subject, 
+                    html_body
                 )
 
         assigned_id = getattr(db_comm, 'id', getattr(db_comm, 'sn', 1))

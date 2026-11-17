@@ -755,7 +755,7 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
             db.rollback()
             print(f"⚠️ Failed to dispatch Admin Communication alert: {comm_err}")
 
-# 5. Dispatch email asynchronously using the safe event loop pattern
+# 5. Dispatch email asynchronously using a dedicated daemon thread
         try:
             high_command_emails = [
                 email[0] for email in db.query(models.Users.email).filter(
@@ -778,22 +778,34 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
                 </div>
                 """
                 
-                # The correct, thread-safe way to call the async SMTP dispatcher
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(send_command_briefing(
-                        high_command_emails,
-                        f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]",
+                # 🟢 FIX: Use a dedicated daemon thread instead of directly manipulating asyncio loops inside a BackgroundTask
+                def run_crash_email_thread(emails, subject_line, html_content):
+                    try:
+                        import asyncio
+                        # A fresh asyncio run block isolated in its own thread guarantees it won't clash with FastAPI
+                        asyncio.run(
+                            send_email_notification(
+                                emails,
+                                subject_line,
+                                html_content
+                            )
+                        )
+                    except Exception as e:
+                        print(f"❌ Threaded crash alert email failed: {e}")
+
+                import threading
+                threading.Thread(
+                    target=run_crash_email_thread, 
+                    args=(
+                        high_command_emails, 
+                        f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]", 
                         email_html
-                    ))
-                else:
-                    asyncio.run(send_command_briefing(
-                        high_command_emails,
-                        f"⚠️ CRASH DETECTED: {payload.page_name} [{fnum_val}]",
-                        email_html
-                    ))
+                    ),
+                    daemon=True
+                ).start()
+
         except Exception as mail_err:
-            print(f"❌ Failed to dispatch automated glitch alert email: {mail_err}")
+            print(f"❌ Failed to query or dispatch automated glitch alert email: {mail_err}")
 
         # 5. Log System Activity
         try:

@@ -242,6 +242,7 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
         db.close()
 
     async def send_all_emails():
+        # Using the globally defined ConnectionConfig
         fm = FastMail(conf)
         for payload in email_payloads:
             message = MessageSchema(
@@ -268,3 +269,35 @@ def run_weekly_tactical_briefing_job(conf: ConnectionConfig, manual_dispatcher: 
 
     # Launch the emails in the background instantly
     threading.Thread(target=briefing_thread_runner, daemon=True).start()
+
+
+# ==========================================================
+# 🟢 AUTONOMOUS CRON SCHEDULER IMPLEMENTATION
+# ==========================================================
+def automated_monday_trigger():
+    """Wrapper function to be called by APScheduler"""
+    try:
+        print("🕒 Executing Autonomous Weekly Tactical Briefing...")
+        # Since this is automated, manual_dispatcher is None, which triggers the 'AUTOMATED' tag
+        run_weekly_tactical_briefing_job(conf=conf, manual_dispatcher=None, brief_type="ALL")
+        print("✅ Automated Tactical Briefing dispatched to daemon thread.")
+    except Exception as e:
+        print(f"❌ Automated Tactical Briefing Failed: {e}")
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    
+    # Initialize only if it doesn't exist to prevent double-firing in reload cycles
+    if 'scheduler' not in globals():
+        scheduler = BackgroundScheduler()
+        scheduler.start()
+        
+    # Schedule the duty for every Monday at exactly 06:00 AM EAT
+    scheduler.add_job(
+        automated_monday_trigger, 
+        CronTrigger(day_of_week='mon', hour=6, minute=0, timezone='Africa/Nairobi')
+    )
+    print("✅ Autonomous Weekly Tactical Briefing Duty initialized and active.")
+except Exception as e:
+    print(f"❌ Failed to initialize Autonomous Tactical Briefing Duty: {e}")

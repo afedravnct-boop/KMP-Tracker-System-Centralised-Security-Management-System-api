@@ -11,6 +11,8 @@ import pytz
 import json
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from app import models, database
 from app.database import get_db, get_logs_db
@@ -1106,58 +1108,59 @@ def execute_password_reset_from_request(
         "message": f"Password reset successfully for {target_fnum}. Temporary credentials dispatched to their registered email."
     }
 
-# 15. TRIGGER TACTICAL BRIEFINGS (MANUAL & AUTOMATED CRON)
-@router.post("/trigger-briefs")
-@router.post("/cron/trigger-briefs")
-def trigger_tactical_briefs(
-    background_tasks: BackgroundTasks,
-    payload: Optional[dict] = Body(None),
-    db: Session = Depends(get_db),
-    logs_db: Session = Depends(get_logs_db),
-    current_user: Optional[models.Users] = Depends(get_current_user)
-):
+# ==========================================================
+# 15A. THE DUTY: CORE AUTONOMOUS DISPATCH ENGINE
+# ==========================================================
+async def execute_core_dispatch(brief_type: str, origin_note: str, actor_fnum: str, db: Session, logs_db: Session):
+    from sqlalchemy.exc import OperationalError
+    import time
+
+    max_retries = 3
+    high_command_users = None
+    
+    for attempt in range(max_retries):
+        try:
+            high_command_users = db.query(models.Users.email).filter(
+                models.Users.is_approved == True,
+                models.Users.email.isnot(None),
+                models.Users.role != 'REVOKED',
+                or_(
+                    models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC']),
+                    func.upper(models.Users.position).like('%KMP COMMANDER%'),
+                    func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
+                )
+            ).all()
+            break
+        except OperationalError as e:
+            if attempt == max_retries - 1:
+                print(f"❌ Dispatch Engine Failed: {e}")
+                return
+            db.rollback()
+            time.sleep(1)
+
+    if not high_command_users:
+        return
+
+    target_emails = [u[0] for u in high_command_users if u and u[0] and "@" in u[0]]
+    
+    subject = f"TACTICAL ALERT: {brief_type.replace('_', ' ')} REPORT" if brief_type != "ALL" else "Weekly Command Briefing & Situation Report"
+    html_body = f"""
+    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #1e3a8a; margin-top: 0;">{subject}</h2>
+        <p>This tactical dispatch was executed by the KMP Centralised Security Data Management System.</p>
+        <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0;">
+            <p><strong>Briefing Focus:</strong> {brief_type}</p>
+            <p><strong>Dispatch Origin:</strong> {origin_note}</p>
+            <p><strong>Timestamp:</strong> {datetime.now(pytz.timezone("Africa/Nairobi")).strftime("%Y-%m-%d %H:%M:%S EAT")}</p>
+        </div>
+        <p>Log in to the administrative dashboard to review the full operational metrics.</p>
+    </div>
+    """
+
+    # We await the async email sender directly
+    await send_email_notification(target_emails, subject, html_body)
+
     try:
-        brief_type = payload.get("brief_type", "ALL") if payload else "ALL"
-        is_automated = current_user is None
-        origin_note = "Automated Monday Dispatch" if is_automated else f"Manually triggered by {current_user.fnum} {current_user.rank} {current_user.name}"
-
-        actor_fnum = current_user.fnum if current_user else "CRON_SCHEDULER"
-
-        high_command_users = db.query(models.Users.email).filter(
-            models.Users.is_approved == True,
-            models.Users.email.isnot(None),
-            models.Users.role != 'REVOKED',
-            or_(
-                models.Users.role.in_(['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN', 'RPC']),
-                func.upper(models.Users.position).like('%KMP COMMANDER%'),
-                func.upper(models.Users.position).like('%DEPUTY KMP COMMANDER%')
-            )
-        ).all()
-        
-        target_emails = [u[0] for u in high_command_users if u[0] and "@" in u[0]]
-
-        if current_user and current_user.email and "@" in current_user.email:
-            if current_user.email not in target_emails:
-                target_emails.append(current_user.email)
-
-        if target_emails:
-            subject = f"TACTICAL ALERT: {brief_type.replace('_', ' ')} REPORT" if brief_type != "ALL" else "Weekly Command Briefing & Situation Report"
-            html_body = f"""
-            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-                <h2 style="color: #1e3a8a; margin-top: 0;">{subject}</h2>
-                <p>This is an automated tactical dispatch generated by the KMP Centralised Security Data Management System.</p>
-                <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                    <p><strong>Briefing Focus:</strong> {brief_type}</p>
-                    <p><strong>Dispatch Origin:</strong> {origin_note}</p>
-                    <p><strong>Timestamp:</strong> {datetime.now(pytz.timezone("Africa/Nairobi")).strftime("%Y-%m-%d %H:%M:%S EAT")}</p>
-                </div>
-                <p>Please log in to the administrative dashboard to review the full metrics and granular data.</p>
-            </div>
-            """
-            
-            # NATIVE FASTAPI ASYNC QUEUE - SAFE
-            background_tasks.add_task(send_email_notification, target_emails, subject, html_body)
-
         record_neon_activity(
             logs_db=logs_db,
             fnum=actor_fnum,
@@ -1166,17 +1169,74 @@ def trigger_tactical_briefs(
             target_id="EMAIL_SITREP",
             changes_summary=f"Tactical briefings ({brief_type}) compiled and dispatched successfully. Origin: {origin_note}."
         )
-
-        return {
-            "status": "success",
-            "message": f"Tactical briefings ({brief_type}) dispatched successfully to {len(target_emails)} recipients. Origin: {origin_note}."
-        }
-    except Exception as e:
-        db.rollback()
+    except OperationalError:
         logs_db.rollback()
-        raise HTTPException(status_code=500, detail=f"Briefing dispatch failed: {str(e)}")
 
-# ==========================================
+
+# ==========================================================
+# 15B. THE MANUAL OVERRIDE ROUTE (For Dashboard Buttons)
+# ==========================================================
+@router.post("/trigger-briefs")
+def trigger_tactical_briefs(
+    background_tasks: BackgroundTasks,
+    payload: Optional[dict] = Body(None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    brief_type = payload.get("brief_type", "ALL") if payload else "ALL"
+    origin_note = f"Manually triggered by {current_user.fnum} {current_user.rank} {current_user.name}"
+    
+    # Hand off the duty to the core engine via FastAPI's background tasks
+    background_tasks.add_task(execute_core_dispatch, brief_type, origin_note, current_user.fnum, db, logs_db)
+
+    return {
+        "status": "success",
+        "message": f"Tactical briefings ({brief_type}) dispatch sequence initiated."
+    }
+
+
+# ==========================================================
+# 15C. THE AUTONOMOUS CRON SCHEDULER
+# ==========================================================
+def automated_monday_dispatch_job():
+    """This function is executed by the internal scheduler, fulfilling the system's duty autonomously."""
+    # Note: Adjust SessionLocal below if your import from app.database is named differently (e.g., Session)
+    from app.database import SessionLocal, SessionLocalLogs
+    
+    db = SessionLocal()
+    logs_db = SessionLocalLogs() if 'SessionLocalLogs' in globals() else SessionLocal()
+    
+    try:
+        # APScheduler runs synchronously, so we must invoke the async event loop to run the dispatch
+        asyncio.run(execute_core_dispatch(
+            brief_type="ALL", 
+            origin_note="Automated System Duty: Weekly Monday Dispatch", 
+            actor_fnum="SYSTEM_CRON", 
+            db=db, 
+            logs_db=logs_db
+        ))
+    finally:
+        db.close()
+        logs_db.close()
+
+# 🟢 Initialize the background duty scheduler immediately when the server boots
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    
+    scheduler = BackgroundScheduler()
+    # Runs the duty autonomously every Monday at 06:00 AM EAT
+    scheduler.add_job(
+        automated_monday_dispatch_job, 
+        CronTrigger(day_of_week='mon', hour=6, minute=0, timezone='Africa/Nairobi')
+    )
+    scheduler.start()
+    print("✅ Autonomous Monday Dispatch Duty initialized and active.")
+except Exception as e:
+    print(f"❌ Failed to initialize Autonomous Dispatch Duty: {e}")
+
+# ==========================================================
 # 16. COMMANDER ABSENCE & LEAVE BROADCAST ROUTE
 # ==========================================
 @router.get("/commander-status")
