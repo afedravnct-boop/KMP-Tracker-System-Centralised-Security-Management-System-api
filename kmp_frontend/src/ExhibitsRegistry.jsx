@@ -3,7 +3,7 @@ import {
   Shield, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, 
   Filter, Save, Truck, Loader2, Lock, RefreshCw, Box, HardDrive, Camera
 } from 'lucide-react';
-import { stripHtmlTags } from './App';
+import { stripHtmlTags } from "./helpers";
 import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {

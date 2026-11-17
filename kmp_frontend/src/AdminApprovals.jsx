@@ -5,7 +5,7 @@ import {
   Users, RefreshCw, KeyRound, UserCheck, FileText, Globe, CheckSquare, Square, Loader2, 
   Eye, XCircle, UserPlus, Camera, Filter, ArrowRight, Power, Search, Award, Trash2, Clock, Send, History, Activity
 } from 'lucide-react';
-import { stripHtmlTags } from './App';
+import { stripHtmlTags } from "./helpers";
 import { authFetch, hasValidSession } from './api';
 
 import { 

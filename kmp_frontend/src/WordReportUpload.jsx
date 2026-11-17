@@ -5,7 +5,7 @@ import {
   Loader2, FolderOpen, Clock, FileArchive, Lock, Server, Trash2, Filter, ExternalLink, Search, X, ArrowLeft
 } from 'lucide-react';
 import { authFetch } from './api';
-import { stripHtmlTags } from './App';
+import { stripHtmlTags } from "./helpers";
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],

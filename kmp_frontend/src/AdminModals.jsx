@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import {  
   Shield, CheckCircle, AlertTriangle, X, Lock, XCircle, ShieldAlert, Power, ArrowRight, History, UserCheck, Key, FileText, Activity
 } from 'lucide-react';
-import { stripHtmlTags } from './App';
+import { stripHtmlTags } from "./helpers";
 import { REGIONAL_HIERARCHY } from './adminUtils';
 
 // 🟢 HELPER: Inline UI Toggle Switch component with disabled/loading state support

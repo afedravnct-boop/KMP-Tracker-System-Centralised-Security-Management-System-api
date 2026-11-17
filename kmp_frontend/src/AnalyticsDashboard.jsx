@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { BarChart3, TrendingUp, TrendingDown, Calendar, Shield, Filter, ArrowUpRight, ArrowDownRight, PieChart as PieChartIcon, Clock, Users, Award, MapPin, Zap, CheckCircle2, GitCommit, Network, Loader2, BookOpen, ChevronDown, ChevronRight, Download, Truck, Scale, Lock, Car, AlertTriangle, Flame } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
-import { stripHtmlTags } from './App';
+import { stripHtmlTags } from "./helpers";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
 
 const REGIONAL_HIERARCHY = {

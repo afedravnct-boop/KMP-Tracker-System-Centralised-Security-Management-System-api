@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { PlusCircle, Edit, AlertTriangle, CheckCircle, X, Filter, Building, Shield, HardDrive, Loader2 } from 'lucide-react';
 import { authFetch, hasValidSession } from './api';
-import { stripHtmlTags } from './App';
+import { stripHtmlTags } from "./helpers";
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],

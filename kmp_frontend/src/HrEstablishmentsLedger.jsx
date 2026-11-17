@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Shield, FileText, Users, Building, Filter, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
-import { stripHtmlTags } from './App';
+import { stripHtmlTags } from "./helpers";
 import { authFetch, hasValidSession } from './api';
 
 const REGIONAL_HIERARCHY = {
