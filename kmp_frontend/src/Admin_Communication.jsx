@@ -175,7 +175,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     const fetchUnreadInboxCount = async () => {
       try {
         const token = sessionStorage.getItem('kmp_authToken');
-        const res = await fetch(`${API_URL}/api/v1/communications/unread-count`, {
+        const res = await fetch(`${API_URL}/api/v1/communications/ping-unread`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
