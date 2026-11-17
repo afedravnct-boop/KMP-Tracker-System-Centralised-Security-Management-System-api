@@ -900,13 +900,12 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
             visibility_conditions.append(CommModel.target_audience.in_(["RPC_ONLY", "ADMINS_ONLY"]))
 
     query = query.filter(or_(*visibility_conditions))
-
-    comms = query.order_by(CommModel.created_at.desc()).limit(50).all()
+    comms = query.order_by(CommModel.created_at.desc()).limit(100).all()
      
     read_records = db.query(ReadsModel.comm_id).filter(func.trim(func.upper(read_fnum_col)) == clean_user_fnum).all()
     read_comm_ids = {r[0] for r in read_records} 
      
-    has_unread = False
+    unread_count = 0
     user_created_at = getattr(current_user, 'created_at', None)
 
     for c_id, c_sender, c_created, c_audience, c_target_fnum in comms:
@@ -922,7 +921,10 @@ def ping_unread_communications(db: Session = Depends(get_db), current_user: mode
         if (c_sender or "").strip().upper() == clean_user_fnum:
             continue
          
-        has_unread = True
-        break
+        unread_count += 1
 
-    return {"absence_advisory": None, "hasUnread": has_unread}
+    return {
+        "absence_advisory": None, 
+        "hasUnread": unread_count > 0,
+        "unread_count": unread_count
+    }

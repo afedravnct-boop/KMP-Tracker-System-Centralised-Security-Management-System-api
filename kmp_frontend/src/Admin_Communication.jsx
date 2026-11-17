@@ -136,6 +136,31 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     (currentUser?.position || '').toUpperCase().includes('RPC') ||
     (currentUser?.position || '').toUpperCase().includes('COMMANDER');
 
+  // Add this state hook with your other useState declarations:
+const [unreadInboxCount, setUnreadInboxCount] = useState(0);
+
+// Add this useEffect to poll the backend unread count every 30 seconds:
+useEffect(() => {
+  const fetchUnreadInboxCount = async () => {
+    try {
+      const token = sessionStorage.getItem('kmp_authToken');
+      const res = await fetch(`${API_URL}/api/v1/communications/unread-count`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadInboxCount(data.unread_count || 0);
+      }
+    } catch (e) {
+      console.error("Failed to fetch inbox unread count:", e);
+    }
+  };
+  
+  fetchUnreadInboxCount();
+  const interval = setInterval(fetchUnreadInboxCount, 30000); // Sync every 30 seconds
+  return () => clearInterval(interval);
+}, [inboxMessages]);
+
   const [activeTab, setActiveTab] = useState(
     initialTab ? initialTab.toLowerCase() : (canBroadcast ? 'dispatch' : 'inbox')
   ); 
@@ -789,11 +814,17 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
           </button>
           
           <button 
-            onClick={() => handleTabSwitch('inbox')} 
-            className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'inbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
-          >
-            <Inbox className="w-5 h-5 mr-2" /> Command Inbox
-          </button>
+  onClick={() => handleTabSwitch('inbox')} 
+  className={`flex-1 py-4 px-4 font-bold flex items-center justify-center transition-all min-w-max cursor-pointer ${activeTab === 'inbox' ? 'bg-white border-b-2 border-blue-600 text-blue-700 shadow-sm' : 'text-gray-500 hover:bg-gray-100'}`}
+>
+  <Inbox className="w-5 h-5 mr-2" /> 
+  <span>Command Inbox</span>
+  {unreadInboxCount > 0 && (
+    <span className="ml-2 bg-red-600 text-white text-[11px] font-black px-2 py-0.5 rounded-full shadow-sm animate-pulse">
+      {unreadInboxCount} new
+    </span>
+  )}
+</button>
 
           <button 
             onClick={() => handleTabSwitch('outbox')} 

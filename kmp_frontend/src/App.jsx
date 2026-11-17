@@ -697,7 +697,21 @@ const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage, onLogout })
       setNotification(`✅ ${data.message}`);
       setPasswordData({ old_password: '', new_password: '' });
     } catch (err) { 
-      setNotification(`❌ Error: ${err.message}`); 
+      // 🟢 FIX: Handle the error gracefully without rendering an Object 
+      let errorMsg = "An unexpected error occurred.";
+      if (err instanceof Response) {
+          try {
+              const errData = await err.json();
+              errorMsg = errData.detail || err.statusText;
+          } catch (e) {
+              errorMsg = err.statusText || "Server error";
+          }
+      } else if (err.message) {
+          errorMsg = err.message;
+      } else if (typeof err === 'string') {
+          errorMsg = err;
+      }
+      setNotification(`❌ Error: ${errorMsg}`); 
     }
   };
 

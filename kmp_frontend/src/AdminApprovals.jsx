@@ -835,7 +835,7 @@ const AdminApprovals = ({ currentUser, canViewGlobal = false, setCurrentPage, in
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail);
       setResetRequests(resetRequests.filter(r => r.id !== reqId));
-      alert(actionStr === "APPROVE" ? `Password successfully reset! Key: ${data.new_password}` : "Request rejected.");
+      alert(actionStr === "APPROVE" ? `Password successfully reset! Temporary Key: ${data.temporary_password || data.new_password}` : "Request rejected.");
     } catch (err) { alert(`Error: ${err.message}`); }
   };
 
