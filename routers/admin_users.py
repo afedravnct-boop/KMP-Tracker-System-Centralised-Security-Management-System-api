@@ -1025,7 +1025,7 @@ def get_pending_password_resets(
 
 
 # ==========================================================
-# 14.5 EXECUTE PASSWORD RESET FROM REQUEST (WITH EMAIL DISPATCH)
+# 14.5 EXECUTE PASSWORD RESET FROM REQUEST (WITH TEMPORARY KEY & 24HR EXPIRY)
 # ==========================================================
 @router.post("/execute-reset/{request_id}")
 def execute_password_reset_from_request(
@@ -1038,8 +1038,23 @@ def execute_password_reset_from_request(
     import secrets
     import string
     
-    if (current_user.role or "").strip().upper() != "SUPER_ADMIN":
-        raise HTTPException(status_code=403, detail="Security Restriction: Only Super Admins can execute password resets.")
+    # 🟢 1. STRICT HIERARCHICAL CLEARANCE CHECK (Super Admin, RPC, Deputy RPC, Regional Admin)
+    user_role = (current_user.role or "").strip().upper()
+    user_pos = (current_user.position or "").strip().upper()
+    
+    allowed_roles = ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "REGIONAL_ADMIN"]
+    is_authorized = (
+        user_role in allowed_roles or 
+        "RPC" in user_pos or 
+        "DEPUTY RPC" in user_pos or 
+        "REGIONAL ADMIN" in user_pos
+    )
+    
+    if not is_authorized:
+        raise HTTPException(
+            status_code=403, 
+            detail="Security Restriction: Password resets can only be executed by Super Admins, RPCs, Deputy RPCs, or Regional Admins."
+        )
 
     ResetModel = getattr(models, 'Password_Reset_Requests', getattr(models, 'PasswordResetRequests', None))
     if not ResetModel:
@@ -1060,23 +1075,35 @@ def execute_password_reset_from_request(
     if not target_user:
         raise HTTPException(status_code=404, detail=f"User {target_fnum} not found in the system.")
 
-    # 1. Generate a highly secure random temporary password
+    # 2. Generate a highly secure random temporary password
     alphabet = string.ascii_letters + string.digits
     temp_password = "UPF-" + "".join(secrets.choice(alphabet) for i in range(8))
 
-    # 2. Hash the new temporary password and apply it
+    # 3. Hash the new temporary password and apply it
     from passlib.context import CryptContext
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     target_user.hashed_password = pwd_context.hash(temp_password)
     
-    # 3. Update the request status to clear it from the dashboard
+    # 🟢 4. Set 24-Hour Expiry Timestamp (East Africa Time / UTC aware handling)
+    eat_tz = pytz.timezone('Africa/Nairobi')
+    expiry_time = datetime.now(eat_tz).replace(tzinfo=None) + timedelta(hours=24)
+    
+    if hasattr(target_user, 'temp_password_expires_at'):
+        target_user.temp_password_expires_at = expiry_time
+    
+    # 5. Update the request status to clear it from the dashboard
     target_request.status = "CLEARED"
     
-    append_user_audit_event(target_user, "PASSWORD_RESET", current_user.fnum, f"Password reset executed via dashboard request #{request_id}. Temporary password dispatched.")
+    append_user_audit_event(
+        target_user, 
+        "PASSWORD_RESET", 
+        current_user.fnum, 
+        f"Password reset executed via dashboard request #{request_id} by {current_user.rank} {current_user.name} ({current_user.fnum}). Temporary credential expires at {expiry_time.strftime('%Y-%m-%d %H:%M')} EAT."
+    )
     
     db.commit()
 
-    # 4. Dispatch the temporary password to the user's email
+    # 6. Dispatch the temporary password to the user's email
     if target_user.email and "@" in target_user.email:
         subject = "🔐 UPF System: Temporary Password Reset"
         html_body = f"""
@@ -1087,8 +1114,9 @@ def execute_password_reset_from_request(
             <div style="background-color: #f1f5f9; padding: 15px; border-radius: 6px; margin: 20px 0; border-left: 4px solid #ef4444;">
                 <p style="margin: 0; font-size: 14px; color: #475569; text-transform: uppercase; font-weight: bold;">Your Temporary Password:</p>
                 <p style="margin: 5px 0 0 0; font-size: 24px; font-family: monospace; font-weight: bold; color: #b91c1c;">{temp_password}</p>
+                <p style="margin: 10px 0 0 0; font-size: 12px; color: #b91c1c;"><strong>Notice:</strong> This temporary key expires in exactly 24 hours ({expiry_time.strftime('%Y-%m-%d %H:%M')} EAT).</p>
             </div>
-            <p style="color: #475569; font-size: 13px;"><strong>Immediate Action Required:</strong> Please log in to the KMP Centralised Security Data Management System using this temporary password. Once logged in, navigate to your Profile to create a new, secure password.</p>
+            <p style="color: #475569; font-size: 13px;"><strong>Immediate Action Required:</strong> Please log in using this temporary password and immediately navigate to your Profile to create a new permanent password.</p>
         </div>
         """
         background_tasks.add_task(send_email_notification, [target_user.email], subject, html_body)
@@ -1102,9 +1130,12 @@ def execute_password_reset_from_request(
         changes_summary=f"{current_user.fnum} executed password reset and cleared request for officer {target_fnum}."
     )
 
+    # 🟢 7. RETURN TEMPORARY PASSWORD TO THE FRONTEND COMMANDER CONSOLE
     return {
         "status": "success", 
-        "message": f"Password reset successfully for {target_fnum}. Temporary credentials dispatched to their registered email."
+        "temporary_password": temp_password,
+        "expires_at": expiry_time.strftime("%Y-%m-%d %H:%M:%S"),
+        "message": f"Password reset successfully for {target_fnum}. Temporary credential generated (Valid for 24 hours)."
     }
 
 # ==========================================================
