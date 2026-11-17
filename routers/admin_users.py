@@ -1031,7 +1031,6 @@ def get_pending_password_resets(
 def execute_password_reset_from_request(
     request_id: int,
     background_tasks: BackgroundTasks,
-    payload: Optional[dict] = Body(None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
