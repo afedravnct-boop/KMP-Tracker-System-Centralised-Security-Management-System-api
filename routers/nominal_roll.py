@@ -18,7 +18,7 @@ from openpyxl.styles import Alignment, PatternFill, Font, Border, Side
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Request, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_
+from sqlalchemy import func, or_, and_, text
 from sqlalchemy.exc import IntegrityError
 
 from app import models, schemas
@@ -461,7 +461,7 @@ def auto_infer_geography(station_name: str, current_region: Optional[str] = None
 
     return region_norm, district_norm
 
-# 🟢 THE FIX: Unified OPSEC Clearance Scope & Frontend Filter Engine
+# 🟢 THE FIX: Safely Handle Unquoted Global Filter Values
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, target_region: str = None, target_station: str = None):
     query = db.query(Model)
     
@@ -504,6 +504,8 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
         not is_kmp_sys_mgr and
         not is_kmp_specialist
     )
+    
+    is_major_station_user = classifyStation(current_user.station) == 'MAJOR'
 
     # ==========================================
     # 2. APPLY BASE JURISDICTIONAL LIMITATIONS
@@ -548,8 +550,14 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
         else:
             query = query.filter(text("1=0"))
             
+    elif is_major_station_user:
+        # Major Station users (like Jinja Road) are locked to their Region, 
+        # but they can still query within their region using the explicit frontend filters below.
+        if hasattr(Model, 'region'):
+            query = query.filter(func.upper(Model.region) == user_region)
+            
     elif hasattr(Model, 'station'):
-        # Standard local officer is permanently locked to their station.
+        # Standard local officer/post is permanently locked to their station.
         clean_user_stn = user_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
         query = query.filter(
             or_(
@@ -566,30 +574,35 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
     # ==========================================
     # 3. APPLY EXPLICIT FRONTEND UI FILTERS
     # ==========================================
-    if target_region and target_region.upper() not in ["ALL REGIONS", "ALL"]:
-        if hasattr(Model, 'region'):
-            query = query.filter(func.upper(Model.region) == target_region.upper())
+    if target_region:
+        clean_tr = unquote(target_region).strip().upper()
+        if clean_tr not in ["ALL REGIONS", "ALL", "ALL STATIONS / POSTS", ""]:
+            if hasattr(Model, 'region'):
+                query = query.filter(func.upper(Model.region) == clean_tr)
         
-    if target_station and target_station.upper() not in ["ALL STATIONS", "ALL"]:
-        if hasattr(Model, 'station'):
-            clean_target = target_station.upper().replace(' HEADQUARTERS', '').replace(' HQ', '')
-            query = query.filter(
-                or_(
-                    func.upper(Model.station) == target_station.upper(),
-                    func.upper(Model.station) == clean_target,
-                    func.upper(Model.station).ilike(f"%{clean_target}%")
+    if target_station:
+        clean_ts = unquote(target_station).strip().upper()
+        if clean_ts not in ["ALL STATIONS", "ALL STATIONS / POSTS", "ALL", ""]:
+            if hasattr(Model, 'station'):
+                clean_target = clean_ts.replace(' HEADQUARTERS', '').replace(' HQ', '')
+                query = query.filter(
+                    or_(
+                        func.upper(Model.station) == clean_ts,
+                        func.upper(Model.station) == clean_target,
+                        func.upper(Model.station).ilike(f"%{clean_target}%")
+                    )
                 )
-            )
 
     return query
+
 
 @router.get("/nominal-roll")
 def get_Nominal_Rolls(
     search: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None),
     category_filter: Optional[str] = Query(default=None),
-    region: Optional[str] = Query(default=None),  # 🟢 Ensure these are defined
-    station: Optional[str] = Query(default=None), # 🟢 Ensure these are defined
+    region: Optional[str] = Query(default=None), 
+    station: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
@@ -597,7 +610,6 @@ def get_Nominal_Rolls(
     ActiveModel = get_active_model()
     ArchiveModel = get_archive_model()
     
-    # 🟢 THE FIX: Pass the region and station explicitly to the query builder
     active_query = get_scoped_nominal_query(
         db, current_user, ActiveModel, 
         target_region=region, target_station=station
@@ -1353,10 +1365,11 @@ def export_nominal_roll_analytics(
 ):
     try:
         ActiveModel = get_active_model()
-        query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = normalize_region_name(region)
-        station_clean = normalize_station_name(station)
+        region_clean = normalize_region_name(unquote(region))
+        station_clean = normalize_station_name(unquote(station))
+        
+        query = get_scoped_nominal_query(db, current_user, ActiveModel, target_region=region_clean, target_station=station_clean)
 
         records = query.all()
         valid_records = [r for r in records if not is_invalid_roster_entry(r)]
@@ -1367,8 +1380,8 @@ def export_nominal_roll_analytics(
             r_stn = parsed_stn['station']
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
-            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
-            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+            if region_clean not in ["ALL REGIONS", "ALL"] and r_reg != region_clean: continue
+            if station_clean not in ["ALL STATIONS", "ALL STATIONS / POSTS", "ALL"] and r_stn != station_clean: continue
             filtered_records.append(r)
 
         total_personnel = len(filtered_records)
@@ -1520,10 +1533,11 @@ def export_missing_info_audit(
 ):
     try:
         ActiveModel = get_active_model()
-        query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = normalize_region_name(region)
-        station_clean = normalize_station_name(station)
+        region_clean = normalize_region_name(unquote(region))
+        station_clean = normalize_station_name(unquote(station))
+        
+        query = get_scoped_nominal_query(db, current_user, ActiveModel, target_region=region_clean, target_station=station_clean)
 
         records = sorted(query.all(), key=hierarchical_sort_key)
         missing_rows = []
@@ -1535,8 +1549,8 @@ def export_missing_info_audit(
             r_stn = parsed_stn['station'] 
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
-            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
-            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+            if region_clean not in ["ALL REGIONS", "ALL"] and r_reg != region_clean: continue
+            if station_clean not in ["ALL STATIONS", "ALL STATIONS / POSTS", "ALL"] and r_stn != station_clean: continue
 
             rank = str(getattr(r, 'rank', '')).strip().upper()
             is_constable_tier = rank in ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'] or 'DRV' in rank
@@ -1605,7 +1619,7 @@ def export_missing_info_audit(
         ws.row_dimensions[1].height = 22
 
         ws.cell(row=2, column=1, value=f"UGANDA POLICE FORCE - MANPOWER AUDIT: MISSING INFORMATION REPORT").font = Font(bold=True, size=11)
-        ws.cell(row=3, column=1, value=f"Station / Unit: {station_clean} (Region: {region_clean})").font = Font(size=10)
+        ws.cell(row=3, column=1, value=f"Scope: Station [{station_clean}] | Region [{region_clean}]").font = Font(size=10)
         ws.row_dimensions[2].height = 18
         ws.row_dimensions[3].height = 18
 
@@ -1692,10 +1706,11 @@ def export_station_nominal_roll(
 ):
     try:
         ActiveModel = get_active_model()
-        query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = normalize_region_name(region)
-        station_clean = normalize_station_name(station)
+        region_clean = normalize_region_name(unquote(region))
+        station_clean = normalize_station_name(unquote(station))
+        
+        query = get_scoped_nominal_query(db, current_user, ActiveModel, target_region=region_clean, target_station=station_clean)
 
         records = sorted(query.all(), key=hierarchical_sort_key)
         station_rows = []
@@ -1707,8 +1722,8 @@ def export_station_nominal_roll(
             r_stn = parsed_stn['station']
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
-            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
-            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+            if region_clean not in ["ALL REGIONS", "ALL"] and r_reg != region_clean: continue
+            if station_clean not in ["ALL STATIONS", "ALL STATIONS / POSTS", "ALL"] and r_stn != station_clean: continue
 
             station_rows.append({
                 "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
@@ -1777,7 +1792,7 @@ def export_station_nominal_roll(
         ws.row_dimensions[1].height = 22
 
         ws.cell(row=2, column=1, value=f"UGANDA POLICE FORCE - MASTER NOMINAL ROLL LEDGER (FULL DETAILS)").font = Font(bold=True, size=11)
-        ws.cell(row=3, column=1, value=f"Station / Unit: {station_clean} (Region: {region_clean})").font = Font(size=10)
+        ws.cell(row=3, column=1, value=f"Scope: Station [{station_clean}] | Region [{region_clean}]").font = Font(size=10)
         ws.row_dimensions[2].height = 18
         ws.row_dimensions[3].height = 18
 
@@ -1891,10 +1906,12 @@ def export_filtered_nominal_roll(
 ):
     try:
         ActiveModel = get_active_model()
-        query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = normalize_region_name(region)
-        station_clean = normalize_station_name(station)
+        region_clean = normalize_region_name(unquote(region))
+        station_clean = normalize_station_name(unquote(station))
+        
+        query = get_scoped_nominal_query(db, current_user, ActiveModel, target_region=region_clean, target_station=station_clean)
+        
         f_type = filter_type.strip().upper()
         f_val = filter_value.strip().upper()
 
@@ -1908,8 +1925,8 @@ def export_filtered_nominal_roll(
             r_stn = parsed_stn['station']
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
-            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
-            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+            if region_clean not in ["ALL REGIONS", "ALL"] and r_reg != region_clean: continue
+            if station_clean not in ["ALL STATIONS", "ALL STATIONS / POSTS", "ALL"] and r_stn != station_clean: continue
 
             if f_val != "ALL":
                 if f_type == "RANK":
@@ -2042,10 +2059,11 @@ def audit_missing_preview(
 ):
     try:
         ActiveModel = get_active_model()
-        query = get_scoped_nominal_query(db, current_user, ActiveModel)
         
-        region_clean = normalize_region_name(region)
-        station_clean = normalize_station_name(station)
+        region_clean = normalize_region_name(unquote(region))
+        station_clean = normalize_station_name(unquote(station))
+        
+        query = get_scoped_nominal_query(db, current_user, ActiveModel, target_region=region_clean, target_station=station_clean)
 
         records = sorted(query.all(), key=hierarchical_sort_key)
         missing_rows = []
@@ -2057,8 +2075,8 @@ def audit_missing_preview(
             r_stn = parsed_stn['station']
             r_reg = getOfficialRegionForStation(r_stn, str(getattr(r, 'region', '')).strip().upper())
 
-            if region_clean != "ALL REGIONS" and r_reg != region_clean: continue
-            if station_clean != "ALL STATIONS" and r_stn != station_clean: continue
+            if region_clean not in ["ALL REGIONS", "ALL"] and r_reg != region_clean: continue
+            if station_clean not in ["ALL STATIONS", "ALL STATIONS / POSTS", "ALL"] and r_stn != station_clean: continue
 
             rank = str(getattr(r, 'rank', '')).strip().upper()
             is_constable_tier = rank in ['PC', 'DC', 'D/C', 'CONSTABLE', 'C/DRV', 'DRV'] or 'DRV' in rank

@@ -1,5 +1,5 @@
 // src/components/Nominal_Roll.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Users, PlusCircle, Edit, AlertTriangle, CheckCircle, Upload, 
   BarChart3, PieChart, ArrowRight, Eye, Search, X, Download, Filter
@@ -192,16 +192,20 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
 
   const canViewGlobalLevel = propCanViewGlobal !== undefined ? propCanViewGlobal : (isGlobalTier || hasMasterOverride);
   const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+  
+  // 🟢 Allow Major Station users (like Jinja Road commanders) to filter their region's posts
+  const isMajorStationUser = classifyStation(currentUser?.station) === 'MAJOR';
+  const canFilterStations = canViewGlobalLevel || isRegionalCommand || isMajorStationUser;
 
   const perms = currentUser?.permissions || {};
   const hasHrClearance = isTopCommand || hasMasterOverride || perms.view_nominal_roll === true || perms.acc_hr === true || perms.upload_hr === true;
   const canEditRecords = hasHrClearance && !isReadOnlyObserver;
   
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : normalizeStationName(currentUser?.station));
+  const [filterStation, setFilterStation] = useState(canFilterStations ? 'ALL STATIONS' : normalizeStationName(currentUser?.station));
 
   const [targetRegion, setTargetRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
-  const [targetStation, setTargetStation] = useState('ALL STATIONS');
+  const [targetStation, setTargetStation] = useState(canFilterStations ? 'ALL STATIONS' : normalizeStationName(currentUser?.station));
 
   const [searchTerm, setSearchTerm] = useState('');
   const [bulkSelectMode, setBulkSelectMode] = useState(false);
@@ -264,6 +268,50 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         policePosts: Array.from(posts).sort()
     };
   }, [Nominal_Rolls, filterRegion]);
+
+  // 🟢 Robust Modal Stations Calculator (Tied purely to targetRegion)
+  const modalStations = useMemo(() => {
+    const majors = new Set();
+    const stations = new Set();
+    const posts = new Set();
+    const rawRolls = Array.isArray(Nominal_Rolls) ? Nominal_Rolls : [];
+
+    if (!targetRegion || targetRegion === 'ALL REGIONS') {
+        Object.values(REGIONAL_HIERARCHY).forEach(arr => arr.forEach(s => majors.add(normalizeStationName(s))));
+        rawRolls.forEach(n => {
+            const stn = cleanStr(n.station);
+            const normName = normalizeStationName(stn);
+            const cat = classifyStation(stn);
+            if (cat === 'MAJOR') majors.add(normName);
+            else if (cat === 'STATION') stations.add(normName);
+            else if (cat === 'POST') posts.add(normName);
+        });
+    } else {
+        if (REGIONAL_HIERARCHY[targetRegion]) {
+            REGIONAL_HIERARCHY[targetRegion].forEach(s => majors.add(normalizeStationName(s)));
+        }
+
+        rawRolls.forEach(n => {
+            const stn = cleanStr(n.station);
+            const reg = getOfficialRegionForStation(stn, n.region);
+            
+            if (reg === targetRegion) {
+                const normName = normalizeStationName(stn);
+                const cat = classifyStation(stn);
+                if (cat === 'MAJOR') majors.add(normName);
+                else if (cat === 'STATION') stations.add(normName);
+                else if (cat === 'POST') posts.add(normName);
+            }
+        });
+    }
+
+    return { 
+        major: Array.from(majors).sort(), 
+        other: Array.from(stations).sort(), 
+        posts: Array.from(posts).sort() 
+    };
+  }, [Nominal_Rolls, targetRegion]);
+
 
   const populateUpdateForm = (data) => {
     setFormData({
@@ -533,6 +581,17 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
           if (!response.ok) throw new Error("Failed to update record.");
           setNominal_Rolls(currentRolls.map(n => (n.sn === formData.sn || n.fnum === formData.fnum) ? updatedRecord : n));
           setNotification(`Officer updated successfully!`);
+          
+          // 🟢 FIX: Reset form data and search bar after successful update
+          setFormData({
+            sn: null, fnum: '', rank: '', name: '', sex: 'MALE', position: '',
+            dob: '', doe: '', dopost: '', dopro: '', contact: '', educlevel: '',
+            ipps: '', tin: '', nin: '', homedist: '', tribe: '', accno: '', bankbranch: '',
+            station: currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '', 
+            district: '', region: currentUser?.region, section: '', dir: '', status: 'ACTIVE'
+          });
+          setUpdateSearch('');
+
       } catch (err) { setNotification("Error: Could not update record."); }
     }
   };
@@ -779,7 +838,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => { setModalMode('audit'); setShowAuditPreviewModal(false); setShowModal(true); }}
+                    onClick={handleExecuteExportModal}
                     className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 text-xs font-bold rounded shadow transition flex items-center cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5 mr-1" /> Download Audit Report
@@ -913,25 +972,25 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 <select 
                   value={targetStation} 
                   onChange={(e) => setTargetStation(e.target.value)}
-                  disabled={!(canViewGlobalLevel || isRegionalCommand)}
+                  disabled={!canFilterStations}
                   className="w-full text-xs border rounded p-2 bg-white font-bold text-slate-800 outline-none disabled:bg-gray-100 disabled:text-gray-500 cursor-pointer"
                 >
-                  {(canViewGlobalLevel || isRegionalCommand) ? (
+                  {canFilterStations ? (
                     <>
                       <option value="ALL STATIONS">ALL STATIONS / POSTS</option>
-                      {majorStations.length > 0 && (
+                      {modalStations.major.length > 0 && (
                           <optgroup label="MAJOR STATIONS / CPS / DIVISIONS">
-                              {majorStations.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                              {modalStations.major.map(stat => <option key={stat} value={stat}>{stat}</option>)}
                           </optgroup>
                       )}
-                      {policeStations.length > 0 && (
+                      {modalStations.other.length > 0 && (
                           <optgroup label="OTHER POLICE STATIONS">
-                              {policeStations.map(stat => <option key={stat} value={stat}>{stat}</option>)}
+                              {modalStations.other.map(stat => <option key={stat} value={stat}>{stat}</option>)}
                           </optgroup>
                       )}
-                      {policePosts.length > 0 && (
+                      {modalStations.posts.length > 0 && (
                           <optgroup label="POLICE POSTS">
-                              {policePosts.map(post => <option key={post} value={post}>{post}</option>)}
+                              {modalStations.posts.map(post => <option key={post} value={post}>{post}</option>)}
                           </optgroup>
                       )}
                     </>
@@ -948,14 +1007,23 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                 Cancel
               </button>
               {modalMode === 'audit' ? (
-                <button 
-                  type="button" 
-                  onClick={handleFetchAuditPreview}
-                  disabled={isLoadingAudit}
-                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2 rounded text-xs font-bold shadow transition cursor-pointer flex items-center justify-center disabled:opacity-50"
-                >
-                  <Eye className="w-3.5 h-3.5 mr-1" /> {isLoadingAudit ? 'Loading...' : 'View Audit List'}
-                </button>
+                <div className="flex-1 flex gap-2">
+                  <button 
+                    type="button" 
+                    onClick={handleFetchAuditPreview}
+                    disabled={isLoadingAudit}
+                    className="flex-1 bg-amber-600 hover:bg-amber-700 text-white py-2 rounded text-xs font-bold shadow transition cursor-pointer flex items-center justify-center disabled:opacity-50"
+                  >
+                    <Eye className="w-3.5 h-3.5 mr-1" /> {isLoadingAudit ? 'Loading...' : 'View Audit List'}
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={handleExecuteExportModal} 
+                    className="flex-1 bg-blue-700 hover:bg-blue-800 text-white py-2 rounded text-xs font-bold shadow transition cursor-pointer flex items-center justify-center"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1" /> Download
+                  </button>
+                </div>
               ) : (
                 <div className="flex-1 flex gap-2">
                   <button 
@@ -1130,7 +1198,7 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                       <h4 className="text-[10px] font-bold text-gray-500 uppercase border-b pb-0.5">2. Service & Placement</h4>
                       <div className="grid grid-cols-2 gap-2">
                         <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">REGION *</label><select name="region" value={formData.region} onChange={handleInputChange} disabled={!isGlobalTier} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800 disabled:bg-gray-100 disabled:text-gray-500">{isGlobalTier ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{userRegClean}</option>}</select></div>
-                        <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DUTY STATION *</label><input type="text" name="station" value={formData.station} onChange={handleInputChange} disabled={!isGlobalTier && !isRegionalCommand} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800 disabled:bg-gray-100 disabled:text-gray-500" /></div>
+                        <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DUTY STATION *</label><input type="text" name="station" value={formData.station} onChange={handleInputChange} disabled={!canFilterStations} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800 disabled:bg-gray-100 disabled:text-gray-500" /></div>
                         <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">POSITION *</label><input type="text" name="position" value={formData.position} onChange={handleInputChange} required className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800" /></div>
                         <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">DISTRICT</label><input type="text" name="district" value={formData.district} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800" /></div>
                         <div><label className="block text-[10px] font-bold text-gray-700 mb-0.5">SECTION</label><input type="text" name="section" value={formData.section} onChange={handleInputChange} className="w-full text-xs border-gray-300 rounded shadow-xs border py-1.5 px-2 bg-white text-slate-800" /></div>
@@ -1324,10 +1392,10 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
               <select 
                 value={filterStation} 
                 onChange={(e) => setFilterStation(e.target.value)} 
-                disabled={!(canViewGlobalLevel || isRegionalCommand)} 
+                disabled={!canFilterStations} 
                 className="border rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs bg-white text-slate-800 border-slate-300 disabled:bg-gray-100 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer"
               >
-                {(canViewGlobalLevel || isRegionalCommand) ? (
+                {canFilterStations ? (
                   <>
                     <option value="ALL STATIONS">ALL STATIONS</option>
                     {majorStations.length > 0 && (
