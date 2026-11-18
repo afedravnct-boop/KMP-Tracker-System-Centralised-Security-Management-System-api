@@ -130,7 +130,7 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
         print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
 
 # ====================================================================
-# AUTHENTICATION DEPENDENCY (WITH SESSION TIMEOUT AUDIT LOGGING)
+# AUTHENTICATION DEPENDENCY (WITH UNIVERSAL MUTATION GUARD)
 # ====================================================================
 def get_current_user(
     request: Request, 
@@ -190,11 +190,47 @@ def get_current_user(
     if user is None:
         raise credentials_exception
         
-    if str(user.role).strip().upper() == "REVOKED" or not user.is_approved:
+    user_role = str(user.role).strip().upper()
+    
+    if user_role == "REVOKED" or not user.is_approved:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access Denied: Account is revoked or pending approval."
         )
+
+    # ================================================================
+    # 🟢 THE UNIVERSAL READ-ONLY MUTATION GUARD
+    # ================================================================
+    if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
+        
+        safe_paths = [
+            "/heartbeat",           
+            "/acknowledge",         
+            "/diagnose-glitch",     
+            "/login",               
+            "/toggle-my-delegation",
+            "/log-session",
+            "/activity-logs"
+        ]
+        
+        if not any(safe_path in request.url.path for safe_path in safe_paths):
+            perms = user.permissions or {}
+            if isinstance(perms, str):
+                try: perms = json.loads(perms)
+                except Exception: perms = {}
+                
+            is_readonly = (
+                perms.get("global_observer") is True and 
+                perms.get("global_open") is not True and 
+                user_role != "SUPER_ADMIN"
+            )
+            
+            if is_readonly:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="SYSTEM LOCK: Your account is in Read-Only Global Observer mode. All data mutations, edits, and administrative actions are strictly disabled."
+                )
+    # ================================================================
 
     def is_lockdown_exempt(u: models.Users) -> bool:
         if not u:
