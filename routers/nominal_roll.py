@@ -461,7 +461,7 @@ def auto_infer_geography(station_name: str, current_region: Optional[str] = None
     return region_norm, district_norm
 
 
-# 🟢 THE FIX: Bulletproof User Access & Scope Filtering
+# 🟢 THE FIX: Cleanly Separated Hierarchical Jurisdiction Restrictions
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, target_region: str = None, target_station: str = None):
     query = db.query(Model)
     
@@ -475,9 +475,13 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
         try: perms = json.loads(perms)
         except Exception: perms = {}
 
-    # 1. DEFINE CLEARANCE TIERS
+    # ==========================================
+    # 1. ESTABLISH COMMAND CLEARANCE LEVELS
+    # ==========================================
+    
+    # 🌍 GLOBAL TIER: Sees everything, everywhere.
     is_absolute_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"] or
         "KMP COMMANDER" in user_pos or
         "DEPUTY KMP COMMANDER" in user_pos or
         "KMP ADMIN" in user_pos or
@@ -485,51 +489,30 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
         perms.get("global_observer") is True
     )
 
-    is_kmp_sys_mgr = (
-        user_role == "SYSTEM_MANAGER" and
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos
-    )
-
-    is_kmp_specialist = (
-        user_role == "ASSISTANT_SYSTEM_MANAGER" and
-        user_region in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-        "KMP" in user_pos
-    )
-
-    # RESTORED EXACTLY FROM YOUR FILE
+    # 📍 REGIONAL TIER: Sees ENTIRE region (All establishments under it)
     is_regional_command = (
-        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
-        not is_kmp_sys_mgr and
-        not is_kmp_specialist
+        user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] or
+        "RPC" in user_pos or 
+        "HR" in user_pos or
+        "REGIONAL COMMANDER" in user_pos or
+        "DEPUTY COMMANDER" in user_pos
     )
     
+    # 🏢 MAJOR STATION TIER (e.g. Jinja Road: sees their station + sub-posts)
     is_major_station_user = False
     for r_name, s_list in REGIONAL_HIERARCHY.items():
         if user_station in s_list:
             is_major_station_user = True
             break
 
-    # 2. APPLY BASE SECURITY SCOPE (What can this user see by default?)
-    if is_absolute_global or is_kmp_sys_mgr:
-        pass # Unrestricted
+    # ==========================================
+    # 2. APPLY BASE JURISDICTIONAL LIMITS
+    # ==========================================
+    if is_absolute_global:
+        pass # Unrestricted access to all records
         
-    elif is_kmp_specialist:
-        specs = []
-        if "CID" in user_pos: specs.append("CID")
-        if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
-        if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
-        
-        if specs and hasattr(Model, 'section'):
-            conds = [func.upper(Model.section).ilike(f"%{s}%") for s in specs]
-            if hasattr(Model, 'dir'):
-                conds.extend([func.upper(Model.dir).ilike(f"%{s}%") for s in specs])
-            query = query.filter(or_(*conds))
-        elif hasattr(Model, 'region'):
-            query = query.filter(func.upper(Model.region) == user_region)
-            
-    elif is_regional_command or (user_region in REGIONAL_HIERARCHY and not is_major_station_user):
-        # RESTORED EXACTLY FROM YOUR FILE: Regional Commanders get full Region block
+    elif is_regional_command:
+        # Regional users see EVERYTHING in their region mapping
         conds = []
         if hasattr(Model, 'region'):
             conds.append(func.upper(Model.region) == user_region)
@@ -549,7 +532,7 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
             query = query.filter(text("1=0"))
 
     elif is_major_station_user and hasattr(Model, 'station'):
-        # MAJOR STATION USER (e.g. Jinja Road): Locked to their station AND sub-posts
+        # Major Station User: Locked to their station AND sub-posts
         clean_user_stn = user_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
         query = query.filter(
             or_(
@@ -570,12 +553,14 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
                 func.upper(Model.station) == f"{clean_user_stn} HEADQUARTERS"
             )
         )
-        return query # Exit immediately, they cannot filter beyond their station.
+        return query # Terminate early: Standard users cannot apply explicit filters outside their station.
         
     else:
         query = query.filter(text("1=0"))
 
-    # 3. APPLY EXPLICIT UI FILTERS (What did they specifically ask to see?)
+    # ==========================================
+    # 3. APPLY EXPLICIT FRONTEND UI FILTERS
+    # ==========================================
     if target_region:
         clean_tr = unquote(target_region).strip().upper()
         if clean_tr not in ["ALL REGIONS", "ALL", "ALL STATIONS / POSTS", ""]:
@@ -1736,7 +1721,7 @@ def export_station_nominal_roll(
                 "Contact": getattr(r, 'contact', ''),
                 "IPPS": getattr(r, 'ipps', ''),
                 "NIN": getattr(r, 'nin', ''),
-                "TIN": getattr(r, 'dob', ''),
+                "TIN": getattr(r, 'tin', ''),
                 "DOB": getattr(r, 'dob', ''),
                 "DOE": getattr(r, 'doe', ''),
                 "Date of Post": getattr(r, 'do_post', getattr(r, 'dopost', '')),
@@ -2097,8 +2082,6 @@ def audit_missing_preview(
             if not nin: missing_fields.append("NIN")
             if not ipps: missing_fields.append("IPPS")
             if not is_constable_tier and not dopro: missing_fields.append("DO_PRO")
-
-            if missing_rows and len(missing_rows) >= 500: break
 
             if missing_fields:
                 missing_rows.append({
