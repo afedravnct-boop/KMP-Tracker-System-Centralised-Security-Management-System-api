@@ -179,7 +179,8 @@ def get_command_tier(user: models.Users) -> int:
         return 1
     return 0
 
-# 🟢 MUTATION GUARD FOR READ-ONLY GLOBAL OBSERVERS
+
+# 🟢 THE FIX: STRICT MUTATION GUARD FOR READ-ONLY GLOBAL OBSERVERS
 def enforce_mutation_clearance(current_user: models.Users):
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required.")
@@ -192,13 +193,15 @@ def enforce_mutation_clearance(current_user: models.Users):
         try: perms = json.loads(perms)
         except: perms = {}
         
+    # If they are flagged as global_observer AND NOT global_open AND NOT Super Admin
     is_readonly_observer = perms.get("global_observer") is True and perms.get("global_open") is not True and not is_super_admin
     
     if is_readonly_observer:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Security Violation: Read-only global observer clearance strictly prohibits data mutation, file downloads, or administrative approvals."
+            detail="Security Violation: Read-only global observer clearance strictly prohibits data mutation or administrative edits."
         )
+
 
 # 🟢 DELEGATION, JURISDICTION & INTELLIGENT FAILOVER CHECKER
 def verify_admin_delegation(current_user: models.Users, db: Session):
@@ -313,7 +316,7 @@ def approve_pending_user(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)  
 ):
-    enforce_mutation_clearance(current_user)
+    enforce_mutation_clearance(current_user) # 🟢 GUARANTEES NO READ-ONLY OBSERVERS SNEAK PAST
     delegation = verify_admin_delegation(current_user, db)
     if not delegation["is_admin"]:
         raise HTTPException(
@@ -426,7 +429,7 @@ def update_user_access(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    enforce_mutation_clearance(current_user)
+    enforce_mutation_clearance(current_user) # 🟢 GUARANTEES NO READ-ONLY OBSERVERS SNEAK PAST
     delegation = verify_admin_delegation(current_user, db)
     if not delegation["is_admin"]:
         raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized to modify user clearances.")
@@ -532,7 +535,7 @@ def toggle_my_delegation(
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    enforce_mutation_clearance(current_user)
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     perms = current_user.permissions or {}
     if isinstance(perms, str):
         try: perms = json.loads(perms)
@@ -559,7 +562,7 @@ def revoke_user_access(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    enforce_mutation_clearance(current_user)
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     delegation = verify_admin_delegation(current_user, db)
     if not delegation["is_admin"]:
         raise HTTPException(status_code=403, detail="Clearance Denied: Unauthorized to revoke user access.")
@@ -593,6 +596,7 @@ def permanent_delete_user(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     user_role = (current_user.role or "").strip().upper()
     if user_role != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Security Restriction: Only Super Admins can permanently purge records.")
@@ -616,6 +620,7 @@ def force_password_reset(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     if (current_user.role or "").strip().upper() != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Security Restriction: Only Super Admins can force password resets.")
 
@@ -667,6 +672,7 @@ def toggle_maintenance(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     if (current_user.role or "").strip().upper() != "SUPER_ADMIN":
         raise HTTPException(status_code=403, detail="Security Restriction: Only Super Admins can manage system lockdowns.")
     
@@ -836,6 +842,7 @@ def create_admin_transfer_request(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     delegation = verify_admin_delegation(current_user, db)
     if not delegation["is_admin"]:
         raise HTTPException(
@@ -907,6 +914,7 @@ def approve_hr_transfer_request(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     delegation = verify_admin_delegation(current_user, db)
     actor_tier = get_command_tier(current_user)
     
@@ -1038,6 +1046,8 @@ def execute_password_reset_from_request(
     import secrets
     import string
     
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
+
     # 🟢 1. STRICT HIERARCHICAL CLEARANCE CHECK (Super Admin, RPC, Deputy RPC, Regional Admin)
     user_role = (current_user.role or "").strip().upper()
     user_pos = (current_user.position or "").strip().upper()
@@ -1292,7 +1302,7 @@ def set_commander_status(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
-    enforce_mutation_clearance(current_user)
+    enforce_mutation_clearance(current_user) # 🟢 NO OBSERVERS
     perms = current_user.permissions or {}
     if isinstance(perms, str):
         try: perms = json.loads(perms)
