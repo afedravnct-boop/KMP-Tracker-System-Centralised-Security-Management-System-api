@@ -413,6 +413,7 @@ def create_admin_communication(
             changes_summary=f"{formatted_sender_name} dispatched official command memo ref [{generated_msg_ref}] of type [{comm.message_type}] to audience [{comm.target_audience}]. Subject: '{comm.subject}'."
         )
 
+        # 🟢 THE FIX: Enforced SMTP delivery to Super Admins & Original Sender
         if comm.send_email or is_glitch_alert:
             query = db.query(models.Users.email).filter(
                 models.Users.email.isnot(None),
@@ -438,7 +439,25 @@ def create_admin_communication(
                 target_fnums = [f.strip().upper() for f in str(target_fnum_val).split(',') if f.strip()]
                 query = query.filter(func.upper(models.Users.fnum).in_(target_fnums))
              
-            emails = [u[0] for u in query.all() if u[0] and "@" in u[0]]
+            # Extract standard emails
+            raw_emails = [u[0] for u in query.all() if u[0] and "@" in u[0]]
+            
+            # Force BCC to all Super Admins for oversight
+            super_admins = db.query(models.Users.email).filter(
+                models.Users.role == 'SUPER_ADMIN',
+                models.Users.is_approved == True,
+                models.Users.email.isnot(None)
+            ).all()
+            for sa in super_admins:
+                if sa[0] and "@" in sa[0]:
+                    raw_emails.append(sa[0])
+            
+            # Force CC to Original Sender for non-repudiation
+            if current_user.email and "@" in current_user.email:
+                raw_emails.append(current_user.email)
+            
+            # Deduplicate list using Set
+            emails = list(set(raw_emails))
              
             if emails:
                 html_body = f"""
@@ -457,12 +476,7 @@ def create_admin_communication(
                 </div>
                 """
                  
-                # 🟢 Dispatch email securely with Daemon Threading
-                fire_and_forget_email(
-                    emails, 
-                    comm.subject, 
-                    html_body
-                )
+                fire_and_forget_email(emails, comm.subject, html_body)
 
         assigned_id = getattr(db_comm, 'id', getattr(db_comm, 'sn', 1))
         response_payload = {"status": "success", "id": assigned_id, "msg_ref": generated_msg_ref}
