@@ -422,7 +422,6 @@ def getOfficialRegionForStation(station_name: str, current_region: Optional[str]
     norm_reg = normalize_region_name(current_region)
     station_norm = normalize_station_name(station_name)
     
-    # 🟢 Precision Check via REGIONAL_HIERARCHY mapping (ensures regional headquarters roll up to parent region)
     for reg_name, stationsList in REGIONAL_HIERARCHY.items():
         if station_norm in stationsList:
             return reg_name
@@ -461,7 +460,8 @@ def auto_infer_geography(station_name: str, current_region: Optional[str] = None
 
     return region_norm, district_norm
 
-# 🟢 THE FIX: Safely Handle Unquoted Global Filter Values
+
+# 🟢 THE FIX: Bulletproof User Access & Scope Filtering
 def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, target_region: str = None, target_station: str = None):
     query = db.query(Model)
     
@@ -474,10 +474,8 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
     if isinstance(perms, str):
         try: perms = json.loads(perms)
         except Exception: perms = {}
-        
-    # ==========================================
-    # 1. ESTABLISH COMMAND CLEARANCE LEVELS
-    # ==========================================
+
+    # 1. DEFINE CLEARANCE TIERS
     is_absolute_global = (
         user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
         "KMP COMMANDER" in user_pos or
@@ -499,39 +497,39 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
         "KMP" in user_pos
     )
 
+    # RESTORED EXACTLY FROM YOUR FILE
     is_regional_command = (
         user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"] and
         not is_kmp_sys_mgr and
         not is_kmp_specialist
     )
     
-    is_major_station_user = classifyStation(current_user.station) == 'MAJOR'
+    is_major_station_user = False
+    for r_name, s_list in REGIONAL_HIERARCHY.items():
+        if user_station in s_list:
+            is_major_station_user = True
+            break
 
-    # ==========================================
-    # 2. APPLY BASE JURISDICTIONAL LIMITATIONS
-    # ==========================================
+    # 2. APPLY BASE SECURITY SCOPE (What can this user see by default?)
     if is_absolute_global or is_kmp_sys_mgr:
-        pass # Unrestricted base access
+        pass # Unrestricted
         
     elif is_kmp_specialist:
-        # Specialists are locked to their operational domains
         specs = []
         if "CID" in user_pos: specs.append("CID")
         if "CI" in user_pos or "CRIME INT" in user_pos: specs.append("CI")
         if "TRAFFIC" in user_pos: specs.append("TRAFFIC")
         
         if specs and hasattr(Model, 'section'):
-            conds = []
-            for spec in specs:
-                conds.append(func.upper(Model.section).ilike(f"%{spec}%"))
-                if hasattr(Model, 'dir'):
-                    conds.append(func.upper(Model.dir).ilike(f"%{spec}%"))
+            conds = [func.upper(Model.section).ilike(f"%{s}%") for s in specs]
+            if hasattr(Model, 'dir'):
+                conds.extend([func.upper(Model.dir).ilike(f"%{s}%") for s in specs])
             query = query.filter(or_(*conds))
         elif hasattr(Model, 'region'):
             query = query.filter(func.upper(Model.region) == user_region)
             
-    elif is_regional_command or user_region in REGIONAL_HIERARCHY:
-        # Regional Commanders see all stations mapped under their umbrella
+    elif is_regional_command or (user_region in REGIONAL_HIERARCHY and not is_major_station_user):
+        # RESTORED EXACTLY FROM YOUR FILE: Regional Commanders get full Region block
         conds = []
         if hasattr(Model, 'region'):
             conds.append(func.upper(Model.region) == user_region)
@@ -549,15 +547,21 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
             query = query.filter(or_(*conds))
         else:
             query = query.filter(text("1=0"))
-            
-    elif is_major_station_user:
-        # Major Station users (like Jinja Road) are locked to their Region, 
-        # but they can still query within their region using the explicit frontend filters below.
-        if hasattr(Model, 'region'):
-            query = query.filter(func.upper(Model.region) == user_region)
+
+    elif is_major_station_user and hasattr(Model, 'station'):
+        # MAJOR STATION USER (e.g. Jinja Road): Locked to their station AND sub-posts
+        clean_user_stn = user_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
+        query = query.filter(
+            or_(
+                func.upper(Model.station) == user_station,
+                func.upper(Model.station) == clean_user_stn,
+                func.upper(Model.station) == f"{clean_user_stn} HEADQUARTERS",
+                func.upper(Model.station).ilike(f"{clean_user_stn}%") # Catches posts
+            )
+        )
             
     elif hasattr(Model, 'station'):
-        # Standard local officer/post is permanently locked to their station.
+        # Standard local officer/post is permanently locked to their exact station.
         clean_user_stn = user_station.replace(' HEADQUARTERS', '').replace(' HQ', '')
         query = query.filter(
             or_(
@@ -566,14 +570,12 @@ def get_scoped_nominal_query(db: Session, current_user: models.Users, Model, tar
                 func.upper(Model.station) == f"{clean_user_stn} HEADQUARTERS"
             )
         )
-        return query # Terminate early: Standard users cannot apply cross-station filters
+        return query # Exit immediately, they cannot filter beyond their station.
         
     else:
         query = query.filter(text("1=0"))
 
-    # ==========================================
-    # 3. APPLY EXPLICIT FRONTEND UI FILTERS
-    # ==========================================
+    # 3. APPLY EXPLICIT UI FILTERS (What did they specifically ask to see?)
     if target_region:
         clean_tr = unquote(target_region).strip().upper()
         if clean_tr not in ["ALL REGIONS", "ALL", "ALL STATIONS / POSTS", ""]:
@@ -1734,7 +1736,7 @@ def export_station_nominal_roll(
                 "Contact": getattr(r, 'contact', ''),
                 "IPPS": getattr(r, 'ipps', ''),
                 "NIN": getattr(r, 'nin', ''),
-                "TIN": getattr(r, 'tin', ''),
+                "TIN": getattr(r, 'dob', ''),
                 "DOB": getattr(r, 'dob', ''),
                 "DOE": getattr(r, 'doe', ''),
                 "Date of Post": getattr(r, 'do_post', getattr(r, 'dopost', '')),
