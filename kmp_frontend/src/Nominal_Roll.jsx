@@ -644,32 +644,38 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
   }, [viewMode, filteredRolls, filteredNominal_Roll_archives]);
 
   const analyticsFilteredDataset = useMemo(() => {
-  if (analyticsMetricFilterValue === 'ALL') return currentRollDataset;
+    if (analyticsMetricFilterValue === 'ALL') return currentRollDataset;
 
-  return currentRollDataset.filter(n => {
-    if (metricCategory === 'RANK') {
-      let r = cleanStr(n.rank);
-      if (r.includes('DRV')) r = 'PC';
-      return r === analyticsMetricFilterValue;
-    } else if (metricCategory === 'UNIT') {
-      return normalizeStationName(n.station) === analyticsMetricFilterValue;
-    } else if (metricCategory === 'STATUS') {
-      const normStatus = n.normalized_status || cleanStr(n.status);
-      return normStatus === analyticsMetricFilterValue;
-    } else if (metricCategory === 'SEX') {
-      const sexStr = cleanStr(n.sex);
-      const isFemale = sexStr === 'F' || sexStr === 'FEMALE';
-      return analyticsMetricFilterValue === 'FEMALE' ? isFemale : !isFemale;
-    } else if (metricCategory === 'AGE') {
-      return (n.age_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
-    } else if (metricCategory === 'POSITION') {
-      return cleanStr(n.position).includes(analyticsMetricFilterValue);
-    } else if (metricCategory === 'SECTION') {
-      return cleanStr(n.normalized_section || n.section || n.dir) === analyticsMetricFilterValue;
-    }
-    return true;
-  });
-}, [currentRollDataset, metricCategory, analyticsMetricFilterValue]);
+    return currentRollDataset.filter(n => {
+      if (metricCategory === 'RANK') {
+        let r = cleanStr(n.rank);
+        if (r.includes('DRV')) r = 'PC';
+        return r === analyticsMetricFilterValue;
+      } else if (metricCategory === 'UNIT') {
+        return normalizeStationName(n.station) === analyticsMetricFilterValue;
+      } else if (metricCategory === 'STATUS') {
+        const normStatus = n.normalized_status || cleanStr(n.status);
+        return normStatus === analyticsMetricFilterValue;
+      } else if (metricCategory === 'SEX') {
+        const sexStr = cleanStr(n.sex);
+        const isFemale = sexStr === 'F' || sexStr === 'FEMALE';
+        return analyticsMetricFilterValue === 'FEMALE' ? isFemale : !isFemale;
+      } else if (metricCategory === 'AGE') {
+        return (n.age_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
+      } else if (metricCategory === 'SERVICE_LENGTH') {
+        return (n.service_length_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
+      } else if (metricCategory === 'DEPLOYMENT_LENGTH') {
+        return (n.deployment_length_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
+      } else if (metricCategory === 'RANK_TENURE') {
+        return (n.rank_tenure_bracket || 'UNKNOWN / UNRECORDED') === analyticsMetricFilterValue;
+      } else if (metricCategory === 'POSITION') {
+        return cleanStr(n.position).includes(analyticsMetricFilterValue);
+      } else if (metricCategory === 'SECTION') {
+        return cleanStr(n.normalized_section || n.section || n.dir) === analyticsMetricFilterValue;
+      }
+      return true;
+    });
+  }, [currentRollDataset, metricCategory, analyticsMetricFilterValue]);
 
   const availableAnalyticsFilterOptions = useMemo(() => {
     const setVals = new Set();
@@ -691,6 +697,12 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
         setVals.add('FEMALE');
       } else if (metricCategory === 'AGE') {
         setVals.add(n.age_bracket || 'UNKNOWN / UNRECORDED');
+      } else if (metricCategory === 'SERVICE_LENGTH') {
+        setVals.add(n.service_length_bracket || 'UNKNOWN / UNRECORDED');
+      } else if (metricCategory === 'DEPLOYMENT_LENGTH') {
+        setVals.add(n.deployment_length_bracket || 'UNKNOWN / UNRECORDED');
+      } else if (metricCategory === 'RANK_TENURE') {
+        setVals.add(n.rank_tenure_bracket || 'UNKNOWN / UNRECORDED');
       } else if (metricCategory === 'POSITION') {
         const pos = cleanStr(n.position);
         if (pos) setVals.add(pos);
@@ -1459,6 +1471,9 @@ const Nominal_Roll = ({ currentUser, canViewGlobal: propCanViewGlobal, Nominal_R
                             <option value="STATUS">📋 Personnel Status (Deployable / Non-Deployable)</option>
                             <option value="SEX">Sex Distribution</option>
                             <option value="AGE">Age Demographics</option>
+                            <option value="SERVICE_LENGTH">Length of Service (DOE)</option>
+                            <option value="DEPLOYMENT_LENGTH">Length at Current Station (D.O. Post)</option>
+                            <option value="RANK_TENURE">Period on Current Rank (D.O. Pro)</option>
                             <option value="POSITION">Position / Title Substring</option>
                             <option value="SECTION">Directorate / Section Breakdown</option>
                         </select>

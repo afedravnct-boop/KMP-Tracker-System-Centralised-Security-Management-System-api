@@ -106,6 +106,47 @@ def calculate_age_bracket(dob_val) -> str:
     except Exception:
         return "UNKNOWN / UNRECORDED"
 
+def calculate_exact_years(date_val) -> Optional[float]:
+    if not date_val:
+        return None
+    try:
+        parsed = date_val if isinstance(date_val, date) else parse_safe_date(date_val)
+        if not parsed:
+            return None
+        today = datetime.now(pytz.timezone("Africa/Nairobi")).date()
+        delta_days = (today - parsed).days
+        if delta_days < 0:
+            return None
+        return round(delta_days / 365.25, 1)
+    except Exception:
+        return None
+
+def calculate_service_length_bracket(doe_val) -> str:
+    years = calculate_exact_years(doe_val)
+    if years is None: return "UNKNOWN / UNRECORDED"
+    if years < 5: return "UNDER 5 YEARS"
+    if years < 10: return "5-9 YEARS"
+    if years < 15: return "10-14 YEARS"
+    if years < 20: return "15-19 YEARS"
+    if years < 30: return "20-29 YEARS"
+    return "30+ YEARS"
+
+def calculate_deployment_length_bracket(dopost_val) -> str:
+    years = calculate_exact_years(dopost_val)
+    if years is None: return "UNKNOWN / UNRECORDED"
+    if years < 1: return "UNDER 1 YEAR"
+    if years < 3: return "1-2 YEARS"
+    if years < 5: return "3-4 YEARS"
+    return "5+ YEARS (OVERDUE ROTATION)"
+
+def calculate_rank_tenure_bracket(dopro_val) -> str:
+    years = calculate_exact_years(dopro_val)
+    if years is None: return "UNKNOWN / UNRECORDED"
+    if years < 2: return "UNDER 2 YEARS"
+    if years < 5: return "2-4 YEARS"
+    if years < 10: return "5-9 YEARS"
+    return "10+ YEARS"
+
 def normalize_section_unit(pos_str) -> str:
     if not pos_str: return "GENERAL DUTY (GD)"
     val = clean_str(pos_str)
@@ -639,6 +680,14 @@ def get_Nominal_Rolls(
         r_dict['normalized_status'] = normalize_personnel_status(r_dict.get('status'))
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
         r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
+        dopost_raw = r_dict.get('do_post') or r_dict.get('dopost') or r_dict.get('dop')
+        dopro_raw = r_dict.get('do_pro') or r_dict.get('dopro')
+        r_dict['service_years'] = calculate_exact_years(r_dict.get('doe'))
+        r_dict['service_length_bracket'] = calculate_service_length_bracket(r_dict.get('doe'))
+        r_dict['deployment_years'] = calculate_exact_years(dopost_raw)
+        r_dict['deployment_length_bracket'] = calculate_deployment_length_bracket(dopost_raw)
+        r_dict['rank_tenure_years'] = calculate_exact_years(dopro_raw)
+        r_dict['rank_tenure_bracket'] = calculate_rank_tenure_bracket(dopro_raw)
         r_dict['educ_level'] = normalize_education_level(r_dict.get('educlevel') or r_dict.get('educ_level'))
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
@@ -668,6 +717,7 @@ def get_Nominal_Rolls(
         r_dict['normalized_section'] = normalize_section_unit(r_dict.get('position') or r_dict.get('section'))
         r_dict['age_bracket'] = calculate_age_bracket(r_dict.get('dob'))
         r_dict['educ_level'] = normalize_education_level(r_dict.get('educlevel') or r_dict.get('educ_level'))
+
 
         if status_filter and status_filter.upper() != "ALL" and r_dict['normalized_status'].upper() != status_filter.upper():
             continue
@@ -1376,17 +1426,26 @@ def export_nominal_roll_analytics(
         sex_counts = {}
         status_counts = {}
         station_counts = {}
+        service_counts = {}
+        deployment_counts = {}
+        rank_tenure_counts = {}
 
         for r in filtered_records:
             rk = clean_str(getattr(r, 'rank', 'UNKNOWN'))
             sx = clean_str(getattr(r, 'sex', 'UNSPECIFIED'))
             st = normalize_personnel_status(getattr(r, 'status', 'ACTIVE'))
             stn = normalize_station_name(getattr(r, 'station', 'HQ'))
+            srv = calculate_service_length_bracket(getattr(r, 'doe', None))
+            dep = calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None)))
+            rnk_t = calculate_rank_tenure_bracket(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
 
             rank_counts[rk] = rank_counts.get(rk, 0) + 1
             sex_counts[sx] = sex_counts.get(sx, 0) + 1
             status_counts[st] = status_counts.get(st, 0) + 1
             station_counts[stn] = station_counts.get(stn, 0) + 1
+            service_counts[srv] = service_counts.get(srv, 0) + 1
+            deployment_counts[dep] = deployment_counts.get(dep, 0) + 1
+            rank_tenure_counts[rnk_t] = rank_tenure_counts.get(rnk_t, 0) + 1  
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -1469,6 +1528,9 @@ def export_nominal_roll_analytics(
         write_summary_table("GENDER DEMOGRAPHICS", sex_counts)
         write_summary_table("PERSONNEL STATUS BREAKDOWN", status_counts)
         write_summary_table("STATION DEPLOYMENT CONCENTRATION", station_counts)
+        write_summary_table("LENGTH OF SERVICE (FROM ENLISTMENT)", service_counts)
+        write_summary_table("LENGTH OF DEPLOYMENT AT CURRENT STATION", deployment_counts)
+        write_summary_table("PERIOD ON CURRENT RANK (FROM LAST PROMOTION)", rank_tenure_counts)
 
         ws.column_dimensions['A'].width = 35
         ws.column_dimensions['B'].width = 18
@@ -1934,6 +1996,16 @@ def export_filtered_nominal_roll(
                 elif f_type == "SECTION":
                     r_sec = normalize_section_unit(getattr(r, 'position', '') or getattr(r, 'section', ''))
                     if r_sec != f_val: continue
+
+                elif f_type == "SERVICE_LENGTH":
+                    r_srv = calculate_service_length_bracket(getattr(r, 'doe', None))
+                    if r_srv != f_val: continue
+                elif f_type == "DEPLOYMENT_LENGTH":
+                    r_dep = calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None)))
+                    if r_dep != f_val: continue
+                elif f_type == "RANK_TENURE":
+                    r_rnk_t = calculate_rank_tenure_bracket(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
+                    if r_rnk_t != f_val: continue
 
             filtered_rows.append({
                 "Force Number": getattr(r, 'f_num', getattr(r, 'fnum', '')),
