@@ -1809,29 +1809,6 @@ const App = () => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
   }, [reports, currentUser, filterRegion, filterStation]);
 
-  useEffect(() => {
-    const fixFormInputs = () => {
-      const inputs = document.querySelectorAll('input, select, textarea');
-      inputs.forEach((el, index) => {
-        if (!el.id) {
-          el.id = `auto-gen-field-${el.name || el.type || 'input'}-${index}`;
-        }
-        if (!el.name) {
-          el.name = el.id;
-        }
-        if (!el.hasAttribute('autocomplete')) {
-          if (el.type === 'password') {
-            el.setAttribute('autocomplete', 'current-password');
-          } else if (el.type === 'email') {
-            el.setAttribute('autocomplete', 'email');
-          } else if (el.type === 'tel') {
-            el.setAttribute('autocomplete', 'tel');
-          } else {
-            el.setAttribute('autocomplete', 'off');
-          }
-        }
-      });
-
   const isReadOnlyObserver = useMemo(() => {
     if (!currentUser) return false;
     const role = String(currentUser.role || '').trim().toUpperCase();
@@ -1865,13 +1842,11 @@ const App = () => {
     };
 
     const enforceReadOnlyDOM = () => {
-      // Allow read-only intelligence queries on the AI Console page
       if (currentPage === 'ai_console') return;
 
       const mainEl = document.querySelector('main');
       if (!mainEl) return;
 
-      // 1. Lock all ReactQuill / Rich-Text Editors (Crime Narratives, Comms, etc.)
       mainEl.querySelectorAll('.ql-editor').forEach((editor) => {
         editor.setAttribute('contenteditable', 'false');
         editor.setAttribute('data-ro-locked', 'true');
@@ -1881,7 +1856,6 @@ const App = () => {
         tb.setAttribute('data-ro-locked', 'true');
       });
 
-      // 2. Lock all standalone or form-wrapped <textarea> and file upload inputs
       mainEl.querySelectorAll('textarea, input[type="file"]').forEach((el) => {
         if (isSearchOrFilterControl(el)) return;
         el.readOnly = true;
@@ -1889,7 +1863,6 @@ const App = () => {
         el.setAttribute('data-ro-locked', 'true');
       });
 
-      // 3. Lock all inputs, selects, checkboxes, and submit buttons inside any <form>
       mainEl.querySelectorAll('form input, form select, form textarea, form button[type="submit"]').forEach((el) => {
         if (isSearchOrFilterControl(el)) return;
         if ('readOnly' in el) el.readOnly = true;
@@ -1939,6 +1912,29 @@ const App = () => {
       document.removeEventListener('submit', blockMutationEvents, true);
     };
   }, [isReadOnlyObserver, currentPage]);
+
+  useEffect(() => {
+    const fixFormInputs = () => {
+      const inputs = document.querySelectorAll('input, select, textarea');
+      inputs.forEach((el, index) => {
+        if (!el.id) {
+          el.id = `auto-gen-field-${el.name || el.type || 'input'}-${index}`;
+        }
+        if (!el.name) {
+          el.name = el.id;
+        }
+        if (!el.hasAttribute('autocomplete')) {
+          if (el.type === 'password') {
+            el.setAttribute('autocomplete', 'current-password');
+          } else if (el.type === 'email') {
+            el.setAttribute('autocomplete', 'email');
+          } else if (el.type === 'tel') {
+            el.setAttribute('autocomplete', 'tel');
+          } else {
+            el.setAttribute('autocomplete', 'off');
+          }
+        }
+      });
 
       const labels = document.querySelectorAll('label');
       labels.forEach((label, index) => {
@@ -2240,12 +2236,7 @@ const App = () => {
 
   const renderPage = () => {
     const canViewGlobal = canViewGlobalJurisdiction(currentUser);
-
-    // 🟢 Define the strict read-only observer guard
-    const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
-      !currentUser?.permissions?.global_open && 
-      currentUser?.role !== 'SUPER_ADMIN';
-
+   
     switch (currentPage) {
       case 'home':  
         return checkClearance(currentUser, 'acc_home', true) ? (
@@ -2681,9 +2672,6 @@ const App = () => {
     }
   };
 
-const isReadOnlyObserver = currentUser?.permissions?.global_observer === true && 
-  !currentUser?.permissions?.global_open && 
-  currentUser?.role !== 'SUPER_ADMIN';
 
   return (
     <>

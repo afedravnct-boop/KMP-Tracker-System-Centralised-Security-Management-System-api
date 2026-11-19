@@ -87,10 +87,11 @@ const SystemAssistant = ({ currentUser, limitedMode = false, embedded = false })
     "Password requirements",
     "Account approval status"
   ] : [
+    "Officers overdue for rotation (5+ yrs)",
+    "Length of service & rank tenure summary",
     "Regional manpower count",
     "Agricultural crimes summary",
-    "What are the data export rules?",
-    "How to troubleshoot login lockouts"
+    "What are the data export rules?"
   ];
 
   // 🟢 Local rule-based engine for unauthenticated visitors on the login screen (Zero token, zero server latency)
@@ -229,6 +230,21 @@ const SystemAssistant = ({ currentUser, limitedMode = false, embedded = false })
             </button>
           ))}
         </div>
+
+        <div className="bg-slate-100 dark:bg-slate-800 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto shrink-0 border-b border-slate-200 dark:border-slate-700">
+            <span className="text-[9px] font-bold text-slate-500 uppercase shrink-0">Quick:</span>
+            {quickPrompts.map((q, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => executeQuery(q)}
+                disabled={loading}
+                className="text-[9.5px] font-medium bg-white dark:bg-slate-900 hover:bg-slate-200 text-slate-700 dark:text-slate-200 px-2.5 py-0.5 rounded-full border border-slate-300 dark:border-slate-700 transition shrink-0 cursor-pointer disabled:opacity-50"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
 
         <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50 dark:bg-slate-950 text-[11px] max-h-48">
           {messages.map((m, idx) => (

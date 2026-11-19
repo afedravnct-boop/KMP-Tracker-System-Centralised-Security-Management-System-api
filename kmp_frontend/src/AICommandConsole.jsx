@@ -128,7 +128,7 @@ Standing by for commander queries across all system modules. Here is an architec
 - **Success Stories:** Dedicated archive logging high-impact operational breakthroughs, recoveries, and successful public safety missions.
 - **Impounded Exhibits:** Secure tracking ledger for confiscated vehicles, motorcycles, currency, and property exhibits. Fully integrated into the AI intelligence engine for automated property searches, status summaries, and jurisdiction-scoped queries.
 - **Establishments:** Structural command registry monitoring authorized personnel allocations versus actual deployment numbers across main stations, sub-stations, police posts, and security booths.
-- **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and strict jurisdictional transfer modification request queues.
+- **Nominal Roll & HR Transfers:** Comprehensive personnel database tracking force/file numbers, ranks, IPPS/NIN records, biographical details, archival logs, and live tenure analytics (Length of Service, Station Deployment Duration / Overdue Rotations, Period on Current Rank, and Age Demographics).
 - **AI Command Console:** Natural language intelligence engine powered by Gemini 2.5/2.0-flash, allowing authorized commanders to query live database records securely with full multimodal photo and screenshot analysis support.
 
 *Clearance Scope:* \`${officerFnum}\` | \`${officerRank}\` | \`${officerName}\`
@@ -387,10 +387,10 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   };
 
   const quickPrompts = [
+    "Which officers are overdue for rotation (5+ years at current station)?",
+    "Summarize personnel length of service and rank tenure breakdown",
     "What is the status of recently impounded vehicles?",
     "Summarize agricultural thefts and recoveries",
-    "What are the rules for data classification and AES-256 exports?",
-    "How do I resolve login lockouts or reset my security key?",
     "Where is officer IPPS or Force Number stationed?"
   ];
 

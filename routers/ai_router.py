@@ -17,6 +17,15 @@ from app import models
 from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
+from routers.nominal_roll import (
+    calculate_age_bracket,
+    calculate_exact_years,
+    calculate_service_length_bracket,
+    calculate_deployment_length_bracket,
+    calculate_rank_tenure_bracket,
+    is_invalid_roster_entry
+)
+
 try:
     from embedding_service import get_embedding_vector
 except ImportError:
@@ -462,19 +471,57 @@ async def process_tactical_query(
                 db.rollback()
                 diagnostic_errors.append(f"CrimeReports Table: {str(e)}")
 
-            # 7. HR / Nominal Roll
+            # 7. HR / Nominal Roll (With Tenure, Deployment & Age Analytics)
             try:
                 if has_ai_hr_access:
                     HrModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', getattr(models, 'Users', getattr(models, 'User', None))))
                     if HrModel:
-                        hr_sample_query = db.query(HrModel)
+                        base_hr_query = db.query(HrModel)
                         if not is_top_admin and hasattr(HrModel, 'station'):
-                            hr_sample_query = hr_sample_query.filter(func.upper(HrModel.station) == user_station_val)
-                        
-                        stop_words = {"what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search", "officer", "stationed", "details", "give", "show", "can", "you", "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "age", "unit", "rank", "sex", "name"}
-                        raw_words = re.findall(r'\b\w+\b', prompt.lower())
+                            base_hr_query = base_hr_query.filter(func.upper(HrModel.station) == user_station_val)
+
+                        all_hr_recs = [r for r in base_hr_query.all() if not is_invalid_roster_entry(r)]
+
+                        # A. Compute Jurisdiction-Wide Tenure & Demographic Aggregates
+                        service_dist = {}
+                        deploy_dist = {}
+                        rank_tenure_dist = {}
+                        age_dist = {}
+
+                        for r in all_hr_recs:
+                            srv_b = calculate_service_length_bracket(getattr(r, 'doe', None))
+                            dep_b = calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None)))
+                            rnk_b = calculate_rank_tenure_bracket(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
+                            age_b = calculate_age_bracket(getattr(r, 'dob', None))
+
+                            service_dist[srv_b] = service_dist.get(srv_b, 0) + 1
+                            deploy_dist[dep_b] = deploy_dist.get(dep_b, 0) + 1
+                            rank_tenure_dist[rnk_b] = rank_tenure_dist.get(rnk_b, 0) + 1
+                            age_dist[age_b] = age_dist.get(age_b, 0) + 1
+
+                        if all_hr_recs:
+                            live_data_context += (
+                                f"- Nominal Roll Workforce Tenure Analytics (Total Active Scanned: {len(all_hr_recs)}):\n"
+                                f"  * Length of Service (DOE): {json.dumps(service_dist)}\n"
+                                f"  * Length at Current Station (D.O. Post): {json.dumps(deploy_dist)}\n"
+                                f"  * Period on Current Rank (D.O. Pro): {json.dumps(rank_tenure_dist)}\n"
+                                f"  * Age Demographics (DOB): {json.dumps(age_dist)}\n"
+                            )
+
+                        # B. Targeted Officer Lookup (Handles both specific officer searches & rotation/tenure queries)
+                        prompt_lower = prompt.lower()
+                        hr_sample_query = base_hr_query
+                        stop_words = {
+                            "what", "is", "the", "for", "who", "where", "tell", "me", "about", "find", "search",
+                            "officer", "officers", "personnel", "stationed", "details", "give", "show", "can", "you",
+                            "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "has", "been",
+                            "age", "unit", "rank", "sex", "name", "length", "service", "deployment", "station",
+                            "tenure", "period", "current", "promotion", "enlistment", "years", "year", "long",
+                            "overdue", "rotation", "served", "summarize", "breakdown", "list", "which", "with"
+                        }
+                        raw_words = re.findall(r'\b\w+\b', prompt_lower)
                         search_terms = [w for w in raw_words if w not in stop_words and len(w) > 2]
-                        
+
                         if search_terms:
                             search_conditions = []
                             for term in search_terms:
@@ -489,33 +536,37 @@ async def process_tactical_query(
                             if search_conditions:
                                 hr_sample_query = hr_sample_query.filter(or_(*search_conditions))
 
-                        recs = hr_sample_query.limit(30).all()
-                        if recs:
-                            live_data_context += "- Nominal Roll Personnel Directory:\n"
-                            for r in recs:
-                                live_data_context += f"  * Force No: {getattr(r, 'f_num', getattr(r, 'fnum', getattr(r, 'fNum', 'N/A')))} | Rank: {getattr(r, 'rank', 'N/A')} | Name: {getattr(r, 'name', 'N/A')} | Sex: {getattr(r, 'sex', 'N/A')} | IPPS: {getattr(r, 'ipps', 'N/A')} | Unit: {getattr(r, 'station', getattr(r, 'region', 'N/A'))}\n"
-                            records_scanned += len(recs)
+                        matched_recs = [r for r in hr_sample_query.limit(30).all() if not is_invalid_roster_entry(r)]
+
+                        # If user specifically asks about overdue rotation, prioritize 5+ years at station
+                        if any(k in prompt_lower for k in ["overdue", "rotation", "longest at station", "5+ years"]):
+                            overdue_recs = [
+                                r for r in all_hr_recs
+                                if calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None))) == "5+ YEARS (OVERDUE ROTATION)"
+                            ]
+                            if overdue_recs:
+                                matched_recs = overdue_recs[:30]
+
+                        if matched_recs:
+                            live_data_context += "- Nominal Roll Personnel Directory (Sample / Matches):\n"
+                            for r in matched_recs:
+                                srv_y = calculate_exact_years(getattr(r, 'doe', None))
+                                dep_y = calculate_exact_years(getattr(r, 'do_post', getattr(r, 'dopost', None)))
+                                rnk_y = calculate_exact_years(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
+                                age_b = calculate_age_bracket(getattr(r, 'dob', None))
+                                live_data_context += (
+                                    f"  * Force No: {getattr(r, 'f_num', getattr(r, 'fnum', getattr(r, 'fNum', 'N/A')))} | "
+                                    f"Rank: {getattr(r, 'rank', 'N/A')} | Name: {getattr(r, 'name', 'N/A')} | "
+                                    f"Sex: {getattr(r, 'sex', 'N/A')} | Age: {age_b} | IPPS: {getattr(r, 'ipps', 'N/A')} | "
+                                    f"Unit: {getattr(r, 'station', getattr(r, 'region', 'N/A'))} | "
+                                    f"Service: {f'{srv_y} yrs' if srv_y is not None else 'N/A'} | "
+                                    f"At Station: {f'{dep_y} yrs' if dep_y is not None else 'N/A'} | "
+                                    f"On Rank: {f'{rnk_y} yrs' if rnk_y is not None else 'N/A'}\n"
+                                )
+                            records_scanned += len(all_hr_recs)
             except Exception as e:
                 db.rollback()
                 diagnostic_errors.append(f"HR/Users Table: {str(e)}")
-
-            # 8. Command Compliance & Defaulters Ledger
-            try:
-                ComplianceModel = getattr(models, 'Daily_Compliance_Tracker', getattr(models, 'DailyComplianceTracker', None))
-                if ComplianceModel:
-                    q = db.query(ComplianceModel)
-                    if not is_top_admin and hasattr(ComplianceModel, 'station'): 
-                        q = q.filter(func.upper(ComplianceModel.station) == user_station_val)
-                    
-                    recs = q.limit(20).all()
-                    if recs:
-                        live_data_context += "- Compliance & Defaulters Ledger:\n"
-                        for r in recs:
-                            live_data_context += f"  * [{getattr(r, 'region', 'KMP')} / {getattr(r, 'station', 'HQ')}] Date: {getattr(r, 'date', 'N/A')} | Status: {getattr(r, 'status', 'UNKNOWN')} | Resolved By: {getattr(r, 'resolved_by', 'NONE')}\n"
-                        records_scanned += len(recs)
-            except Exception as e:
-                db.rollback()
-                diagnostic_errors.append(f"Compliance Table: {str(e)}")
 
         else:
             live_data_context = "🛑 System Note: Direct database querying for the AI is either globally disabled or restricted by your command clearance tier."
@@ -525,7 +576,8 @@ async def process_tactical_query(
             f"CRITICAL PROTOCOL: Address the user using their full official credential: {current_user.fnum} {current_user.rank} {current_user.name}. "
             "Maintain a highly professional, concise, law-enforcement tone.\n\n"
             "SECURITY PROTOCOL: You are strictly forbidden from processing or hallucinating sensitive PII. "
-            "You only have access to the OPSEC-cleared columns: Force Number, Rank, Name, Age, Sex, IPPS, and Unit.\n\n"
+            "You only have access to the OPSEC-cleared columns: Force Number, Rank, Name, Age Bracket, Sex, IPPS, Unit, "
+            "Length of Service (from DOE), Length of Deployment at Current Station (from D.O. Post), and Period on Current Rank (from D.O. Pro).\n\n"
             "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation, answer platform policy questions, analyze uploaded photos/screenshots, and search uploaded command files."
         )
 
