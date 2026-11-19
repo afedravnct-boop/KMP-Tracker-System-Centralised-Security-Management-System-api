@@ -307,19 +307,43 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
         print(f"⚠️ Neon Activity Log Failure [{action}]: {str(e)}")
 
 def require_admin_or_observer(current_user: models.Users = Depends(get_current_user)):
-    user_role = str(current_user.role).strip().upper() if current_user.role else ""
-    if "ADMIN" in user_role or "RPC" in user_role:
+    user_role = str(current_user.role or "").strip().upper()
+    user_pos = str(current_user.position or "").strip().upper()
+
+    if (
+        "ADMIN" in user_role or
+        "RPC" in user_role or
+        user_role in ["SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "DEPUTY COMMANDER"] or
+        any(k in user_pos for k in ["KMP COMMANDER", "DEPUTY KMP COMMANDER", "RPC", "SYSTEM MANAGER"])
+    ):
         return current_user
-        
+
     perms = current_user.permissions or {}
     if isinstance(perms, str):
-        try: perms = json.loads(perms)
-        except Exception: perms = {}
-            
-    if perms.get("global_observer") is True or perms.get("view_global_roster") is True:
+        try:
+            perms = json.loads(perms)
+        except Exception:
+            perms = {}
+
+    def has_perm(key: str) -> bool:
+        val = perms.get(key)
+        return val is True or str(val).strip().lower() == "true"
+
+    if any(has_perm(k) for k in [
+        "global_observer",
+        "global_open",
+        "bypass_jurisdiction",
+        "view_global_roster",
+        "acc_approvals",
+        "system_admin",
+        "can_approve"
+    ]):
         return current_user
-        
-    raise HTTPException(status_code=403, detail="Clearance Denied: Admin or Global Observer privileges required.")
+
+    raise HTTPException(
+        status_code=403,
+        detail="Clearance Denied: Admin or Global Observer privileges required."
+    )
 
 def require_export_privilege(current_user: models.Users = Depends(get_current_user)):
     user_role = str(current_user.role).strip().upper() if current_user.role else ""

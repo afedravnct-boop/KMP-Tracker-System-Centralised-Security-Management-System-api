@@ -1832,6 +1832,114 @@ const App = () => {
         }
       });
 
+  const isReadOnlyObserver = useMemo(() => {
+    if (!currentUser) return false;
+    const role = String(currentUser.role || '').trim().toUpperCase();
+    let perms = currentUser.permissions || {};
+    if (typeof perms === 'string') {
+      try { perms = JSON.parse(perms); } catch { perms = {}; }
+    }
+    return perms.global_observer === true && perms.global_open !== true && role !== 'SUPER_ADMIN';
+  }, [currentUser]);
+
+  // 🟢 UNIVERSAL READ-ONLY GLOBAL OBSERVER LOCK (DOM + Event Level)
+  useEffect(() => {
+    if (!isReadOnlyObserver) {
+      document.body.classList.remove('readonly-observer-mode');
+      return;
+    }
+
+    document.body.classList.add('readonly-observer-mode');
+
+    const isSearchOrFilterControl = (el) => {
+      if (!el) return false;
+      const type = (el.getAttribute?.('type') || '').toLowerCase();
+      const placeholder = (el.getAttribute?.('placeholder') || '').toLowerCase();
+      const ariaLabel = (el.getAttribute?.('aria-label') || '').toLowerCase();
+      return (
+        type === 'search' ||
+        placeholder.includes('search') ||
+        placeholder.includes('filter') ||
+        ariaLabel.includes('search')
+      );
+    };
+
+    const enforceReadOnlyDOM = () => {
+      // Allow read-only intelligence queries on the AI Console page
+      if (currentPage === 'ai_console') return;
+
+      const mainEl = document.querySelector('main');
+      if (!mainEl) return;
+
+      // 1. Lock all ReactQuill / Rich-Text Editors (Crime Narratives, Comms, etc.)
+      mainEl.querySelectorAll('.ql-editor').forEach((editor) => {
+        editor.setAttribute('contenteditable', 'false');
+        editor.setAttribute('data-ro-locked', 'true');
+      });
+      mainEl.querySelectorAll('.ql-toolbar button, .ql-toolbar select, .ql-toolbar .ql-picker').forEach((tb) => {
+        tb.setAttribute('disabled', 'true');
+        tb.setAttribute('data-ro-locked', 'true');
+      });
+
+      // 2. Lock all standalone or form-wrapped <textarea> and file upload inputs
+      mainEl.querySelectorAll('textarea, input[type="file"]').forEach((el) => {
+        if (isSearchOrFilterControl(el)) return;
+        el.readOnly = true;
+        el.disabled = true;
+        el.setAttribute('data-ro-locked', 'true');
+      });
+
+      // 3. Lock all inputs, selects, checkboxes, and submit buttons inside any <form>
+      mainEl.querySelectorAll('form input, form select, form textarea, form button[type="submit"]').forEach((el) => {
+        if (isSearchOrFilterControl(el)) return;
+        if ('readOnly' in el) el.readOnly = true;
+        el.disabled = true;
+        el.setAttribute('data-ro-locked', 'true');
+      });
+    };
+
+    const blockMutationEvents = (e) => {
+      if (currentPage === 'ai_console') return;
+      const target = e.target;
+      if (!target || !target.closest?.('main')) return;
+      if (isSearchOrFilterControl(target)) return;
+
+      const isLockedTarget =
+        target.getAttribute?.('data-ro-locked') === 'true' ||
+        target.closest?.('[data-ro-locked="true"]') ||
+        target.closest?.('.ql-editor') ||
+        target.closest?.('.ql-toolbar') ||
+        target.closest?.('form') ||
+        target.tagName === 'TEXTAREA';
+
+      if (isLockedTarget) {
+        if (e.type === 'keydown' && ['Tab', 'Escape'].includes(e.key)) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+
+    enforceReadOnlyDOM();
+    const observer = new MutationObserver(enforceReadOnlyDOM);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    document.addEventListener('keydown', blockMutationEvents, true);
+    document.addEventListener('beforeinput', blockMutationEvents, true);
+    document.addEventListener('paste', blockMutationEvents, true);
+    document.addEventListener('drop', blockMutationEvents, true);
+    document.addEventListener('submit', blockMutationEvents, true);
+
+    return () => {
+      observer.disconnect();
+      document.body.classList.remove('readonly-observer-mode');
+      document.removeEventListener('keydown', blockMutationEvents, true);
+      document.removeEventListener('beforeinput', blockMutationEvents, true);
+      document.removeEventListener('paste', blockMutationEvents, true);
+      document.removeEventListener('drop', blockMutationEvents, true);
+      document.removeEventListener('submit', blockMutationEvents, true);
+    };
+  }, [isReadOnlyObserver, currentPage]);
+
       const labels = document.querySelectorAll('label');
       labels.forEach((label, index) => {
         const hasFor = label.hasAttribute('for') || label.hasAttribute('htmlFor');

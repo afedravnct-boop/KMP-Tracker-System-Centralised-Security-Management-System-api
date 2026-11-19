@@ -409,3 +409,26 @@ body, html {
     letter-spacing: -0.01em;
   }
 }
+
+/* ============================================================
+   UNIVERSAL READ-ONLY GLOBAL OBSERVER VISUAL LOCK
+   ============================================================ */
+body.readonly-observer-mode main [data-ro-locked="true"],
+body.readonly-observer-mode main .ql-editor,
+body.readonly-observer-mode main .ql-toolbar,
+body.readonly-observer-mode main textarea,
+body.readonly-observer-mode main form input:not([type="search"]),
+body.readonly-observer-mode main form select,
+body.readonly-observer-mode main form button[type="submit"] {
+  background-color: #e2e8f0 !important;
+  color: #64748b !important;
+  border-color: #cbd5e1 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  opacity: 0.65 !important;
+}
+
+body.readonly-observer-mode main .ql-container {
+  background-color: #e2e8f0 !important;
+  cursor: not-allowed !important;
+}
