@@ -18,6 +18,15 @@ from app.database import get_db, get_logs_db
 from app import models
 from routers.activity_logger import record_neon_activity
 
+from routers.nominal_roll import (
+    calculate_age_bracket,
+    calculate_service_length_bracket,
+    calculate_deployment_length_bracket,
+    calculate_rank_tenure_bracket,
+    normalize_personnel_status,
+    is_invalid_roster_entry
+)
+
 router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports & Intelligence"])
 
 REGIONAL_HIERARCHY = {
@@ -376,6 +385,7 @@ def get_dashboard_intelligence(
         ExhibitModel = get_model_safe('impounded_exhibits', 'Impounded_Exhibits', 'Exhibits')
         AccidentsModel = get_model_safe('accidents_statistics', 'Accidents_Statistics', 'AccidentsStatistics')
         FireModel = get_model_safe('fire_statistics', 'Fire_Statistics', 'FireStatistics')
+        NomModel = get_model_safe('Nominal_Roll', 'NominalRoll', 'nominal_roll')
 
         def query_scoped(ModelClass):
             if not ModelClass:
@@ -394,6 +404,7 @@ def get_dashboard_intelligence(
         exhibit_records = query_scoped(ExhibitModel)
         accidents_records = query_scoped(AccidentsModel)
         fire_records = query_scoped(FireModel)
+        nom_records = [r for r in query_scoped(NomModel) if not is_invalid_roster_entry(r)]
 
         # 1. DETENTIONS / LOCKUP CALENDAR
         date_map = {}
@@ -622,6 +633,61 @@ def get_dashboard_intelligence(
             except Exception:
                 continue
 
+# 7. MANPOWER & NOMINAL ROLL INTELLIGENCE (GENERAL KMP + PER-REGION PIE CHARTS)
+        def build_manpower_bucket(records_subset):
+            rank_map, service_map, deploy_map, tenure_map, age_map = {}, {}, {}, {}, {}
+            gender_map = {"MALE": 0, "FEMALE": 0}
+            deployable_map = {"ACTIVE": 0, "INACTIVE": 0}
+
+            for r in records_subset:
+                rk = str(getattr(r, 'rank', '') or 'UNKNOWN').strip().upper()
+                sx = str(getattr(r, 'sex', '') or 'MALE').strip().upper()
+                st = normalize_personnel_status(getattr(r, 'status', 'ACTIVE'))
+                srv = calculate_service_length_bracket(getattr(r, 'doe', None))
+                dep = calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None)))
+                rnk_t = calculate_rank_tenure_bracket(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
+                age_b = calculate_age_bracket(getattr(r, 'dob', None))
+
+                rank_map[rk] = rank_map.get(rk, 0) + 1
+                service_map[srv] = service_map.get(srv, 0) + 1
+                deploy_map[dep] = deploy_map.get(dep, 0) + 1
+                tenure_map[rnk_t] = tenure_map.get(rnk_t, 0) + 1
+                age_map[age_b] = age_map.get(age_b, 0) + 1
+
+                if 'F' in sx:
+                    gender_map["FEMALE"] += 1
+                else:
+                    gender_map["MALE"] += 1
+
+                if "NON-DEPLOYABLE" in st:
+                    deployable_map["INACTIVE"] += 1
+                else:
+                    deployable_map["ACTIVE"] += 1
+
+            def to_pie(d):
+                return [{"name": k, "value": v} for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True) if v > 0]
+
+            return {
+                "total": len(records_subset),
+                "genderDistribution": to_pie(gender_map),
+                "deployability": to_pie(deployable_map),
+                "rankDistribution": to_pie(rank_map),
+                "serviceLength": to_pie(service_map),
+                "deploymentLength": to_pie(deploy_map),
+                "rankTenure": to_pie(tenure_map),
+                "ageDemographics": to_pie(age_map)
+            }
+
+        reg_grouped_nom = {}
+        for r in nom_records:
+            reg_key = get_official_region_for_station(getattr(r, 'station', ''), getattr(r, 'region', ''))
+            reg_grouped_nom.setdefault(reg_key, []).append(r)
+
+        manpower_intelligence = {
+            "general": build_manpower_bucket(nom_records),
+            "byRegion": {reg: build_manpower_bucket(recs) for reg, recs in sorted(reg_grouped_nom.items())}
+        }
+
         return {
             "detentionCalendar": {
                 "dates": sorted_dates,
@@ -646,7 +712,8 @@ def get_dashboard_intelligence(
             },
             "crimeCategoryData": crime_category_data,
             "exhibitsData": exhibits_formatted,
-            "accidentsData": accidents_formatted
+            "accidentsData": accidents_formatted,
+            "manpowerIntelligence": manpower_intelligence
         }
     except Exception as e:
         print(f"Dashboard Intelligence Critical Error: {e}")
@@ -659,7 +726,8 @@ def get_dashboard_intelligence(
             "accidentsIntelligence": {"accidentsMonthly": [], "accidentsSeverity": [], "accidentsRegional": []},
             "crimeCategoryData": [],
             "exhibitsData": [],
-            "accidentsData": []
+            "accidentsData": [],
+            "manpowerIntelligence": {"general": {}, "byRegion": {}}
         }
 
 @router.get("/export")
