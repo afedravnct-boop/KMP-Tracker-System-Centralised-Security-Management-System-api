@@ -499,9 +499,13 @@ def get_dashboard_intelligence(
                     "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
                     "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
                     "suspects": suspects,
+                    "parsedSuspects": suspects,
                     "recoveries": recoveries,
+                    "parsedRecoveries": recoveries,
                     "legalStatus": legal_status,
+                    "parsedLegalStatus": legal_status,
                     "classification": classification,
+                    "parsedClassification": classification,
                     "date": str(getattr(st, 'date', getattr(st, 'created_at', 'N/A'))).split('T')[0]
                 })
             except Exception as e:
@@ -510,8 +514,8 @@ def get_dashboard_intelligence(
 
         # 3. FIRE INTELLIGENCE
         total_fire_incidents = len(fire_records)
-        total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
-        total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
+        total_fire_deaths = 0
+        total_fire_injuries = 0
         
         fire_list = []
         fire_causes_map = {}
@@ -523,6 +527,11 @@ def get_dashboard_intelligence(
                 raw_narrative = str(getattr(f, 'narrative', getattr(f, 'nature_of_fire', '')))
                 offence_str = str(getattr(f, 'nature_of_fire', ''))
                 parsed_fire = parse_fire_incident_advanced(raw_narrative, offence_str)
+
+                row_deaths = parsed_fire["deaths"] or safe_int(getattr(f, 'fatal_fires', 0))
+                row_injuries = parsed_fire["injuries"]
+                total_fire_deaths += row_deaths
+                total_fire_injuries += row_injuries
 
                 cause_key = parsed_fire["statusFindings"]
                 fire_causes_map[cause_key] = fire_causes_map.get(cause_key, 0) + 1
@@ -540,8 +549,8 @@ def get_dashboard_intelligence(
                     "date": str(getattr(f, 'date', 'N/A')),
                     "classification": parsed_fire["classification"],
                     "statusFindings": parsed_fire["statusFindings"],
-                    "deaths": parsed_fire["deaths"],
-                    "injuries": parsed_fire["injuries"],
+                    "deaths": row_deaths,
+                    "injuries": row_injuries,
                     "summary": raw_narrative
                 })
             except Exception:
@@ -586,6 +595,7 @@ def get_dashboard_intelligence(
                     "region": reg,
                     "station": str(getattr(ac, 'station', 'N/A')).upper(),
                     "nature": nature,
+                    "nature_of_accident": nature,
                     "minor": minor_c,
                     "serious": serious_c,
                     "fatal": fatal_c,
@@ -634,7 +644,7 @@ def get_dashboard_intelligence(
             except Exception:
                 continue
 
-# 7. MANPOWER & NOMINAL ROLL INTELLIGENCE (GENERAL KMP + PER-REGION PIE CHARTS)
+        # 7. MANPOWER & NOMINAL ROLL INTELLIGENCE (GENERAL KMP + PER-REGION PIE CHARTS)
         def build_manpower_bucket(records_subset):
             rank_map, service_map, deploy_map, tenure_map, age_map = {}, {}, {}, {}, {}
             gender_map = {"MALE": 0, "FEMALE": 0}
@@ -790,7 +800,7 @@ def export_analytics_report(
         cr_records = get_scoped_records(CrimeModel)
         ops_records = get_scoped_records(StatsModel)
         ss_records = get_scoped_records(StoryModel)
-        nom_records = get_scoped_records(NomModel)
+        nom_records = [r for r in get_scoped_records(NomModel) if not is_invalid_roster_entry(r)]
         agric_records = get_scoped_records(AgricModel)
         ex_records = get_scoped_records(ExhibitModel)
         lockup_records = get_scoped_records(LockupModel)
@@ -881,7 +891,7 @@ def export_analytics_report(
 
         manpower_table_rows = []
         for reg, stations in manpower_matrix.items():
-            manpower_table_rows.append([f"REGION: {reg}", "", "", ""] + [""] * (len(all_ranks) * 2))
+            manpower_table_rows.append([f"REGION: {reg}", "", "", "", ""] + [""] * (len(all_ranks) * 2))
             for stat, ranks_data in stations.items():
                 stat_m = sum(v['M'] for v in ranks_data.values())
                 stat_f = sum(v['F'] for v in ranks_data.values())

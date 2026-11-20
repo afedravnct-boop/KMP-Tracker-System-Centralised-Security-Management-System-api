@@ -2068,11 +2068,11 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (!currentUser?.fnum || !hasValidSession()) return; 
+    if (isInitializing || !currentUser?.fnum || !hasValidSession()) return;
     const controller = new AbortController();
-    
+
     const fetchAllData = async () => {
-      if (document.hidden) return;
+      if (document.hidden || !hasValidSession()) return;
 
       const isUserIdle = (Date.now() - lastActivityRef.current) > 60000;
       if (isUserIdle) return;
@@ -2084,10 +2084,16 @@ const App = () => {
           authFetch('/api/v1/stories', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/establishments', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/nominal-roll', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }).catch(() => null), 
+          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/communications/ping-unread', { signal: controller.signal }).catch(() => null),
           authFetch('/api/v1/general-documents', { signal: controller.signal }).catch(() => null)
         ]);
+
+        // 🟢 Halt cleanly and trigger session-expired flow on any 401
+        if ([resUsers, resStats, resStories, resEst, resNom, resArc, resCommsPing, resDocs].some(r => r && r.status === 401)) {
+          window.dispatchEvent(new Event('auth-expired'));
+          return;
+        }
 
         if (resStats && resStats.ok) setStats(await resStats.json());
         if (resStories && resStories.ok) setStories(await resStories.json());
@@ -2095,13 +2101,13 @@ const App = () => {
         if (resNom && resNom.ok) setNominal_Rolls(await resNom.json());
         if (resArc && resArc.ok) setNominal_Roll_archives(await resArc.json());
         if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
-        
+
         if (resCommsPing && resCommsPing.ok) setAdminCommsData(await resCommsPing.json());
 
         if (resUsers && resUsers.ok) {
           const allUsers = await resUsers.json();
           setUsers(allUsers);
-          
+
           const myFnum = currentUser?.fnum;
           const me = allUsers.find(u => u.fnum === myFnum);
 
@@ -2133,7 +2139,7 @@ const App = () => {
               };
 
               const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
-              
+
               // 🟢 SYNC HR TRANSFERS AND ELEVATIONS SEAMLESSLY
               // This guarantees the UI actively mirrors their latest database Nominal Roll station/region/title
               const resolvedPosition = me.position || prev.position;
@@ -2165,18 +2171,18 @@ const App = () => {
             });
           }
         }
-      } catch (error) { 
+      } catch (error) {
         if (error.name !== 'AbortError' && error.message !== 'UNAUTHORIZED') {
           console.warn("Network congestion or temporary blip intercepted. Holding execution:", error.message);
         }
-      } 
-    };   
+      }
+    };
 
     fetchAllData();
     const pollingInterval = setInterval(fetchAllData, 60000);
 
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
+      if (!document.hidden && hasValidSession()) {
         lastActivityRef.current = Date.now();
         fetchAllData();
       }
@@ -2188,7 +2194,7 @@ const App = () => {
       clearInterval(pollingInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentUser?.fnum]);
+  }, [currentUser?.fnum, isInitializing]);
 
   const handleSecureLogout = async () => {
     try {
