@@ -395,6 +395,7 @@ def get_dashboard_intelligence(
                 q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
                 return q.all()
             except Exception as ex:
+                db.rollback()  
                 print(f"Query scoped error for {ModelClass}: {ex}")
                 return []
 
