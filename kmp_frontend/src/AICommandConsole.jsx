@@ -387,10 +387,10 @@ Region: \`${currentUser?.region || 'ALL'}\` | Station: \`${currentUser?.station 
   };
 
   const quickPrompts = [
+    "Provide a full rank census breakdown across KMP",
     "Which officers are overdue for rotation (5+ years at current station)?",
     "Summarize personnel length of service and rank tenure breakdown",
     "What is the status of recently impounded vehicles?",
-    "Summarize agricultural thefts and recoveries",
     "Where is officer IPPS or Force Number stationed?"
   ];
 

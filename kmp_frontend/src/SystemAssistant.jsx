@@ -81,12 +81,13 @@ const SystemAssistant = ({ currentUser, limitedMode = false, embedded = false })
     }
   }, [messages, loading]);
 
-  const quickPrompts = limitedMode ? [
+const quickPrompts = limitedMode ? [
     "How do I request access?",
     "What format is my Force Number?",
     "Password requirements",
     "Account approval status"
   ] : [
+    "Full rank census breakdown",
     "Officers overdue for rotation (5+ yrs)",
     "Length of service & rank tenure summary",
     "Regional manpower count",

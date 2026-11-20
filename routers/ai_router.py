@@ -482,26 +482,38 @@ async def process_tactical_query(
 
                         all_hr_recs = [r for r in base_hr_query.all() if not is_invalid_roster_entry(r)]
 
-                        # A. Compute Jurisdiction-Wide Tenure & Demographic Aggregates
+                        # A. Compute Jurisdiction-Wide Rank Census, Tenure & Demographic Aggregates
+                        rank_dist = {}
+                        sex_dist = {}
                         service_dist = {}
                         deploy_dist = {}
                         rank_tenure_dist = {}
                         age_dist = {}
 
                         for r in all_hr_recs:
+                            rk = str(getattr(r, 'rank', '') or 'UNKNOWN').strip().upper()
+                            sx = str(getattr(r, 'sex', '') or 'UNSPECIFIED').strip().upper()
                             srv_b = calculate_service_length_bracket(getattr(r, 'doe', None))
                             dep_b = calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None)))
                             rnk_b = calculate_rank_tenure_bracket(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
                             age_b = calculate_age_bracket(getattr(r, 'dob', None))
 
+                            rank_dist[rk] = rank_dist.get(rk, 0) + 1
+                            sex_dist[sx] = sex_dist.get(sx, 0) + 1
                             service_dist[srv_b] = service_dist.get(srv_b, 0) + 1
                             deploy_dist[dep_b] = deploy_dist.get(dep_b, 0) + 1
                             rank_tenure_dist[rnk_b] = rank_tenure_dist.get(rnk_b, 0) + 1
                             age_dist[age_b] = age_dist.get(age_b, 0) + 1
 
+                        # Sort rank census from highest count to lowest for clean AI reading
+                        sorted_rank_dist = dict(sorted(rank_dist.items(), key=lambda x: x[1], reverse=True))
+
                         if all_hr_recs:
+                            records_scanned += len(all_hr_recs)
                             live_data_context += (
-                                f"- Nominal Roll Workforce Tenure Analytics (Total Active Scanned: {len(all_hr_recs)}):\n"
+                                f"- Nominal Roll Workforce & Rank Census Analytics (Total Active Scanned: {len(all_hr_recs)}):\n"
+                                f"  * Rank Census / Strength Distribution: {json.dumps(sorted_rank_dist)}\n"
+                                f"  * Gender Distribution: {json.dumps(sex_dist)}\n"
                                 f"  * Length of Service (DOE): {json.dumps(service_dist)}\n"
                                 f"  * Length at Current Station (D.O. Post): {json.dumps(deploy_dist)}\n"
                                 f"  * Period on Current Rank (D.O. Pro): {json.dumps(rank_tenure_dist)}\n"
