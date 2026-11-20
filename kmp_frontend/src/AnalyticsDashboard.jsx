@@ -184,8 +184,7 @@ const AnalyticsDashboard = ({
           setFetchedCrime(Array.isArray(crimeData) ? crimeData : []);
           setFetchedOps(Array.isArray(statsData) ? statsData : []);
           setFetchedExhibits(Array.isArray(exhibitsData) ? exhibitsData : []);
-          setFetchedAccidents(Array.isArray(accidentsData) ? accidentsData : []);
-
+          
           if (intelData) {
             if (intelData.detentionCalendar) {
               setBackendDetentionCalendar({

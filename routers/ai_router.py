@@ -11,6 +11,7 @@ from sqlalchemy import text, inspect, func, or_
 from google import genai
 from google.genai import types
 from typing import Optional
+from datetime import datetime
 
 from app.database import get_db, get_logs_db, engine
 from app import models
@@ -574,8 +575,7 @@ async def process_tactical_query(
                                     f"Service: {f'{srv_y} yrs' if srv_y is not None else 'N/A'} | "
                                     f"At Station: {f'{dep_y} yrs' if dep_y is not None else 'N/A'} | "
                                     f"On Rank: {f'{rnk_y} yrs' if rnk_y is not None else 'N/A'}\n"
-                                )
-                            records_scanned += len(all_hr_recs)
+                                )      
             except Exception as e:
                 db.rollback()
                 diagnostic_errors.append(f"HR/Users Table: {str(e)}")
@@ -711,6 +711,28 @@ class CrashTelemetryPayload(BaseModel):
     console_logs: list[str] = []
     network_errors: list[str] = []
 
+async def send_email_notification(recipients: list[str], subject: str, html_body: str):
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    mail_user = os.getenv("MAIL_USERNAME")
+    mail_pass = os.getenv("MAIL_PASSWORD")
+    mail_from = os.getenv("MAIL_FROM", mail_user)
+
+    if not mail_user or not mail_pass or not recipients:
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = mail_from
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(html_body, "html"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+        server.login(mail_user, mail_pass)
+        server.sendmail(mail_from, recipients, msg.as_string())
+
 def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str):
     """
     Background worker that independently commits AI crash diagnostics to AI_Command_Logs 
@@ -751,7 +773,7 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
             try:
                 client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
                 response = client.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.5-flash',
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction="You are the KMP System Diagnostic AI. Return only the requested report concisely."
