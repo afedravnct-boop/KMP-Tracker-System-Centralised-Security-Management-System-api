@@ -1314,6 +1314,35 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
       return;
     }
     
+  const handleDownloadStatement = async (stmtId, sdRef) => {
+    try {
+      const response = await authFetch(`/api/v1/reports/statements/${stmtId}/export`);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || "Failed to download statement.");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = `SECURE_STATEMENT_${String(sdRef || stmtId).replace(/[^A-Za-z0-9]+/g, '_')}.zip`;
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+        filename = disposition.split('filename=')[1].replace(/["']/g, '').trim();
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(`Download Failed: ${err.message}`);
+    }
+  };
+
     setNotification("⏳ Generating AES-256 secure encrypted spreadsheet archive. Please wait...");
     
     try {
@@ -1673,14 +1702,40 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                                           <div className="text-[9px] text-slate-500 font-bold mt-1">Logged on: {historyItem.date_recorded} @ {historyItem.time_recorded}</div>
                                       </div>
                                       {!isUpgrade && (
-                                          <a 
-                                            href={`${import.meta.env.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com"}/api/v1/reports/statements/${historyItem.id}/export`}
-                                            className="bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded text-[9px] font-bold uppercase transition flex items-center shadow-sm cursor-pointer"
-                                            title="Download Exact Replica PDF"
-                                          >
-                                              <Download size={12} className="mr-1"/> Fetch Sheet
-                                          </a>
-                                      )}
+    <button
+      type="button"
+      onClick={async (e) => {
+        e.stopPropagation();
+        try {
+          const response = await authFetch(`/api/v1/reports/statements/${historyItem.id}/export`);
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || "Failed to download statement.");
+          }
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const disposition = response.headers.get('Content-Disposition');
+          let filename = `SECURE_STATEMENT_${String(historyItem.sd_ref || historyItem.id).replace(/[^A-Za-z0-9]+/g, '_')}.zip`;
+          if (disposition && disposition.indexOf('filename=') !== -1) {
+            filename = disposition.split('filename=')[1].replace(/["']/g, '').trim();
+          }
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', filename);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          alert(`Download Failed: ${err.message}`);
+        }
+      }}
+      className="bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded text-[9px] font-bold uppercase transition flex items-center shadow-sm cursor-pointer"
+      title="Download Encrypted Statement Archive"
+    >
+        <Download size={12} className="mr-1"/> Fetch Sheet
+    </button>
+)}
                                   </div>
                                   <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
                                       {isUpgrade ? historyItem.content.replace(historyItem.content.split('\n')[0] + '\n', '') : historyItem.content}
