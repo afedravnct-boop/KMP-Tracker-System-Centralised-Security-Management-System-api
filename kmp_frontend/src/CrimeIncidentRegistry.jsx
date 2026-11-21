@@ -103,12 +103,15 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-// 🟢 EMBEDDED COMPONENT: Statement Recorder
+// 🟢 EMBEDDED COMPONENT: Statement Recorder (Wide A4 Workspace + Live Multi-Page Break Detection)
 const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) => {
     const [category, setCategory] = useState('COMPLAINANT');
     const [personName, setPersonName] = useState('');
     const [content, setContent] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [viewMode, setViewMode] = useState('WRITE'); // 'WRITE' | 'PREVIEW'
+    const [pageAlert, setPageAlert] = useState(null);
+    const prevPageCountRef = useRef(1);
 
     const [meta, setMeta] = useState({
         date: '',
@@ -120,12 +123,84 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
     useEffect(() => {
         const now = new Date();
         const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, ' ').toUpperCase();
-        const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'C'; 
-        
+        const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'C';
+
         setMeta(prev => ({ ...prev, date: dateStr, time: timeStr }));
     }, []);
 
     const dynamicTitle = `STATEMENT OF ${category}`;
+
+    // 🟢 A4 Line-Wrap & Multi-Page Break Calculator (matches jsPDF A4 layout)
+    const pagination = useMemo(() => {
+        const CHARS_PER_LINE = 78;
+        const CONT_PAGE_LINES = 41;
+
+        const wrapTextToLines = (text) => {
+            if (!text) return [];
+            const paragraphs = String(text).split('\n');
+            const wrapped = [];
+            paragraphs.forEach((para) => {
+                if (para.length === 0) {
+                    wrapped.push('');
+                    return;
+                }
+                let remaining = para;
+                while (remaining.length > CHARS_PER_LINE) {
+                    let breakIdx = remaining.lastIndexOf(' ', CHARS_PER_LINE);
+                    if (breakIdx <= 0) breakIdx = CHARS_PER_LINE;
+                    wrapped.push(remaining.slice(0, breakIdx));
+                    remaining = remaining.slice(breakIdx).trimStart();
+                }
+                wrapped.push(remaining);
+            });
+            return wrapped;
+        };
+
+        const profileHeader = `${(personName || '').trim().toUpperCase()} STATES THAT;`;
+        const headerLines = Math.max(1, wrapTextToLines(profileHeader).length);
+        const firstPageCapacity = Math.max(18, 38 - headerLines);
+
+        const allLines = wrapTextToLines(content);
+        const pages = [];
+
+        if (allLines.length === 0) {
+            pages.push([]);
+        } else {
+            pages.push(allLines.slice(0, firstPageCapacity));
+            let cursor = firstPageCapacity;
+            while (cursor < allLines.length) {
+                pages.push(allLines.slice(cursor, cursor + CONT_PAGE_LINES));
+                cursor += CONT_PAGE_LINES;
+            }
+        }
+
+        const totalPages = pages.length;
+        const activeCapacity = totalPages === 1 ? firstPageCapacity : CONT_PAGE_LINES;
+        const currentPageLines = pages[totalPages - 1]?.length || 0;
+        const linesRemaining = Math.max(0, activeCapacity - currentPageLines);
+        const fillPercent = Math.min(100, Math.round((currentPageLines / activeCapacity) * 100));
+
+        return {
+            pages,
+            totalPages,
+            totalLines: allLines.length,
+            currentPageLines,
+            activeCapacity,
+            linesRemaining,
+            fillPercent
+        };
+    }, [personName, content]);
+
+    // 🟢 Notify user immediately when typing crosses onto a new page
+    useEffect(() => {
+        if (pagination.totalPages > prevPageCountRef.current) {
+            setPageAlert(`Page ${pagination.totalPages - 1} is full — proceeding to Page ${pagination.totalPages}.`);
+            const timer = setTimeout(() => setPageAlert(null), 5000);
+            prevPageCountRef.current = pagination.totalPages;
+            return () => clearTimeout(timer);
+        }
+        prevPageCountRef.current = pagination.totalPages;
+    }, [pagination.totalPages]);
 
     const handleSave = async (e) => {
         e.preventDefault();
@@ -149,7 +224,10 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
                 body: JSON.stringify(payload)
             });
 
-            if (!res.ok) throw new Error("Failed to save statement.");
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.detail || "Failed to save statement.");
+            }
             alert("Statement securely attached to case file.");
             if (onStatementSaved) onStatementSaved();
             onClose();
@@ -162,142 +240,298 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
 
     const generatePDF = () => {
         const doc = new jsPDF();
-        
         doc.setFont("helvetica");
+
         const leftMargin = 15;
-        const contentLeft = 45; 
+        const contentLeft = 48;
         const rightMargin = 195;
+        const maxLineWidth = rightMargin - contentLeft;
+        const pageBottomLimit = 274;
         let currentY = 20;
 
+        // Page 1 Header
         doc.setFontSize(14);
         doc.setFont("helvetica", "bold");
-        doc.text(dynamicTitle, 105, currentY, { align: "center", textTransform: "uppercase" });
-        
-        currentY += 15;
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
+        doc.text(dynamicTitle, 105, currentY, { align: "center" });
 
+        currentY += 14;
+        doc.setFontSize(9.5);
+        doc.setFont("helvetica", "bold");
         doc.text("DATE:", leftMargin, currentY);
+        doc.setFont("helvetica", "normal");
         doc.text(meta.date, leftMargin, currentY + 5);
 
-        doc.text("TIME:", leftMargin, currentY + 15);
-        doc.text(meta.time, leftMargin, currentY + 20);
-
-        doc.text("PLACE:", leftMargin, currentY + 30);
-        doc.text(doc.splitTextToSize(meta.place, 25), leftMargin, currentY + 35);
-
-        doc.text("SD REF:", leftMargin, currentY + 55);
-        doc.text(doc.splitTextToSize(meta.sdRef, 25), leftMargin, currentY + 60);
-
-        const profileHeader = `${personName.toUpperCase()} STATES THAT;`;
         doc.setFont("helvetica", "bold");
-        doc.text(profileHeader, contentLeft, currentY);
-        
-        currentY += 8;
+        doc.text("TIME:", leftMargin, currentY + 14);
         doc.setFont("helvetica", "normal");
-        
-        const maxLineWidth = rightMargin - contentLeft;
+        doc.text(meta.time, leftMargin, currentY + 19);
+
+        doc.setFont("helvetica", "bold");
+        doc.text("PLACE:", leftMargin, currentY + 28);
+        doc.setFont("helvetica", "normal");
+        doc.text(doc.splitTextToSize(meta.place, 28), leftMargin, currentY + 33);
+
+        doc.setFont("helvetica", "bold");
+        doc.text("SD REF:", leftMargin, currentY + 50);
+        doc.setFont("helvetica", "normal");
+        doc.text(doc.splitTextToSize(meta.sdRef, 28), leftMargin, currentY + 55);
+
+        // Vertical margin divider line on Page 1
+        doc.setDrawColor(180);
+        doc.line(contentLeft - 4, 30, contentLeft - 4, 276);
+
+        // Wrapped UPF Particulars Header
+        const profileHeader = `${personName.trim().toUpperCase()} STATES THAT;`;
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        const headerLines = doc.splitTextToSize(profileHeader, maxLineWidth);
+        headerLines.forEach(line => {
+            doc.text(line, contentLeft, currentY);
+            currentY += 5.5;
+        });
+
+        currentY += 3;
+        doc.setFont("helvetica", "normal");
+
         const textLines = doc.splitTextToSize(content, maxLineWidth);
-        
+        let pageNum = 1;
+
         textLines.forEach(line => {
-            if (currentY > 280) {
+            if (currentY > pageBottomLimit) {
                 doc.addPage();
-                currentY = 20;
-                doc.setFontSize(8);
-                doc.text(`SD REF: ${meta.sdRef}`, leftMargin, currentY);
+                pageNum += 1;
+                doc.setDrawColor(180);
+                doc.line(contentLeft - 4, 22, contentLeft - 4, 276);
+
+                doc.setFontSize(8.5);
+                doc.setFont("helvetica", "bold");
+                doc.text(`SD REF: ${meta.sdRef}`, leftMargin, 16);
+                doc.text(`${dynamicTitle} (CONT. — PAGE ${pageNum})`, contentLeft, 16);
+
+                currentY = 26;
                 doc.setFontSize(10);
+                doc.setFont("helvetica", "normal");
             }
             doc.text(line, contentLeft, currentY);
             currentY += 6;
         });
 
-        currentY += 15;
-        if (currentY > 280) { doc.addPage(); currentY = 20; }
+        // Sign-off block
+        currentY += 12;
+        if (currentY > pageBottomLimit - 10) {
+            doc.addPage();
+            pageNum += 1;
+            currentY = 26;
+        }
         doc.setFont("helvetica", "bold");
         doc.text("RECORDED BY:", contentLeft, currentY);
         doc.setFont("helvetica", "normal");
-        doc.text(`${currentUser.fnum} ${currentUser.rank} ${currentUser.name}`, contentLeft + 35, currentY);
+        doc.text(`${currentUser?.fnum || ''} ${currentUser?.rank || ''} ${currentUser?.name || ''}`.trim(), contentLeft + 32, currentY);
 
-        doc.save(`${meta.sdRef.replace(/\//g, '_')}_${category}_${personName.replace(/ /g, '_')}.pdf`);
+        // Stamp "Page X of Y" footers on every page
+        const totalPdfPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPdfPages; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "italic");
+            doc.text(`Page ${i} of ${totalPdfPages}`, 105, 288, { align: "center" });
+        }
+
+        const safeName = personName.trim().slice(0, 35).replace(/[^a-zA-Z0-9]/g, '_');
+        doc.save(`${meta.sdRef.replace(/[\/:\s]+/g, '_')}_${category}_${safeName || 'STATEMENT'}.pdf`);
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                
-                <div className="bg-slate-800 px-6 py-4 flex justify-between items-center text-white shrink-0 border-b border-amber-500">
-                    <h3 className="font-black text-sm uppercase tracking-wider flex items-center">
-                        <FileText className="mr-2 w-4 h-4 text-amber-400" /> Official Statement Recording
-                    </h3>
-                    <button onClick={onClose} className="hover:bg-slate-700 p-1.5 rounded transition"><X size={18}/></button>
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[99999] flex items-center justify-center p-2 sm:p-4">
+            <div className="bg-white dark:bg-slate-900 w-[96vw] max-w-[1280px] h-[92vh] rounded-xl shadow-2xl overflow-hidden flex flex-col border border-slate-300 dark:border-slate-700">
+
+                {/* Top Command Bar */}
+                <div className="bg-slate-900 px-5 py-3 flex flex-wrap justify-between items-center gap-3 text-white shrink-0 border-b border-amber-500">
+                    <div className="flex items-center gap-3">
+                        <h3 className="font-black text-sm uppercase tracking-wider flex items-center">
+                            <FileText className="mr-2 w-4 h-4 text-amber-400" /> Official Statement Recording
+                        </h3>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[11px] font-black uppercase tracking-wider">
+                            Page {pagination.totalPages} of {pagination.totalPages} • {pagination.totalLines} Lines
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('WRITE')}
+                                className={`px-3 py-1 rounded-md text-[11px] font-extrabold uppercase transition cursor-pointer ${
+                                    viewMode === 'WRITE' ? 'bg-amber-600 text-white shadow' : 'text-slate-300 hover:text-white'
+                                }`}
+                            >
+                                Write Mode
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('PREVIEW')}
+                                className={`px-3 py-1 rounded-md text-[11px] font-extrabold uppercase transition cursor-pointer ${
+                                    viewMode === 'PREVIEW' ? 'bg-amber-600 text-white shadow' : 'text-slate-300 hover:text-white'
+                                }`}
+                            >
+                                A4 Pages ({pagination.totalPages})
+                            </button>
+                        </div>
+                        <button onClick={onClose} className="hover:bg-slate-700 p-1.5 rounded transition cursor-pointer"><X size={18} /></button>
+                    </div>
                 </div>
 
-                <div className="p-6 overflow-y-auto flex-1 bg-slate-50 dark:bg-slate-950">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        
-                        <div className="md:col-span-1 space-y-4 bg-slate-200/50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-300 dark:border-slate-700 h-max">
+                {/* Live Page-Transition Banner */}
+                {pageAlert && (
+                    <div className="bg-blue-600 text-white px-5 py-2 text-xs font-extrabold flex items-center justify-between animate-in fade-in shrink-0">
+                        <span className="flex items-center">
+                            <CheckCircle className="w-4 h-4 mr-2 shrink-0" /> {pageAlert}
+                        </span>
+                        <button type="button" onClick={() => setViewMode('PREVIEW')} className="underline text-[11px] font-black uppercase cursor-pointer">
+                            Inspect A4 Pages →
+                        </button>
+                    </div>
+                )}
+
+                {/* Main Workspace */}
+                <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-100 dark:bg-slate-950 custom-scrollbar">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
+                        {/* Left Metadata & Live Page Meter Sidebar */}
+                        <div className="lg:col-span-3 space-y-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-300 dark:border-slate-700 shadow-sm lg:sticky lg:top-0">
                             <div>
                                 <label className="block text-[10px] font-black text-slate-500 uppercase">Statement Category</label>
-                                <select value={category} onChange={e => setCategory(e.target.value)} className="w-full mt-1 p-2 text-xs font-bold rounded border outline-none bg-white dark:bg-slate-900 focus:border-amber-500">
+                                <select value={category} onChange={e => setCategory(e.target.value)} className="w-full mt-1 p-2 text-xs font-bold rounded border border-slate-300 dark:border-slate-700 outline-none bg-white dark:bg-slate-800 focus:border-amber-500 cursor-pointer">
                                     <option value="COMPLAINANT">COMPLAINANT</option>
                                     <option value="WITNESS">WITNESS</option>
                                     <option value="ACCUSED">ACCUSED</option>
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-slate-500 uppercase">Date</label>
-                                <div className="font-mono text-sm font-bold">{meta.date}</div>
+
+                            <div className="grid grid-cols-2 lg:grid-cols-1 gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">Date</label>
+                                    <div className="font-mono text-sm font-bold text-slate-800 dark:text-slate-100">{meta.date}</div>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">Time</label>
+                                    <div className="font-mono text-sm font-bold text-slate-800 dark:text-slate-100">{meta.time}</div>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">Place (Station)</label>
+                                    <div className="text-xs font-bold uppercase text-slate-800 dark:text-slate-100">{meta.place}</div>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">File Ref</label>
+                                    <div className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase">{meta.sdRef}</div>
+                                </div>
                             </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-slate-500 uppercase">Time</label>
-                                <div className="font-mono text-sm font-bold">{meta.time}</div>
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-slate-500 uppercase">Place (Station)</label>
-                                <div className="text-xs font-bold uppercase">{meta.place}</div>
-                            </div>
-                            <div>
-                                <label className="block text-[10px] font-black text-slate-500 uppercase">File Ref</label>
-                                <div className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase">{meta.sdRef}</div>
+
+                            {/* Live A4 Page Capacity Indicator */}
+                            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-600 dark:text-slate-300">
+                                    <span>Active Page {pagination.totalPages}</span>
+                                    <span>{pagination.currentPageLines} / {pagination.activeCapacity} Lines</span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                                    <div
+                                        className={`h-full transition-all duration-200 ${
+                                            pagination.fillPercent >= 90 ? 'bg-red-600' : pagination.fillPercent >= 70 ? 'bg-amber-500' : 'bg-emerald-600'
+                                        }`}
+                                        style={{ width: `${pagination.fillPercent}%` }}
+                                    />
+                                </div>
+                                <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                    {pagination.linesRemaining <= 3
+                                        ? `⚠️ ${pagination.linesRemaining} line(s) left before Page ${pagination.totalPages + 1}.`
+                                        : `${pagination.linesRemaining} line(s) remaining on Page ${pagination.totalPages}.`}
+                                </div>
                             </div>
                         </div>
 
-                        <div className="md:col-span-3 space-y-4">
-                            <h2 className="text-center font-black text-lg text-slate-800 dark:text-slate-100 uppercase underline underline-offset-4 decoration-2">
-                                {dynamicTitle}
-                            </h2>
+                        {/* Right Wide A4 Writing Canvas / Multi-Page Sheet Preview */}
+                        <div className="lg:col-span-9 space-y-4">
+                            {viewMode === 'WRITE' ? (
+                                <div className="bg-white dark:bg-slate-900 p-5 sm:p-7 rounded-xl border border-slate-300 dark:border-slate-700 shadow-md space-y-4">
+                                    <h2 className="text-center font-black text-lg text-slate-800 dark:text-slate-100 uppercase underline underline-offset-4 decoration-2">
+                                        {dynamicTitle}
+                                    </h2>
 
-                            <div>
-                                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">Name & Identity Details of {category} *</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="E.g. AIP AFEDRA VINCENT, 32 YEARS, POLICE OFFICER..."
-                                    value={personName}
-                                    onChange={e => setPersonName(e.target.value)}
-                                    className="w-full p-2.5 border border-slate-300 dark:border-slate-700 rounded outline-none uppercase font-bold text-sm bg-white dark:bg-slate-900 focus:border-amber-500"
-                                />
-                            </div>
+                                    <div>
+                                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">
+                                            Name & Full UPF Identity Particulars of {category} *
+                                        </label>
+                                        <textarea
+                                            rows="3"
+                                            placeholder="E.g. A/2408 AIP AFEDRA VINCENT, MALE ADULT AGED 32, A POLICE OFFICER ATTACHED TO KMP HEADQUARTERS, RESIDENT OF THE SAME ADDRESS, TELEPHONE NUMBER 0779302872"
+                                            value={personName}
+                                            onChange={e => setPersonName(e.target.value)}
+                                            className="w-full p-3 border border-slate-300 dark:border-slate-700 rounded-lg outline-none uppercase font-bold text-sm leading-snug bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:border-amber-500 focus:bg-white dark:focus:bg-slate-900 resize-y"
+                                        />
+                                    </div>
 
-                            <div>
-                                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">Narrative / Statement Content *</label>
-                                <textarea 
-                                    rows="12"
-                                    placeholder="States that; On Monday 31 Mar 25 at about 1500 Hrs..."
-                                    value={content}
-                                    onChange={e => setContent(e.target.value)}
-                                    className="w-full p-3 border border-slate-300 dark:border-slate-700 rounded outline-none font-medium text-sm leading-relaxed bg-white dark:bg-slate-900 custom-scrollbar focus:border-amber-500"
-                                />
-                            </div>
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block font-bold text-slate-700 dark:text-slate-300 text-xs">
+                                                Narrative / Statement Content *
+                                            </label>
+                                            <span className="text-[11px] font-extrabold text-amber-700 dark:text-amber-400">
+                                                {pagination.totalPages > 1
+                                                    ? `Continuing on Page ${pagination.totalPages} of ${pagination.totalPages}`
+                                                    : 'Page 1 of 1'}
+                                            </span>
+                                        </div>
+                                        <textarea
+                                            rows="20"
+                                            placeholder="States that; On Monday 31 Mar 25 at about 1500 Hrs..."
+                                            value={content}
+                                            onChange={e => setContent(e.target.value)}
+                                            className="w-full p-4 border border-slate-300 dark:border-slate-700 rounded-lg outline-none font-mono text-sm leading-relaxed bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 custom-scrollbar focus:border-amber-500 min-h-[460px]"
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {pagination.pages.map((pageLines, pageIdx) => (
+                                        <div key={pageIdx} className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-lg space-y-4">
+                                            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-2 text-[11px] font-black uppercase text-slate-500">
+                                                <span>{meta.sdRef}</span>
+                                                <span className="text-amber-700 dark:text-amber-400">
+                                                    {pageIdx === 0 ? dynamicTitle : `${dynamicTitle} (CONT.)`}
+                                                </span>
+                                                <span>Page {pageIdx + 1} of {pagination.totalPages}</span>
+                                            </div>
+
+                                            {pageIdx === 0 && (
+                                                <div className="font-bold text-xs uppercase text-slate-900 dark:text-slate-100 leading-relaxed">
+                                                    {(personName || '[PARTICULARS NOT ENTERED]').toUpperCase()} STATES THAT;
+                                                </div>
+                                            )}
+
+                                            <div className="font-mono text-xs sm:text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed min-h-[380px]">
+                                                {pageLines.join('\n') || <span className="text-slate-400 italic">No statement content typed yet...</span>}
+                                            </div>
+
+                                            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-[10px] font-bold text-slate-500">
+                                                <span>Recorded By: {currentUser?.fnum} {currentUser?.rank} {currentUser?.name}</span>
+                                                <span>Page {pageIdx + 1} of {pagination.totalPages}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
+
                     </div>
                 </div>
 
-                <div className="bg-slate-100 dark:bg-slate-800 px-6 py-4 flex justify-between items-center shrink-0 border-t border-slate-200 dark:border-slate-700">
-                    <button type="button" onClick={generatePDF} className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-xs font-bold uppercase rounded shadow flex items-center transition cursor-pointer">
-                        <Download className="w-4 h-4 mr-2" /> Download PDF Draft
+                {/* Footer Controls */}
+                <div className="bg-slate-100 dark:bg-slate-800 px-6 py-3.5 flex flex-wrap justify-between items-center gap-3 shrink-0 border-t border-slate-200 dark:border-slate-700">
+                    <button type="button" onClick={generatePDF} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold uppercase rounded-lg shadow flex items-center transition cursor-pointer">
+                        <Download className="w-4 h-4 mr-2" /> Download PDF Draft ({pagination.totalPages} {pagination.totalPages === 1 ? 'Page' : 'Pages'})
                     </button>
-                    
-                    <button type="button" onClick={handleSave} disabled={isSaving || !content.trim() || !personName.trim()} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900/50 text-white text-xs font-black uppercase rounded shadow flex items-center transition cursor-pointer">
+
+                    <button type="button" onClick={handleSave} disabled={isSaving || !content.trim() || !personName.trim()} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900/50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center transition cursor-pointer">
                         <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Saving to Ledger...' : 'Commit Statement to Case File'}
                     </button>
                 </div>
@@ -1576,6 +1810,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
               <option value="LAST 60 DAYS">LAST 60 DAYS</option>
               <option value="LAST 90 DAYS">LAST 90 DAYS</option>
               <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+              <option value="LAST 180 DAYS">LAST 180 DAYS</option>
               <option value="LAST 180 DAYS">LAST 180 DAYS</option>
             </select>
         </div>

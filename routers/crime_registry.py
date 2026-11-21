@@ -1210,7 +1210,7 @@ def get_consolidated_ledger(
 
 
 # ====================================================================
-# 6. ADD STATEMENT TO CASE FILE (NEW)
+# 6. ADD STATEMENT TO CASE FILE
 # ====================================================================
 @router.post("/reports/{sn}/statements")
 def add_case_statement(
@@ -1226,7 +1226,13 @@ def add_case_statement(
     if not StatementModel or not CrimeModel:
         raise HTTPException(status_code=500, detail="Database models not configured.")
 
-    report = db.query(CrimeModel).filter(getattr(CrimeModel, 'sn', CrimeModel.id) == sn).first()
+    query_filter = []
+    if hasattr(CrimeModel, 'sn'):
+        query_filter.append(CrimeModel.sn == sn)
+    if hasattr(CrimeModel, 'id'):
+        query_filter.append(CrimeModel.id == sn)
+
+    report = db.query(CrimeModel).filter(or_(*query_filter)).first()
     if not report:
         raise HTTPException(status_code=404, detail="Crime report not found.")
 
@@ -1234,30 +1240,36 @@ def add_case_statement(
     if not verify_record_mutation_clearance(current_user, str(report.station).upper(), str(report.region).upper()):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: You lack clearance to modify records at this station.")
 
-    new_statement = StatementModel(
-        report_id=report.id,
-        statement_category=payload.statement_category.upper(),
-        person_name=payload.person_name.upper(),
-        date_recorded=payload.date_recorded,
-        time_recorded=payload.time_recorded,
-        place_recorded=payload.place_recorded.upper(),
-        sd_ref=payload.sd_ref.upper(),
-        content=payload.content,
-        recorded_by=get_officer_signature(current_user)
-    )
-    
-    db.add(new_statement)
-    db.commit()
-    
-    record_neon_activity(
-        logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
-        target_id=str(sn), changes_summary=f"Appended {payload.statement_category} statement for {payload.person_name} to case file."
-    )
-    return {"status": "success", "message": "Statement securely logged to case file."}
+    try:
+        new_statement = StatementModel(
+            report_id=report.id,
+            statement_category=payload.statement_category.strip().upper(),
+            person_name=payload.person_name.strip().upper(),
+            date_recorded=payload.date_recorded.strip(),
+            time_recorded=payload.time_recorded.strip(),
+            place_recorded=payload.place_recorded.strip().upper(),
+            sd_ref=payload.sd_ref.strip().upper(),
+            content=payload.content,
+            recorded_by=get_officer_signature(current_user)
+        )
+
+        db.add(new_statement)
+        db.commit()
+        db.refresh(new_statement)
+
+        record_neon_activity(
+            logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
+            target_id=str(sn), changes_summary=f"Appended {payload.statement_category} statement for {payload.person_name[:80]} to case file."
+        )
+        return {"status": "success", "id": new_statement.id, "message": "Statement securely logged to case file."}
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save statement: {str(e)}")
 
 
 # ====================================================================
-# 7. UPGRADE / MODIFY CASE REFERENCE (NEW)
+# 7. UPGRADE / MODIFY CASE REFERENCE
 # ====================================================================
 @router.put("/reports/{sn}/upgrade-reference")
 def upgrade_case_reference(
@@ -1270,7 +1282,13 @@ def upgrade_case_reference(
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
     StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
 
-    report = db.query(CrimeModel).filter(getattr(CrimeModel, 'sn', CrimeModel.id) == sn).first()
+    query_filter = []
+    if hasattr(CrimeModel, 'sn'):
+        query_filter.append(CrimeModel.sn == sn)
+    if hasattr(CrimeModel, 'id'):
+        query_filter.append(CrimeModel.id == sn)
+
+    report = db.query(CrimeModel).filter(or_(*query_filter)).first()
     if not report:
         raise HTTPException(status_code=404, detail="Crime report not found.")
 
@@ -1280,37 +1298,40 @@ def upgrade_case_reference(
     old_ref = getattr(report, 'sd_ref', getattr(report, 'sdRef', 'UNKNOWN'))
     new_ref = payload.new_reference.strip().upper()
 
-    # Update actual record
-    if hasattr(report, 'sd_ref'): report.sd_ref = new_ref
-    if hasattr(report, 'sdRef'): report.sdRef = new_ref
-    report.last_updated_by = get_officer_signature(current_user)
+    try:
+        if hasattr(report, 'sd_ref'): report.sd_ref = new_ref
+        if hasattr(report, 'sdRef'): report.sdRef = new_ref
+        report.last_updated_by = get_officer_signature(current_user)
 
-    # 🟢 Log transition as a chronological statement block for the UI ledger
-    if StatementModel:
-        transition_log = StatementModel(
-            report_id=report.id,
-            statement_category="REFERENCE_UPGRADE",
-            person_name="SYSTEM DIRECTIVE",
-            date_recorded=payload.date_recorded,
-            time_recorded=payload.time_recorded,
-            place_recorded=str(report.station).upper(),
-            sd_ref=new_ref,
-            content=f"CASE ESCALATION / TRANSITION:\nOriginal Reference: {old_ref}\nNew Reference: {new_ref}\nReason: {payload.reason.upper()}",
-            recorded_by=get_officer_signature(current_user)
+        if StatementModel:
+            transition_log = StatementModel(
+                report_id=report.id,
+                statement_category="REFERENCE_UPGRADE",
+                person_name="SYSTEM DIRECTIVE",
+                date_recorded=payload.date_recorded,
+                time_recorded=payload.time_recorded,
+                place_recorded=str(report.station).upper(),
+                sd_ref=new_ref,
+                content=f"CASE ESCALATION / TRANSITION:\nOriginal Reference: {old_ref}\nNew Reference: {new_ref}\nReason: {payload.reason.upper()}",
+                recorded_by=get_officer_signature(current_user)
+            )
+            db.add(transition_log)
+
+        db.commit()
+
+        record_neon_activity(
+            logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
+            target_id=str(sn), changes_summary=f"Upgraded case reference from {old_ref} to {new_ref}. Reason: {payload.reason}"
         )
-        db.add(transition_log)
-
-    db.commit()
-    
-    record_neon_activity(
-        logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
-        target_id=str(sn), changes_summary=f"Upgraded case reference from {old_ref} to {new_ref}. Reason: {payload.reason}"
-    )
-    return {"status": "success", "message": f"Case escalated to {new_ref}"}
+        return {"status": "success", "message": f"Case escalated to {new_ref}"}
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to upgrade reference: {str(e)}")
 
 
 # ====================================================================
-# 8. AES-256 SECURE STATEMENT EXPORT (NEW)
+# 8. AES-256 SECURE STATEMENT EXPORT
 # ====================================================================
 @router.get("/reports/statements/{stmt_id}/export")
 def export_statement_secure(
@@ -1325,16 +1346,15 @@ def export_statement_secure(
     stmt = db.query(StatementModel).filter(StatementModel.id == stmt_id).first()
     if not stmt:
         raise HTTPException(status_code=404, detail="Statement not found.")
-        
+
     report = db.query(CrimeModel).filter(CrimeModel.id == stmt.report_id).first()
-    
+
     if report and not verify_record_mutation_clearance(current_user, str(report.station).upper(), str(report.region).upper()):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: You lack clearance to export records from this station.")
 
     officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
     timestamp_str = datetime.now(pytz.timezone('Africa/Nairobi')).strftime("%Y-%m-%d %H:%M:%S EAT")
 
-    # 🟢 Generate Official Formatted Text Document
     document_content = f"""
 ======================================================================
 RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED
@@ -1358,18 +1378,14 @@ RECORDED BY: {stmt.recorded_by}
 ======================================================================
 """
 
-    import io
-    import pyzipper
+    safe_name = re.sub(r'[^A-Za-z0-9]+', '_', (stmt.person_name or 'STATEMENT')).strip('_')[:35]
+    safe_ref = re.sub(r'[^A-Za-z0-9]+', '_', (stmt.sd_ref or 'REF')).strip('_')[:30]
+    filename = f"STATEMENT_{stmt.statement_category}_{safe_name}_{safe_ref}.txt"
 
     zip_buffer = io.BytesIO()
     with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
         zf.setpassword(officer_fnum.encode('utf-8'))
         zf.comment = f"Creator: {officer_fnum} | Subject: Statement Export | Timestamp: {timestamp_str}".encode('utf-8')
-        
-        safe_name = stmt.person_name.replace(' ', '_').replace('/', '_')
-        safe_ref = stmt.sd_ref.replace('/', '_')
-        filename = f"STATEMENT_{stmt.statement_category}_{safe_name}_{safe_ref}.txt"
-        
         zf.writestr(filename, document_content)
 
     zip_buffer.seek(0)
@@ -1377,11 +1393,14 @@ RECORDED BY: {stmt.recorded_by}
 
     record_neon_activity(
         logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="CRIME_REGISTRY",
-        target_id=f"STMT_{stmt_id}", changes_summary=f"Exported AES-256 secure statement for {stmt.person_name}."
+        target_id=f"STMT_{stmt_id}", changes_summary=f"Exported AES-256 secure statement for {stmt.person_name[:80]}."
     )
 
     return StreamingResponse(
         zip_buffer,
         media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+        headers={
+            "Content-Disposition": f"attachment; filename={zip_filename}",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )

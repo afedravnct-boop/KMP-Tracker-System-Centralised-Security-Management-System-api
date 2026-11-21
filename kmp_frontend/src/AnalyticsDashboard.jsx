@@ -180,13 +180,67 @@ const ManpowerFeatureCard = ({
   title,
   icon,
   data = [],
+  byRegion = {},
+  bucketKey,
+  scope = 'GENERAL',
   colors = PIE_COLORS,
   emptyText = 'No data available.',
   defaultView = 'ALL',
-  height = 220
+  height = 240
 }) => {
   const [viewMode, setViewMode] = useState(defaultView);
   const totalCount = data.reduce((sum, item) => sum + Number(item.value || 0), 0);
+
+  // Build ordered category columns from active data (or union across regions)
+  const categoryColumns = useMemo(() => {
+    const ordered = data.map((d) => d.name);
+    const seen = new Set(ordered);
+    Object.values(byRegion || {}).forEach((bucket) => {
+      (bucket?.[bucketKey] || []).forEach((item) => {
+        if (!seen.has(item.name)) {
+          seen.add(item.name);
+          ordered.push(item.name);
+        }
+      });
+    });
+    return ordered;
+  }, [data, byRegion, bucketKey]);
+
+  // Build regional table rows (all regions when GENERAL, or the single selected region)
+  const tableRows = useMemo(() => {
+    const regionEntries =
+      scope === 'GENERAL'
+        ? Object.entries(byRegion || {})
+        : byRegion?.[scope]
+        ? [[scope, byRegion[scope]]]
+        : [];
+
+    return regionEntries.map(([regionName, bucket], idx) => {
+      const counts = {};
+      (bucket?.[bucketKey] || []).forEach((item) => {
+        counts[item.name] = Number(item.value || 0);
+      });
+      const rowTotal = categoryColumns.reduce((sum, col) => sum + (counts[col] || 0), 0);
+      return { sn: idx + 1, region: regionName, counts, rowTotal };
+    });
+  }, [byRegion, bucketKey, scope, categoryColumns]);
+
+  // Bottom footer totals per category + overall Grand Total
+  const columnTotals = useMemo(() => {
+    const totals = {};
+    categoryColumns.forEach((col) => {
+      totals[col] = tableRows.reduce((sum, r) => sum + (r.counts[col] || 0), 0);
+    });
+    return totals;
+  }, [categoryColumns, tableRows]);
+
+  const grandTotal = useMemo(
+    () => tableRows.reduce((sum, r) => sum + r.rowTotal, 0),
+    [tableRows]
+  );
+
+  // Dynamic height for horizontal bar graph so every rank/category label fits cleanly
+  const barChartHeight = Math.max(height, data.length * 28 + 45);
 
   const renderPieLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
     if (percent < 0.04) return null;
@@ -217,15 +271,27 @@ const ManpowerFeatureCard = ({
     </div>
   );
 
+  // Horizontal Bar Graph: X-Axis = Number of Personnel, Y-Axis = Ranks / Categories
   const renderBar = () => (
-    <div style={{ height }} className="w-full">
+    <div style={{ height: barChartHeight }} className="w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 12, left: -12, bottom: 24 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2d6c3" />
-          <XAxis dataKey="name" tick={{ fontSize: 8, fontWeight: 'bold' }} angle={-15} textAnchor="end" interval={0} />
-          <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+        <BarChart layout="vertical" data={data} margin={{ top: 8, right: 24, left: 10, bottom: 18 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2d6c3" />
+          <XAxis
+            type="number"
+            allowDecimals={false}
+            tick={{ fontSize: 9, fontWeight: 'bold' }}
+            label={{ value: 'Number of Personnel', position: 'insideBottom', offset: -10, fontSize: 9, fontWeight: 'bold', fill: '#594d3c' }}
+          />
+          <YAxis
+            dataKey="name"
+            type="category"
+            width={110}
+            interval={0}
+            tick={{ fontSize: 9, fontWeight: 'bold', fill: '#3a3225' }}
+          />
           <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '10px', fontWeight: 'bold' }} />
-          <Bar dataKey="value" name="Personnel" radius={[4, 4, 0, 0]} barSize={28}>
+          <Bar dataKey="value" name="Personnel" radius={[0, 4, 4, 0]} barSize={18}>
             {data.map((entry, idx) => (
               <Cell key={`bar-${idx}`} fill={colors[idx % colors.length]} />
             ))}
@@ -235,38 +301,55 @@ const ManpowerFeatureCard = ({
     </div>
   );
 
+  // Regional Matrix Table: S/NO | REGION | [Category Columns...] | TOTAL + Bottom Grand Total Row
   const renderTable = () => (
-    <div style={{ maxHeight: height }} className="w-full overflow-y-auto custom-scrollbar border border-[#e2d6c3] rounded-lg">
-      <table className="w-full divide-y divide-[#e2d6c3] text-[10px]">
-        <thead className="bg-[#f4eee2] sticky top-0 z-10">
-          <tr>
-            <th className="px-2.5 py-1.5 text-left font-extrabold text-[#3a3225] uppercase">Category</th>
-            <th className="px-2.5 py-1.5 text-right font-extrabold text-[#3a3225] uppercase">Count</th>
-            <th className="px-2.5 py-1.5 text-right font-extrabold text-[#596E47] uppercase">% Share</th>
+    <div className="w-full overflow-x-auto max-h-[340px] overflow-y-auto custom-scrollbar border border-[#d3c2a8] rounded-lg">
+      <table className="min-w-full divide-y divide-[#e2d6c3] text-[10px]">
+        <thead className="sticky top-0 z-20">
+          <tr className="bg-gradient-to-b from-[#f4eee2] to-[#e6dfd1] text-[#3a3225] font-extrabold border-b-2 border-[#d3c2a8]">
+            <th className="px-2.5 py-2 text-center uppercase border-r border-[#d3c2a8] sticky left-0 bg-[#f4eee2] z-10 w-12">S/NO</th>
+            <th className="px-3 py-2 text-left uppercase border-r border-[#d3c2a8] sticky left-12 bg-[#f4eee2] z-10 min-w-[140px]">Region</th>
+            {categoryColumns.map((col) => (
+              <th key={col} className="px-2.5 py-2 text-center uppercase border-r border-[#d3c2a8] whitespace-nowrap">
+                {col}
+              </th>
+            ))}
+            <th className="px-3 py-2 text-center uppercase bg-[#3a3225] text-[#f4eee2] whitespace-nowrap">Total</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-[#e2d6c3] bg-white">
-          {data.map((row, idx) => {
-            const pct = totalCount > 0 ? ((Number(row.value || 0) / totalCount) * 100).toFixed(1) : '0.0';
-            return (
-              <tr key={idx} className="hover:bg-[#fbf8f3]">
-                <td className="px-2.5 py-1.5 font-bold text-[#3a3225] flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colors[idx % colors.length] }} />
-                  <span>{row.name}</span>
+        <tbody className="divide-y divide-[#e2d6c3] bg-[#fbf8f3]">
+          {tableRows.map((row) => (
+            <tr key={row.region} className="hover:bg-[#e9eedf]/40">
+              <td className="px-2.5 py-1.5 text-center font-bold text-[#594d3c] border-r border-[#e2d6c3] sticky left-0 bg-[#fbf8f3]">
+                {row.sn}
+              </td>
+              <td className="px-3 py-1.5 font-extrabold text-[#3a3225] uppercase border-r border-[#e2d6c3] sticky left-12 bg-[#fbf8f3] whitespace-nowrap">
+                {row.region}
+              </td>
+              {categoryColumns.map((col) => (
+                <td key={col} className="px-2.5 py-1.5 text-center font-semibold text-[#3a3225] border-r border-[#e2d6c3]">
+                  {row.counts[col] ? row.counts[col].toLocaleString() : '-'}
                 </td>
-                <td className="px-2.5 py-1.5 text-right font-black text-[#3a3225]">
-                  {Number(row.value || 0).toLocaleString()}
-                </td>
-                <td className="px-2.5 py-1.5 text-right font-extrabold text-[#596E47]">{pct}%</td>
-              </tr>
-            );
-          })}
+              ))}
+              <td className="px-3 py-1.5 text-center font-black text-[#596E47] bg-[#e9eedf]/50">
+                {row.rowTotal.toLocaleString()}
+              </td>
+            </tr>
+          ))}
         </tbody>
-        <tfoot className="bg-[#f4eee2] border-t border-[#e2d6c3]">
-          <tr>
-            <td className="px-2.5 py-1.5 font-black text-[#3a3225] uppercase">Total</td>
-            <td className="px-2.5 py-1.5 text-right font-black text-[#3a3225]">{totalCount.toLocaleString()}</td>
-            <td className="px-2.5 py-1.5 text-right font-black text-[#596E47]">100.0%</td>
+        <tfoot className="sticky bottom-0 z-20">
+          <tr className="bg-[#3a3225] text-[#f4eee2] font-black border-t-2 border-[#534735]">
+            <td colSpan={2} className="px-3 py-2 text-left uppercase tracking-wide border-r border-[#534735] sticky left-0 bg-[#3a3225]">
+              Category Totals / Grand Total
+            </td>
+            {categoryColumns.map((col) => (
+              <td key={col} className="px-2.5 py-2 text-center border-r border-[#534735]">
+                {(columnTotals[col] || 0).toLocaleString()}
+              </td>
+            ))}
+            <td className="px-3 py-2 text-center bg-[#596E47] text-white text-[11px]">
+              {grandTotal.toLocaleString()}
+            </td>
           </tr>
         </tfoot>
       </table>
@@ -274,7 +357,7 @@ const ManpowerFeatureCard = ({
   );
 
   return (
-    <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 flex flex-col gap-2">
+    <div className="bg-white rounded-xl shadow-xs border border-[#e2d6c3] p-3 flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between border-b border-[#e2d6c3] pb-1.5 gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="text-[11px] font-black text-[#3a3225] uppercase flex items-center truncate">
@@ -314,17 +397,19 @@ const ManpowerFeatureCard = ({
           {emptyText}
         </div>
       ) : viewMode === 'ALL' ? (
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 items-start">
-          <div>
-            <div className="text-[9px] font-extrabold text-[#736450] uppercase mb-1">Pie Chart</div>
-            {renderPie()}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+            <div className="border border-[#e2d6c3] rounded-lg p-2 bg-[#fbf8f3]/50">
+              <div className="text-[9px] font-extrabold text-[#736450] uppercase mb-1">Pie Chart</div>
+              {renderPie()}
+            </div>
+            <div className="border border-[#e2d6c3] rounded-lg p-2 bg-[#fbf8f3]/50">
+              <div className="text-[9px] font-extrabold text-[#736450] uppercase mb-1">Horizontal Bar Graph (X: Personnel, Y: Category)</div>
+              {renderBar()}
+            </div>
           </div>
           <div>
-            <div className="text-[9px] font-extrabold text-[#736450] uppercase mb-1">Bar Graph</div>
-            {renderBar()}
-          </div>
-          <div>
-            <div className="text-[9px] font-extrabold text-[#736450] uppercase mb-1">Summary Table</div>
+            <div className="text-[9px] font-extrabold text-[#736450] uppercase mb-1">Regional Breakdown Table</div>
             {renderTable()}
           </div>
         </div>
@@ -1660,6 +1745,9 @@ const AnalyticsDashboard = ({
               title="Gender Distribution Analysis"
               icon={<Scale className="w-3.5 h-3.5 mr-1.5 text-[#A97142]" />}
               data={activeManpowerBucket.genderDistribution}
+              byRegion={effectiveManpowerIntel.byRegion}
+              bucketKey="genderDistribution"
+              scope={manpowerSummaryScope}
               colors={PIE_COLORS}
               emptyText="No gender distribution data available."
             />
@@ -1667,6 +1755,9 @@ const AnalyticsDashboard = ({
               title="Force Deployability Index"
               icon={<PieChartIcon className="w-3.5 h-3.5 mr-1.5 text-[#596E47]" />}
               data={activeManpowerBucket.deployability}
+              byRegion={effectiveManpowerIntel.byRegion}
+              bucketKey="deployability"
+              scope={manpowerSummaryScope}
               colors={PIE_STATUS_COLORS}
               emptyText="No deployability data available."
             />
@@ -1674,30 +1765,45 @@ const AnalyticsDashboard = ({
               title="Rank Census Distribution"
               icon={<Shield className="w-3.5 h-3.5 mr-1.5 text-blue-700" />}
               data={activeManpowerBucket.rankDistribution}
+              byRegion={effectiveManpowerIntel.byRegion}
+              bucketKey="rankDistribution"
+              scope={manpowerSummaryScope}
               emptyText="No rank census data available."
             />
             <ManpowerFeatureCard
               title="Length of Service (DOE)"
               icon={<Clock className="w-3.5 h-3.5 mr-1.5 text-[#596E47]" />}
               data={activeManpowerBucket.serviceLength}
+              byRegion={effectiveManpowerIntel.byRegion}
+              bucketKey="serviceLength"
+              scope={manpowerSummaryScope}
               emptyText="No length of service data available."
             />
             <ManpowerFeatureCard
               title="Length at Current Station (D.O. Post)"
               icon={<Calendar className="w-3.5 h-3.5 mr-1.5 text-amber-700" />}
               data={activeManpowerBucket.deploymentLength}
+              byRegion={effectiveManpowerIntel.byRegion}
+              bucketKey="deploymentLength"
+              scope={manpowerSummaryScope}
               emptyText="No deployment duration data available."
             />
             <ManpowerFeatureCard
               title="Period on Current Rank (D.O. Pro)"
               icon={<Award className="w-3.5 h-3.5 mr-1.5 text-purple-700" />}
               data={activeManpowerBucket.rankTenure}
+              byRegion={effectiveManpowerIntel.byRegion}
+              bucketKey="rankTenure"
+              scope={manpowerSummaryScope}
               emptyText="No rank tenure data available."
             />
             <ManpowerFeatureCard
               title="Age Demographics (DOB)"
               icon={<Users className="w-3.5 h-3.5 mr-1.5 text-teal-700" />}
               data={activeManpowerBucket.ageDemographics}
+              byRegion={effectiveManpowerIntel.byRegion}
+              bucketKey="ageDemographics"
+              scope={manpowerSummaryScope}
               emptyText="No age demographic data available."
             />
           </div>
