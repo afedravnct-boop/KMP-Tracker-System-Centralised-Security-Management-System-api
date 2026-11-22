@@ -1084,3 +1084,36 @@ def log_frontend_session_activity(
         return {"status": "success", "message": "Session telemetry recorded."}
     except Exception as e:
         return {"status": "success", "message": "Telemetry received with minor notice."}
+
+@router.post("/log-logout")
+@router.post("/api/auth/log-logout")
+@router.post("/api/v1/auth/log-logout")
+def log_user_logout(
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="LOGOUT",
+        module="USER_AUTHENTICATION",
+        details=f"Officer {current_user.fnum} {current_user.rank or ''} {current_user.name or ''} securely logged out.".strip()
+    )
+    return {"status": "success", "message": "Logout recorded."}
+
+
+@router.post("/log-timeout")
+@router.post("/api/auth/log-timeout")
+@router.post("/api/v1/auth/log-timeout")
+def log_user_timeout(
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="TIMEOUT",
+        module="SESSION_TELEMETRY",
+        details=f"Officer {current_user.fnum} {current_user.rank or ''} {current_user.name or ''} session timed out due to inactivity.".strip()
+    )
+    return {"status": "success", "message": "Session timeout recorded."}

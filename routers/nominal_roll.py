@@ -2023,19 +2023,21 @@ def export_filtered_nominal_roll(
 
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = f"Filtered List - {f_val}"
+        safe_sheet_label = re.sub(r'[\[\]\:\*\?\/\\]', '-', f_val).strip()
+        ws.title = f"Filtered - {safe_sheet_label}"[:31]
         ws.views.sheetView[0].showGridLines = True
 
         eat_tz = pytz.timezone("Africa/Nairobi")
         eat_time = datetime.now(eat_tz).replace(tzinfo=None)
         officer_name = (current_user.name or "UNKNOWN").strip().upper()
         officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
+        fnum_clean = officer_fnum.replace('/', '_')
         officer_rank = (current_user.rank or "").strip().upper()
         timestamp_str = eat_time.strftime("%Y-%m-%d %H:%M:%S EAT")
 
         wb.properties.creator = f"{officer_fnum} {officer_rank} {officer_name}"
         wb.properties.title = f"Official Filtered Extract: {f_type} - {f_val}"
-        
+
         header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
         thin_border = Border(
@@ -2044,7 +2046,7 @@ def export_filtered_nominal_roll(
         )
 
         headers = ["SN", "Force Number", "Rank", "Name", "Sex", "Position", "Contact", "IPPS", "NIN", "Station", "Region", "Status"]
-        
+
         ws.append(headers)
         for cell in ws[1]:
             cell.font = header_font
@@ -2054,8 +2056,8 @@ def export_filtered_nominal_roll(
 
         for idx, row in enumerate(filtered_rows):
             row_data = [
-                idx + 1, row["Force Number"], row["Rank"], row["Name"], row["Sex"], 
-                row["Position"], row["Contact"], row["IPPS"], row["NIN"], 
+                idx + 1, row["Force Number"], row["Rank"], row["Name"], row["Sex"],
+                row["Position"], row["Contact"], row["IPPS"], row["NIN"],
                 row["Station"], row["Region"], row["Status"]
             ]
             ws.append(row_data)
@@ -2067,7 +2069,8 @@ def export_filtered_nominal_roll(
 
         zip_stream = io.BytesIO()
         zip_password = str(current_user.fnum).strip().encode('utf-8')
-        excel_filename = f"{officer_fnum}_Filtered_List_{f_type}_{eat_time.strftime('%Y%m%d')}.xlsx"
+        safe_type_slug = re.sub(r'[^A-Za-z0-9]+', '_', f_type).strip('_')[:20]
+        excel_filename = f"{fnum_clean}_Filtered_List_{safe_type_slug}_{eat_time.strftime('%Y%m%d')}.xlsx"
         zip_filename = f"SECURE_FILTERED_LEDGER_{eat_time.strftime('%Y%m%d')}.zip"
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
@@ -2077,6 +2080,7 @@ def export_filtered_nominal_roll(
             zf.writestr(excel_filename, excel_buffer.getvalue())
 
         zip_stream.seek(0)
+
         return StreamingResponse(
             zip_stream,
             media_type="application/zip",

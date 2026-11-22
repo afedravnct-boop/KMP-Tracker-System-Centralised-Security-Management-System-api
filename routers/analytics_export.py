@@ -7,6 +7,7 @@ import pytz
 import pyzipper
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.chart import BarChart, PieChart, Reference
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -24,6 +25,9 @@ from routers.nominal_roll import (
     calculate_deployment_length_bracket,
     calculate_rank_tenure_bracket,
     normalize_personnel_status,
+    normalize_education_level,
+    normalize_section_unit,
+    normalize_station_name,
     is_invalid_roster_entry
 )
 
@@ -36,6 +40,49 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU"]
 }
+
+def _presence_label(val) -> str:
+    s = str(val or "").strip().upper()
+    return "RECORDED" if s and s not in ["NONE", "NULL", "NAN", "N/A", "NIL", "-"] else "MISSING"
+
+NOMINAL_ROLL_ANALYSIS_COLUMNS = [
+    ("rank", "Rank Census Distribution", lambda r: str(getattr(r, 'rank', '') or 'UNKNOWN').strip().upper()),
+    ("name", "Name Completeness", lambda r: _presence_label(getattr(r, 'name', None))),
+    ("sex", "Gender Distribution", lambda r: "FEMALE" if "F" in str(getattr(r, 'sex', 'M') or 'M').upper() else "MALE"),
+    ("position", "Position / Role Distribution", lambda r: str(getattr(r, 'position', '') or 'UNSPECIFIED').strip().upper()),
+    ("dob", "Age Demographics (18+)", lambda r: calculate_age_bracket(getattr(r, 'dob', None))),
+    ("doe", "Length of Service (DOE)", lambda r: calculate_service_length_bracket(getattr(r, 'doe', None))),
+    ("do_post", "Length at Current Station (D.O. Post)", lambda r: calculate_deployment_length_bracket(getattr(r, 'do_post', None))),
+    ("do_pro", "Period on Current Rank (D.O. Pro)", lambda r: calculate_rank_tenure_bracket(getattr(r, 'do_pro', None))),
+    ("contact", "Contact Availability", lambda r: _presence_label(getattr(r, 'contact', None))),
+    ("educ_level", "Education Level", lambda r: normalize_education_level(getattr(r, 'educ_level', None)) or "UNSPECIFIED"),
+    ("ipps", "IPPS Number Audit", lambda r: _presence_label(getattr(r, 'ipps', None))),
+    ("tin", "TIN Number Audit", lambda r: _presence_label(getattr(r, 'tin', None))),
+    ("nin", "NIN Number Audit", lambda r: _presence_label(getattr(r, 'nin', None))),
+    ("home_dist", "Home District", lambda r: str(getattr(r, 'home_dist', '') or 'UNSPECIFIED').strip().upper()),
+    ("tribe", "Tribe Distribution", lambda r: str(getattr(r, 'tribe', '') or 'UNSPECIFIED').strip().upper()),
+    ("acc_no", "Bank Account Audit", lambda r: _presence_label(getattr(r, 'acc_no', getattr(r, 'accno', None)))),
+    ("bank_branch", "Bank / Branch Distribution", lambda r: str(getattr(r, 'bank_branch', getattr(r, 'bankbranch', getattr(r, 'bank', ''))) or 'UNSPECIFIED').strip().upper()),
+    ("station", "Station Distribution", lambda r: normalize_station_name(getattr(r, 'station', None))),
+    ("district", "District Distribution", lambda r: str(getattr(r, 'district', '') or 'UNSPECIFIED').strip().upper()),
+    ("region", "Region Distribution", lambda r: get_official_region_for_station(getattr(r, 'station', ''), getattr(r, 'region', ''))),
+    ("section", "Section / Unit", lambda r: normalize_section_unit(getattr(r, 'section', None) or getattr(r, 'position', None))),
+    ("dir", "Directorate", lambda r: str(getattr(r, 'dir', '') or 'UNSPECIFIED').strip().upper()),
+    ("status", "Status / Deployability", lambda r: normalize_personnel_status(getattr(r, 'status', 'ACTIVE')))
+]
+
+DEFAULT_MANPOWER_COLUMNS = ["sex", "status", "rank", "doe", "do_post", "do_pro", "dob", "bank_branch"]
+
+def resolve_selected_columns(columns_param: Optional[str]):
+    if not columns_param or not columns_param.strip():
+        active_keys = set(DEFAULT_MANPOWER_COLUMNS)
+    elif columns_param.strip().upper() == "ALL":
+        active_keys = {col_key for col_key, _, _ in NOMINAL_ROLL_ANALYSIS_COLUMNS}
+    else:
+        active_keys = {c.strip().lower() for c in columns_param.split(",") if c.strip()}
+
+    selected = [item for item in NOMINAL_ROLL_ANALYSIS_COLUMNS if item[0] in active_keys]
+    return selected if selected else [item for item in NOMINAL_ROLL_ANALYSIS_COLUMNS if item[0] in DEFAULT_MANPOWER_COLUMNS]
 
 def safe_int(val) -> int:
     try:
@@ -147,6 +194,38 @@ def apply_precise_regional_scoping(query, ModelClass, selected_region: Optional[
         return query.filter(text("1=0"))
 
     return query
+
+def get_comparison_level(current_user, selected_region: Optional[str]) -> str:
+    """Returns 'REGION' for global users viewing all regions, otherwise 'STATION'."""
+    sel_reg = (selected_region or "").strip().upper()
+    if sel_reg and sel_reg not in ["ALL REGIONS", "ALL"]:
+        return "STATION"
+
+    user_role = (current_user.role or "").strip().upper()
+    user_pos = (current_user.position or "").strip().upper()
+    user_reg = (current_user.region or "").strip().upper()
+
+    perms = current_user.permissions or {}
+    if isinstance(perms, str):
+        try: perms = json.loads(perms)
+        except Exception: perms = {}
+
+    is_global = (
+        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "DEPUTY COMMANDER"] or
+        "KMP COMMANDER" in user_pos or
+        "DEPUTY KMP COMMANDER" in user_pos or
+        "KMP ADMIN" in user_pos or
+        perms.get("view_global_roster") is True or
+        perms.get("global_observer") is True or
+        user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]
+    )
+    return "REGION" if is_global else "STATION"
+
+def get_group_label(comparison_level: str, station_val: str, region_val: str) -> str:
+    stn = normalize_station_name(station_val or "UNKNOWN")
+    if comparison_level == "STATION":
+        return stn
+    return get_official_region_for_station(stn, region_val or "")
 
 def normalize_offence_category(raw_offence: str) -> str:
     if not raw_offence:
@@ -374,6 +453,7 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
 def get_dashboard_intelligence(
     region: Optional[str] = None,
     station: Optional[str] = None,
+    columns: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     current_user = Depends(get_current_user)
 ):
@@ -407,10 +487,13 @@ def get_dashboard_intelligence(
         fire_records = query_scoped(FireModel)
         nom_records = [r for r in query_scoped(NomModel) if not is_invalid_roster_entry(r)]
 
-        # 1. DETENTIONS / LOCKUP CALENDAR
+        comparison_level = get_comparison_level(current_user, region)
+
+        # 1. DETENTIONS / LOCKUP CALENDAR + COMPARATIVE AGE ANALYSIS
         date_map = {}
         region_demo_map = {}
         region_dur_map = {}
+        age_comp_map = {}
         daily_totals = {}
 
         for r in lockup_records:
@@ -439,6 +522,21 @@ def get_dashboard_intelligence(
 
                 daily_totals[d_str] = daily_totals.get(d_str, 0) + suspects
 
+                grp = get_group_label(comparison_level, stn, reg)
+                if grp not in age_comp_map:
+                    age_comp_map[grp] = {
+                        "label": grp, "adults": 0, "juveniles": 0,
+                        "maleAdults": 0, "femaleAdults": 0,
+                        "maleJuveniles": 0, "femaleJuveniles": 0, "total": 0
+                    }
+                age_comp_map[grp]["maleAdults"] += m_ad
+                age_comp_map[grp]["femaleAdults"] += f_ad
+                age_comp_map[grp]["maleJuveniles"] += m_juv
+                age_comp_map[grp]["femaleJuveniles"] += f_juv
+                age_comp_map[grp]["adults"] += (m_ad + f_ad)
+                age_comp_map[grp]["juveniles"] += (m_juv + f_juv)
+                age_comp_map[grp]["total"] += (m_ad + f_ad + m_juv + f_juv)
+
                 if reg not in region_demo_map:
                     region_demo_map[reg] = {"region": reg, "maleAdults": 0, "femaleAdults": 0, "maleJuveniles": 0, "femaleJuveniles": 0}
                 region_demo_map[reg]["maleAdults"] += m_ad
@@ -454,6 +552,7 @@ def get_dashboard_intelligence(
             except Exception:
                 continue
 
+        detention_age_comparison = sorted(age_comp_map.values(), key=lambda x: x["total"], reverse=True)
         sorted_dates = sorted(date_map.keys(), reverse=True)
         daily_margins = []
         for i, dt in enumerate(sorted_dates):
@@ -465,8 +564,9 @@ def get_dashboard_intelligence(
                 "date": dt, "total": curr_total, "margin": margin, "status": status_note
             })
 
-        # 2. SUCCESS STORIES METRICS
+        # 2. SUCCESS STORIES METRICS + CASCADING COMPARISON
         processed_stories = []
+        stories_comp_map = {}
         for st in story_records:
             try:
                 raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
@@ -495,9 +595,17 @@ def get_dashboard_intelligence(
                     parsed['classification']
                 ).upper()
 
+                st_stn = str(getattr(st, 'station', 'UNKNOWN')).upper()
+                st_reg = str(getattr(st, 'region', 'KMP GENERAL')).upper()
+                grp = get_group_label(comparison_level, st_stn, st_reg)
+                if grp not in stories_comp_map:
+                    stories_comp_map[grp] = {"label": grp, "stories": 0, "suspects": 0}
+                stories_comp_map[grp]["stories"] += 1
+                stories_comp_map[grp]["suspects"] += suspects
+
                 processed_stories.append({
-                    "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
-                    "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
+                    "station": st_stn,
+                    "region": st_reg,
                     "suspects": suspects,
                     "parsedSuspects": suspects,
                     "recoveries": recoveries,
@@ -512,13 +620,16 @@ def get_dashboard_intelligence(
                 print(f"Error parsing success story record: {e}")
                 continue
 
-        # 3. FIRE INTELLIGENCE
+        success_stories_comparison = sorted(stories_comp_map.values(), key=lambda x: x["stories"], reverse=True)
+
+        # 3. FIRE INTELLIGENCE + CONCENTRATION BY REGION / STATION
         total_fire_incidents = len(fire_records)
         total_fire_deaths = 0
         total_fire_injuries = 0
         
         fire_list = []
         fire_causes_map = {}
+        fire_conc_map = {}
         month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         fire_monthly_map = {m: 0 for m in month_names}
 
@@ -536,6 +647,15 @@ def get_dashboard_intelligence(
                 cause_key = parsed_fire["statusFindings"]
                 fire_causes_map[cause_key] = fire_causes_map.get(cause_key, 0) + 1
 
+                f_stn = str(getattr(f, 'station', 'UNKNOWN')).upper()
+                f_reg = str(getattr(f, 'region', 'KMP GENERAL')).upper()
+                grp = get_group_label(comparison_level, f_stn, f_reg)
+                if grp not in fire_conc_map:
+                    fire_conc_map[grp] = {"label": grp, "count": 0, "deaths": 0, "injuries": 0}
+                fire_conc_map[grp]["count"] += 1
+                fire_conc_map[grp]["deaths"] += row_deaths
+                fire_conc_map[grp]["injuries"] += row_injuries
+
                 d_str = str(getattr(f, 'date', ''))
                 if d_str and d_str != 'None':
                     clean_d = d_str.split('T')[0][:10]
@@ -544,8 +664,8 @@ def get_dashboard_intelligence(
                     fire_monthly_map[m_label] += 1
 
                 fire_list.append({
-                    "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
-                    "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
+                    "station": f_stn,
+                    "region": f_reg,
                     "date": str(getattr(f, 'date', 'N/A')),
                     "classification": parsed_fire["classification"],
                     "statusFindings": parsed_fire["statusFindings"],
@@ -558,8 +678,9 @@ def get_dashboard_intelligence(
 
         fire_causes_data = [{"cause": k, "count": v} for k, v in sorted(fire_causes_map.items(), key=lambda x: x[1], reverse=True)]
         fire_monthly_data = [{"month": m, "count": fire_monthly_map[m]} for m in month_names]
+        fire_concentration_data = sorted(fire_conc_map.values(), key=lambda x: x["count"], reverse=True)
 
-        # 4. ACCIDENTS INTELLIGENCE
+        # 4. ACCIDENTS INTELLIGENCE (CASCADING REGION / STATION)
         accidents_monthly_map = {m: 0 for m in month_names}
         accidents_severity_map = {"MINOR": 0, "SERIOUS": 0, "FATAL": 0}
         accidents_regional_map = {}
@@ -574,13 +695,15 @@ def get_dashboard_intelligence(
                 total_c = safe_int(getattr(ac, 'total', minor_c + serious_c + fatal_c))
                 
                 reg = str(getattr(ac, 'region', 'KMP GENERAL')).upper()
+                stn = str(getattr(ac, 'station', 'N/A')).upper()
                 nature = str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper()
 
                 accidents_severity_map["MINOR"] += minor_c
                 accidents_severity_map["SERIOUS"] += serious_c
                 accidents_severity_map["FATAL"] += fatal_c
 
-                accidents_regional_map[reg] = accidents_regional_map.get(reg, 0) + total_c
+                grp = get_group_label(comparison_level, stn, reg)
+                accidents_regional_map[grp] = accidents_regional_map.get(grp, 0) + total_c
 
                 d_str = str(getattr(ac, 'date', ''))
                 if d_str and d_str != 'None':
@@ -593,7 +716,7 @@ def get_dashboard_intelligence(
                     "id": safe_int(getattr(ac, 'id', getattr(ac, 'sn', 0))),
                     "date": str(getattr(ac, 'date', 'N/A')),
                     "region": reg,
-                    "station": str(getattr(ac, 'station', 'N/A')).upper(),
+                    "station": stn,
                     "nature": nature,
                     "nature_of_accident": nature,
                     "minor": minor_c,
@@ -607,7 +730,7 @@ def get_dashboard_intelligence(
 
         accidents_monthly_data = [{"month": m, "count": accidents_monthly_map[m]} for m in month_names]
         accidents_severity_data = [{"severity": k, "count": v} for k, v in accidents_severity_map.items()]
-        accidents_regional_data = [{"region": k, "value": v} for k, v in accidents_regional_map.items()]
+        accidents_regional_data = [{"region": k, "value": v} for k, v in sorted(accidents_regional_map.items(), key=lambda x: x[1], reverse=True)]
 
         # 5. CRIME CATEGORIES
         crime_reg_map = {}
@@ -644,77 +767,65 @@ def get_dashboard_intelligence(
             except Exception:
                 continue
 
-        # 7. MANPOWER & NOMINAL ROLL INTELLIGENCE (GENERAL KMP + PER-REGION PIE CHARTS)
+        # 7. MANPOWER & NOMINAL ROLL INTELLIGENCE
+        active_columns = resolve_selected_columns(columns)
+
         def build_manpower_bucket(records_subset):
-            rank_map, service_map, deploy_map, tenure_map, age_map = {}, {}, {}, {}, {}
-            gender_map = {"MALE": 0, "FEMALE": 0}
-            deployable_map = {"ACTIVE": 0, "INACTIVE": 0}
+            col_maps = {col_key: {} for col_key, _, _ in active_columns}
 
             for r in records_subset:
-                rk = str(getattr(r, 'rank', '') or 'UNKNOWN').strip().upper()
-                sx = str(getattr(r, 'sex', '') or 'MALE').strip().upper()
-                st = normalize_personnel_status(getattr(r, 'status', 'ACTIVE'))
-                srv = calculate_service_length_bracket(getattr(r, 'doe', None))
-                dep = calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None)))
-                rnk_t = calculate_rank_tenure_bracket(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
-                age_b = calculate_age_bracket(getattr(r, 'dob', None))
-
-                rank_map[rk] = rank_map.get(rk, 0) + 1
-                service_map[srv] = service_map.get(srv, 0) + 1
-                deploy_map[dep] = deploy_map.get(dep, 0) + 1
-                tenure_map[rnk_t] = tenure_map.get(rnk_t, 0) + 1
-                age_map[age_b] = age_map.get(age_b, 0) + 1
-
-                if 'F' in sx:
-                    gender_map["FEMALE"] += 1
-                else:
-                    gender_map["MALE"] += 1
-
-                if "NON-DEPLOYABLE" in st:
-                    deployable_map["INACTIVE"] += 1
-                else:
-                    deployable_map["ACTIVE"] += 1
+                for col_key, _, extractor in active_columns:
+                    val = extractor(r)
+                    col_maps[col_key][val] = col_maps[col_key].get(val, 0) + 1
 
             def to_pie(d):
                 return [{"name": k, "value": v} for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True) if v > 0]
 
             return {
                 "total": len(records_subset),
-                "genderDistribution": to_pie(gender_map),
-                "deployability": to_pie(deployable_map),
-                "rankDistribution": to_pie(rank_map),
-                "serviceLength": to_pie(service_map),
-                "deploymentLength": to_pie(deploy_map),
-                "rankTenure": to_pie(tenure_map),
-                "ageDemographics": to_pie(age_map)
+                "genderDistribution": to_pie(col_maps.get("sex", {})),
+                "deployability": to_pie(col_maps.get("status", {})),
+                "rankDistribution": to_pie(col_maps.get("rank", {})),
+                "serviceLength": to_pie(col_maps.get("doe", {})),
+                "deploymentLength": to_pie(col_maps.get("do_post", {})),
+                "rankTenure": to_pie(col_maps.get("do_pro", {})),
+                "ageDemographics": to_pie(col_maps.get("dob", {})),
+                "bankBranch": to_pie(col_maps.get("bank_branch", {})),
+                "columns": {col_key: to_pie(col_maps[col_key]) for col_key, _, _ in active_columns}
             }
 
         reg_grouped_nom = {}
         for r in nom_records:
-            reg_key = get_official_region_for_station(getattr(r, 'station', ''), getattr(r, 'region', ''))
-            reg_grouped_nom.setdefault(reg_key, []).append(r)
+            grp_key = get_group_label(comparison_level, getattr(r, 'station', ''), getattr(r, 'region', ''))
+            reg_grouped_nom.setdefault(grp_key, []).append(r)
 
         manpower_intelligence = {
             "general": build_manpower_bucket(nom_records),
-            "byRegion": {reg: build_manpower_bucket(recs) for reg, recs in sorted(reg_grouped_nom.items())}
+            "byRegion": {reg: build_manpower_bucket(recs) for reg, recs in sorted(reg_grouped_nom.items())},
+            "selectedColumns": [{"key": k, "label": lbl} for k, lbl, _ in active_columns],
+            "availableColumns": [{"key": k, "label": lbl} for k, lbl, _ in NOMINAL_ROLL_ANALYSIS_COLUMNS]
         }
 
         return {
+            "comparisonLevel": comparison_level,
             "detentionCalendar": {
                 "dates": sorted_dates,
                 "dateMap": date_map,
                 "regionDemographics": list(region_demo_map.values()),
                 "regionDuration": list(region_dur_map.values()),
+                "ageComparison": detention_age_comparison,
                 "dailyMargins": daily_margins
             },
             "successStoriesProcessed": processed_stories,
+            "successStoriesComparison": success_stories_comparison,
             "fireIntelligence": {
                 "totalFires": total_fire_incidents,
                 "totalDeaths": total_fire_deaths,
                 "totalInjuries": total_fire_injuries,
                 "fireList": fire_list,
                 "fireCauses": fire_causes_data,
-                "fireMonthly": fire_monthly_data
+                "fireMonthly": fire_monthly_data,
+                "fireConcentration": fire_concentration_data
             },
             "accidentsIntelligence": {
                 "accidentsMonthly": accidents_monthly_data,
@@ -731,56 +842,28 @@ def get_dashboard_intelligence(
         import traceback
         traceback.print_exc()
         return {
-            "detentionCalendar": {"dates": [], "dateMap": {}, "regionDemographics": [], "regionDuration": [], "dailyMargins": []},
+            "comparisonLevel": "REGION",
+            "detentionCalendar": {"dates": [], "dateMap": {}, "regionDemographics": [], "regionDuration": [], "ageComparison": [], "dailyMargins": []},
             "successStoriesProcessed": [],
-            "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": [], "fireCauses": [], "fireMonthly": []},
+            "successStoriesComparison": [],
+            "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": [], "fireCauses": [], "fireMonthly": [], "fireConcentration": []},
             "accidentsIntelligence": {"accidentsMonthly": [], "accidentsSeverity": [], "accidentsRegional": []},
             "crimeCategoryData": [],
             "exhibitsData": [],
             "accidentsData": [],
-            "manpowerIntelligence": {"general": {}, "byRegion": {}}
+            "manpowerIntelligence": {"general": {}, "byRegion": {}, "selectedColumns": [], "availableColumns": []}
         }
 
 @router.get("/export")
 def export_analytics_report(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    columns: Optional[str] = Query(default=None),
     db: Session = Depends(get_db), 
     logs_db: Session = Depends(get_logs_db),
     current_user = Depends(require_export_privilege)
 ):
     try:
-        user_role = str(current_user.role).strip().upper() if current_user.role else ""
-        user_pos = str(current_user.position).strip().upper() if current_user.position else ""
-        user_reg = str(current_user.region).strip().upper() if current_user.region else ""
-        user_stn = str(current_user.station).strip().upper() if current_user.station else ""
-
-        perms = current_user.permissions or {}
-        if isinstance(perms, str):
-            try: perms = json.loads(perms)
-            except Exception: perms = {}
-
-        is_absolute_global = (
-            user_role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"] or
-            "KMP COMMANDER" in user_pos or
-            "DEPUTY KMP COMMANDER" in user_pos or
-            "KMP ADMIN" in user_pos or
-            perms.get("view_global_roster") is True or
-            perms.get("global_observer") is True
-        )
-
-        is_kmp_sys_mgr = (
-            user_role == "SYSTEM_MANAGER" and
-            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-            "KMP" in user_pos
-        )
-
-        is_regional_command = (
-            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] or
-            user_pos.find("RPC") != -1 or
-            user_reg in REGIONAL_HIERARCHY
-        )
-        
         CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
         StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'Stats', 'operational_statistics')
         StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
@@ -931,33 +1014,17 @@ def export_analytics_report(
         exhibit_summary_data = [[k[0], k[1], k[2], k[3], k[4], k[5], v] for k, v in exhibit_summary_map.items()]
 
         disruptive_data = []
-        region_ops_totals = {}
         for s in ops_records:
             reg = getattr(s, 'region', 'GENERAL')
             stat = getattr(s, 'station', 'N/A')
             wk = getattr(s, 'date', 'WEEKLY PERIOD')
-            
-            if reg not in region_ops_totals:
-                region_ops_totals[reg] = {"arrested": 0, "bond": 0, "caution": 0, "pending": 0, "court": 0, "released": 0, "remanded": 0, "convicted": 0}
-            
             arr = safe_int(getattr(s, 'arrested', 0))
             bon = safe_int(getattr(s, 'given_bond', 0))
             cau = safe_int(getattr(s, 'cautioned', 0))
-            pen = safe_int(getattr(s, 'pending_court', 0))
             tak = safe_int(getattr(s, 'taken_to_court', 0))
             rel = safe_int(getattr(s, 'released', 0))
             rem = safe_int(getattr(s, 'remanded', 0))
             con = safe_int(getattr(s, 'convicted', 0))
-
-            region_ops_totals[reg]["arrested"] += arr
-            region_ops_totals[reg]["bond"] += bon
-            region_ops_totals[reg]["caution"] += cau
-            region_ops_totals[reg]["pending"] += pen
-            region_ops_totals[reg]["court"] += tak
-            region_ops_totals[reg]["released"] += rel
-            region_ops_totals[reg]["remanded"] += rem
-            region_ops_totals[reg]["convicted"] += con
-
             disruptive_data.append([str(wk), reg, stat, arr, bon, cau, tak, rel, rem, con])
 
         comp_counts = {}
@@ -1063,6 +1130,172 @@ def export_analytics_report(
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
             ws_gen.column_dimensions[col[0].column_letter].width = min(max_len + 3, 55)
 
+        # ====================================================================
+        # A. COMPARATIVE CRIME TABLE & VERTICAL BAR GRAPH (KMP N / E / S)
+        # ====================================================================
+        ws_crime_comp = wb.create_sheet(title="Crime Comparative", index=1)
+        crime_comp_map = {}
+        for cr in cr_records:
+            stn = str(getattr(cr, 'station', '') or '').strip().upper()
+            reg = get_official_region_for_station(stn, getattr(cr, 'region', ''))
+            if reg not in ["KMP NORTH", "KMP EAST", "KMP SOUTH"]:
+                continue
+            offence = str(getattr(cr, 'offence', None) or getattr(cr, 'crime_category', None) or 'UNSPECIFIED OFFENCE').strip().upper()
+            if offence not in crime_comp_map:
+                crime_comp_map[offence] = {"KMP NORTH": 0, "KMP EAST": 0, "KMP SOUTH": 0}
+            crime_comp_map[offence][reg] += 1
+
+        crime_comp_rows = sorted(
+            [(off, d["KMP NORTH"], d["KMP EAST"], d["KMP SOUTH"], d["KMP NORTH"] + d["KMP EAST"] + d["KMP SOUTH"])
+             for off, d in crime_comp_map.items()],
+            key=lambda x: x[4], reverse=True
+        )
+
+        ws_crime_comp.append(["S/N", "Crime / Offence", "KMP North", "KMP East", "KMP South", "Total"])
+        for cell in ws_crime_comp[1]:
+            cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for idx, (off, n_cnt, e_cnt, s_cnt, tot) in enumerate(crime_comp_rows, 1):
+            ws_crime_comp.append([idx, off, n_cnt, e_cnt, s_cnt, tot])
+
+        if crime_comp_rows:
+            gt_n = sum(r[1] for r in crime_comp_rows)
+            gt_e = sum(r[2] for r in crime_comp_rows)
+            gt_s = sum(r[3] for r in crime_comp_rows)
+            ws_crime_comp.append(["", "GRAND TOTAL", gt_n, gt_e, gt_s, gt_n + gt_e + gt_s])
+            for cell in ws_crime_comp[ws_crime_comp.max_row]:
+                cell.fill = section_fill; cell.font = section_font
+
+            crime_chart = BarChart()
+            crime_chart.type = "col"
+            crime_chart.grouping = "clustered"
+            crime_chart.title = "Comparative Crime Breakdown (KMP North vs East vs South)"
+            crime_chart.x_axis.title = "Crime / Offence"
+            crime_chart.y_axis.title = "Number of Cases Reported"
+            crime_chart.width = 22
+            crime_chart.height = 13
+
+            data_ref = Reference(ws_crime_comp, min_col=3, max_col=5, min_row=1, max_row=len(crime_comp_rows) + 1)
+            cats_ref = Reference(ws_crime_comp, min_col=2, min_row=2, max_row=len(crime_comp_rows) + 1)
+            crime_chart.add_data(data_ref, titles_from_data=True)
+            crime_chart.set_categories(cats_ref)
+            ws_crime_comp.add_chart(crime_chart, "H2")
+
+        for col in ws_crime_comp.columns:
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws_crime_comp.column_dimensions[col[0].column_letter].width = min(max_len + 3, 45)
+
+        # ====================================================================
+        # B. MANPOWER BREAKDOWNS (REGIONAL TABLES + PIE & VERTICAL BAR CHARTS)
+        # ====================================================================
+        ws_mp = wb.create_sheet(title="Manpower Charts & Tables", index=2)
+
+        def build_mp_counts(records_subset, extractor_fn):
+            counts = {}
+            for r in records_subset:
+                k = extractor_fn(r)
+                counts[k] = counts.get(k, 0) + 1
+            return counts
+
+        mp_dimensions = [(label, extractor) for _, label, extractor in resolve_selected_columns(columns)]
+
+        comparison_level_export = get_comparison_level(current_user, region)
+        reg_grouped_export = {}
+        for r in nom_records:
+            grp_key = get_group_label(comparison_level_export, getattr(r, 'station', ''), getattr(r, 'region', ''))
+            reg_grouped_export.setdefault(grp_key, []).append(r)
+        sorted_export_groups = sorted(reg_grouped_export.keys())
+        group_col_header = "Station" if comparison_level_export == "STATION" else "Region"
+
+        curr_mp_row = 1
+        for dim_title, extractor in mp_dimensions:
+            general_counts = build_mp_counts(nom_records, extractor)
+            sorted_cats = [k for k, v in sorted(general_counts.items(), key=lambda x: x[1], reverse=True) if v > 0]
+            if not sorted_cats:
+                continue
+
+            ws_mp.cell(row=curr_mp_row, column=1, value=dim_title.upper()).fill = section_fill
+            ws_mp.cell(row=curr_mp_row, column=1).font = section_font
+            curr_mp_row += 1
+
+            sum_header_row = curr_mp_row
+            for c_idx, h_text in enumerate(["Category", "Personnel", "% Share"], 1):
+                c = ws_mp.cell(row=sum_header_row, column=c_idx, value=h_text)
+                c.fill = header_fill; c.font = header_font; c.alignment = Alignment(horizontal="center", vertical="center")
+            curr_mp_row += 1
+
+            dim_total = sum(general_counts.values())
+            sum_start_row = curr_mp_row
+            for cat in sorted_cats:
+                val = general_counts[cat]
+                pct = f"{(val / dim_total * 100):.1f}%" if dim_total > 0 else "0.0%"
+                ws_mp.cell(row=curr_mp_row, column=1, value=cat)
+                ws_mp.cell(row=curr_mp_row, column=2, value=val)
+                ws_mp.cell(row=curr_mp_row, column=3, value=pct)
+                curr_mp_row += 1
+            sum_end_row = curr_mp_row - 1
+
+            ws_mp.cell(row=curr_mp_row, column=1, value="TOTAL").font = Font(bold=True)
+            ws_mp.cell(row=curr_mp_row, column=2, value=dim_total).font = Font(bold=True)
+            ws_mp.cell(row=curr_mp_row, column=3, value="100.0%").font = Font(bold=True)
+
+            pie = PieChart()
+            pie.title = f"{dim_title} (Pie)"
+            pie_data = Reference(ws_mp, min_col=2, min_row=sum_header_row, max_row=sum_end_row)
+            pie_cats = Reference(ws_mp, min_col=1, min_row=sum_start_row, max_row=sum_end_row)
+            pie.add_data(pie_data, titles_from_data=True)
+            pie.set_categories(pie_cats)
+            pie.width = 13; pie.height = 9
+            ws_mp.add_chart(pie, f"E{sum_header_row}")
+
+            vbar = BarChart()
+            vbar.type = "col"
+            vbar.title = f"{dim_title} (Vertical Graph)"
+            vbar.x_axis.title = "Category"
+            vbar.y_axis.title = "Number of Personnel"
+            vbar.legend = None
+            vbar.add_data(pie_data, titles_from_data=True)
+            vbar.set_categories(pie_cats)
+            vbar.width = 15; vbar.height = 9
+            ws_mp.add_chart(vbar, f"M{sum_header_row}")
+
+            curr_mp_row = max(curr_mp_row + 2, sum_header_row + 20)
+
+            reg_headers = ["S/NO", group_col_header] + sorted_cats + ["Total"]
+            for c_idx, h_text in enumerate(reg_headers, 1):
+                c = ws_mp.cell(row=curr_mp_row, column=c_idx, value=h_text)
+                c.fill = header_fill; c.font = header_font; c.alignment = Alignment(horizontal="center", vertical="center")
+            curr_mp_row += 1
+
+            col_totals = {cat: 0 for cat in sorted_cats}
+            for r_idx, grp_name in enumerate(sorted_export_groups, 1):
+                r_counts = build_mp_counts(reg_grouped_export[grp_name], extractor)
+                row_tot = 0
+                ws_mp.cell(row=curr_mp_row, column=1, value=r_idx)
+                ws_mp.cell(row=curr_mp_row, column=2, value=grp_name)
+                for c_offset, cat in enumerate(sorted_cats, 3):
+                    v = r_counts.get(cat, 0)
+                    ws_mp.cell(row=curr_mp_row, column=c_offset, value=v)
+                    col_totals[cat] += v
+                    row_tot += v
+                ws_mp.cell(row=curr_mp_row, column=len(sorted_cats) + 3, value=row_tot).font = Font(bold=True)
+                curr_mp_row += 1
+
+            ws_mp.cell(row=curr_mp_row, column=1, value="")
+            ws_mp.cell(row=curr_mp_row, column=2, value="GRAND TOTAL")
+            for c_offset, cat in enumerate(sorted_cats, 3):
+                ws_mp.cell(row=curr_mp_row, column=c_offset, value=col_totals[cat])
+            ws_mp.cell(row=curr_mp_row, column=len(sorted_cats) + 3, value=sum(col_totals.values()))
+            for c_idx in range(1, len(reg_headers) + 1):
+                cell = ws_mp.cell(row=curr_mp_row, column=c_idx)
+                cell.fill = section_fill; cell.font = section_font
+
+            curr_mp_row += 3
+
+        for col in ws_mp.columns:
+            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
+            ws_mp.column_dimensions[col[0].column_letter].width = min(max(max_len + 3, 12), 40)
+
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
 
@@ -1083,7 +1316,7 @@ def export_analytics_report(
             action_type="UPDATE",
             module="ANALYTICS_EXPORT",
             target_id="MASTER_ANALYTICS_REPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Advanced Fire Classifications and Daily Detentions Progression."
+            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Vertical Charts, Fire Concentration, and Detention Age Comparison."
         )
 
         return StreamingResponse(

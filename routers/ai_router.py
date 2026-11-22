@@ -24,6 +24,10 @@ from routers.nominal_roll import (
     calculate_service_length_bracket,
     calculate_deployment_length_bracket,
     calculate_rank_tenure_bracket,
+    normalize_personnel_status,
+    normalize_education_level,
+    normalize_section_unit,
+    normalize_station_name,
     is_invalid_roster_entry
 )
 
@@ -472,8 +476,10 @@ async def process_tactical_query(
                 db.rollback()
                 diagnostic_errors.append(f"CrimeReports Table: {str(e)}")
 
-            # 7. HR / Nominal Roll (With Tenure, Deployment & Age Analytics)
+            # 7. HR / Nominal Roll (Full Column Analytics + Tiered Confidential Access)
             try:
+                can_view_confidential_hr = is_top_admin or user_perms.get('ai_hr_confidential') is True
+
                 if has_ai_hr_access:
                     HrModel = getattr(models, 'Nominal_Roll', getattr(models, 'NominalRoll', getattr(models, 'Users', getattr(models, 'User', None))))
                     if HrModel:
@@ -483,45 +489,91 @@ async def process_tactical_query(
 
                         all_hr_recs = [r for r in base_hr_query.all() if not is_invalid_roster_entry(r)]
 
-                        # A. Compute Jurisdiction-Wide Rank Census, Tenure & Demographic Aggregates
-                        rank_dist = {}
-                        sex_dist = {}
-                        service_dist = {}
-                        deploy_dist = {}
-                        rank_tenure_dist = {}
-                        age_dist = {}
+                        def _presence(val):
+                            s = str(val or '').strip().upper()
+                            return 'RECORDED' if s and s not in ['NONE', 'NULL', 'NAN', 'N/A', 'NIL', '-'] else 'MISSING'
+
+                        def _top_n(d, limit=15):
+                            return dict(sorted(d.items(), key=lambda x: x[1], reverse=True)[:limit])
+
+                        # A. Jurisdiction-Wide Aggregates Across All Nominal Roll Columns
+                        rank_dist, sex_dist, status_dist = {}, {}, {}
+                        service_dist, deploy_dist, rank_tenure_dist, age_dist = {}, {}, {}, {}
+                        educ_dist, bank_dist, section_dist, dir_dist = {}, {}, {}, {}
+                        station_dist, district_dist, region_dist, home_dist_map, tribe_dist = {}, {}, {}, {}, {}
+                        pii_audit = {
+                            "contact": {"RECORDED": 0, "MISSING": 0},
+                            "ipps": {"RECORDED": 0, "MISSING": 0},
+                            "tin": {"RECORDED": 0, "MISSING": 0},
+                            "nin": {"RECORDED": 0, "MISSING": 0},
+                            "acc_no": {"RECORDED": 0, "MISSING": 0}
+                        }
 
                         for r in all_hr_recs:
                             rk = str(getattr(r, 'rank', '') or 'UNKNOWN').strip().upper()
-                            sx = str(getattr(r, 'sex', '') or 'UNSPECIFIED').strip().upper()
+                            sx = "FEMALE" if "F" in str(getattr(r, 'sex', 'M') or 'M').upper() else "MALE"
+                            st = normalize_personnel_status(getattr(r, 'status', 'ACTIVE'))
                             srv_b = calculate_service_length_bracket(getattr(r, 'doe', None))
                             dep_b = calculate_deployment_length_bracket(getattr(r, 'do_post', getattr(r, 'dopost', None)))
                             rnk_b = calculate_rank_tenure_bracket(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
                             age_b = calculate_age_bracket(getattr(r, 'dob', None))
+                            edu = normalize_education_level(getattr(r, 'educ_level', getattr(r, 'educlevel', None))) or "UNSPECIFIED"
+                            bnk = str(getattr(r, 'bank_branch', getattr(r, 'bankbranch', getattr(r, 'bank', ''))) or 'UNSPECIFIED').strip().upper()
+                            sec = normalize_section_unit(getattr(r, 'section', None) or getattr(r, 'position', None))
+                            drt = str(getattr(r, 'dir', '') or 'UNSPECIFIED').strip().upper()
+                            stn = normalize_station_name(getattr(r, 'station', None))
+                            dst = str(getattr(r, 'district', '') or 'UNSPECIFIED').strip().upper()
+                            reg = str(getattr(r, 'region', '') or 'UNSPECIFIED').strip().upper()
+                            hdst = str(getattr(r, 'home_dist', getattr(r, 'homedist', '')) or 'UNSPECIFIED').strip().upper()
+                            trb = str(getattr(r, 'tribe', '') or 'UNSPECIFIED').strip().upper()
 
                             rank_dist[rk] = rank_dist.get(rk, 0) + 1
                             sex_dist[sx] = sex_dist.get(sx, 0) + 1
+                            status_dist[st] = status_dist.get(st, 0) + 1
                             service_dist[srv_b] = service_dist.get(srv_b, 0) + 1
                             deploy_dist[dep_b] = deploy_dist.get(dep_b, 0) + 1
                             rank_tenure_dist[rnk_b] = rank_tenure_dist.get(rnk_b, 0) + 1
                             age_dist[age_b] = age_dist.get(age_b, 0) + 1
+                            educ_dist[edu] = educ_dist.get(edu, 0) + 1
+                            bank_dist[bnk] = bank_dist.get(bnk, 0) + 1
+                            section_dist[sec] = section_dist.get(sec, 0) + 1
+                            dir_dist[drt] = dir_dist.get(drt, 0) + 1
+                            station_dist[stn] = station_dist.get(stn, 0) + 1
+                            district_dist[dst] = district_dist.get(dst, 0) + 1
+                            region_dist[reg] = region_dist.get(reg, 0) + 1
+                            home_dist_map[hdst] = home_dist_map.get(hdst, 0) + 1
+                            tribe_dist[trb] = tribe_dist.get(trb, 0) + 1
 
-                        # Sort rank census from highest count to lowest for clean AI reading
-                        sorted_rank_dist = dict(sorted(rank_dist.items(), key=lambda x: x[1], reverse=True))
+                            pii_audit["contact"][_presence(getattr(r, 'contact', None))] += 1
+                            pii_audit["ipps"][_presence(getattr(r, 'ipps', None))] += 1
+                            pii_audit["tin"][_presence(getattr(r, 'tin', None))] += 1
+                            pii_audit["nin"][_presence(getattr(r, 'nin', None))] += 1
+                            pii_audit["acc_no"][_presence(getattr(r, 'acc_no', getattr(r, 'accno', None)))] += 1
 
                         if all_hr_recs:
                             records_scanned += len(all_hr_recs)
                             live_data_context += (
-                                f"- Nominal Roll Workforce & Rank Census Analytics (Total Active Scanned: {len(all_hr_recs)}):\n"
-                                f"  * Rank Census / Strength Distribution: {json.dumps(sorted_rank_dist)}\n"
+                                f"- Nominal Roll Full Workforce Analytics (Total Active Scanned: {len(all_hr_recs)}):\n"
+                                f"  * Rank Census: {json.dumps(_top_n(rank_dist, 25))}\n"
                                 f"  * Gender Distribution: {json.dumps(sex_dist)}\n"
+                                f"  * Status / Deployability: {json.dumps(status_dist)}\n"
+                                f"  * Age Demographics (18+): {json.dumps(age_dist)}\n"
                                 f"  * Length of Service (DOE): {json.dumps(service_dist)}\n"
                                 f"  * Length at Current Station (D.O. Post): {json.dumps(deploy_dist)}\n"
                                 f"  * Period on Current Rank (D.O. Pro): {json.dumps(rank_tenure_dist)}\n"
-                                f"  * Age Demographics (DOB): {json.dumps(age_dist)}\n"
+                                f"  * Bank / Branch Distribution (Top 15): {json.dumps(_top_n(bank_dist, 15))}\n"
+                                f"  * Education Level: {json.dumps(_top_n(educ_dist, 12))}\n"
+                                f"  * Section / Unit: {json.dumps(_top_n(section_dist, 15))}\n"
+                                f"  * Directorate: {json.dumps(_top_n(dir_dist, 12))}\n"
+                                f"  * Region Distribution: {json.dumps(_top_n(region_dist, 10))}\n"
+                                f"  * Station Distribution (Top 20): {json.dumps(_top_n(station_dist, 20))}\n"
+                                f"  * District Distribution (Top 15): {json.dumps(_top_n(district_dist, 15))}\n"
+                                f"  * Home District (Top 15): {json.dumps(_top_n(home_dist_map, 15))}\n"
+                                f"  * Tribe Distribution (Top 15): {json.dumps(_top_n(tribe_dist, 15))}\n"
+                                f"  * Data Completeness Audit (Recorded vs Missing): {json.dumps(pii_audit)}\n"
                             )
 
-                        # B. Targeted Officer Lookup (Handles both specific officer searches & rotation/tenure queries)
+                        # B. Targeted Officer Lookup (Supports Bank, Tribe, Education, Station, F/No, Name, IPPS)
                         prompt_lower = prompt.lower()
                         hr_sample_query = base_hr_query
                         stop_words = {
@@ -530,7 +582,8 @@ async def process_tactical_query(
                             "of", "in", "on", "at", "and", "a", "an", "how", "many", "does", "have", "has", "been",
                             "age", "unit", "rank", "sex", "name", "length", "service", "deployment", "station",
                             "tenure", "period", "current", "promotion", "enlistment", "years", "year", "long",
-                            "overdue", "rotation", "served", "summarize", "breakdown", "list", "which", "with"
+                            "overdue", "rotation", "served", "summarize", "breakdown", "list", "which", "with",
+                            "bank", "branch", "tribe", "district", "education", "section", "status"
                         }
                         raw_words = re.findall(r'\b\w+\b', prompt_lower)
                         search_terms = [w for w in raw_words if w not in stop_words and len(w) > 2]
@@ -539,19 +592,16 @@ async def process_tactical_query(
                             search_conditions = []
                             for term in search_terms:
                                 term_cond = []
-                                if hasattr(HrModel, 'name'): term_cond.append(HrModel.name.ilike(f"%{term}%"))
-                                if hasattr(HrModel, 'f_num'): term_cond.append(HrModel.f_num.ilike(f"%{term}%"))
-                                elif hasattr(HrModel, 'fnum'): term_cond.append(HrModel.fnum.ilike(f"%{term}%"))
-                                elif hasattr(HrModel, 'fNum'): term_cond.append(HrModel.fNum.ilike(f"%{term}%"))
-                                if hasattr(HrModel, 'ipps'): term_cond.append(HrModel.ipps.ilike(f"%{term}%"))
-                                if hasattr(HrModel, 'station'): term_cond.append(HrModel.station.ilike(f"%{term}%"))
-                                if term_cond: search_conditions.append(or_(*term_cond))
+                                for attr in ['name', 'f_num', 'fnum', 'fNum', 'ipps', 'station', 'region', 'bank_branch', 'home_dist', 'tribe', 'section', 'educ_level']:
+                                    if hasattr(HrModel, attr):
+                                        term_cond.append(getattr(HrModel, attr).ilike(f"%{term}%"))
+                                if term_cond:
+                                    search_conditions.append(or_(*term_cond))
                             if search_conditions:
                                 hr_sample_query = hr_sample_query.filter(or_(*search_conditions))
 
                         matched_recs = [r for r in hr_sample_query.limit(30).all() if not is_invalid_roster_entry(r)]
 
-                        # If user specifically asks about overdue rotation, prioritize 5+ years at station
                         if any(k in prompt_lower for k in ["overdue", "rotation", "longest at station", "5+ years"]):
                             overdue_recs = [
                                 r for r in all_hr_recs
@@ -561,36 +611,65 @@ async def process_tactical_query(
                                 matched_recs = overdue_recs[:30]
 
                         if matched_recs:
-                            live_data_context += "- Nominal Roll Personnel Directory (Sample / Matches):\n"
+                            live_data_context += "- Nominal Roll Personnel Directory (Matches):\n"
                             for r in matched_recs:
                                 srv_y = calculate_exact_years(getattr(r, 'doe', None))
                                 dep_y = calculate_exact_years(getattr(r, 'do_post', getattr(r, 'dopost', None)))
                                 rnk_y = calculate_exact_years(getattr(r, 'do_pro', getattr(r, 'dopro', None)))
                                 age_b = calculate_age_bracket(getattr(r, 'dob', None))
-                                live_data_context += (
+                                row_line = (
                                     f"  * Force No: {getattr(r, 'f_num', getattr(r, 'fnum', getattr(r, 'fNum', 'N/A')))} | "
                                     f"Rank: {getattr(r, 'rank', 'N/A')} | Name: {getattr(r, 'name', 'N/A')} | "
-                                    f"Sex: {getattr(r, 'sex', 'N/A')} | Age: {age_b} | IPPS: {getattr(r, 'ipps', 'N/A')} | "
-                                    f"Unit: {getattr(r, 'station', getattr(r, 'region', 'N/A'))} | "
+                                    f"Sex: {getattr(r, 'sex', 'N/A')} | Position: {getattr(r, 'position', 'N/A')} | "
+                                    f"Age: {age_b} | Education: {getattr(r, 'educ_level', 'N/A')} | "
+                                    f"IPPS: {getattr(r, 'ipps', 'N/A')} | Bank/Branch: {getattr(r, 'bank_branch', 'N/A')} | "
+                                    f"Home Dist: {getattr(r, 'home_dist', 'N/A')} | Tribe: {getattr(r, 'tribe', 'N/A')} | "
+                                    f"Station: {getattr(r, 'station', 'N/A')} | District: {getattr(r, 'district', 'N/A')} | "
+                                    f"Region: {getattr(r, 'region', 'N/A')} | Section: {getattr(r, 'section', 'N/A')} | "
+                                    f"Dir: {getattr(r, 'dir', 'N/A')} | Status: {getattr(r, 'status', 'ACTIVE')} | "
                                     f"Service: {f'{srv_y} yrs' if srv_y is not None else 'N/A'} | "
                                     f"At Station: {f'{dep_y} yrs' if dep_y is not None else 'N/A'} | "
-                                    f"On Rank: {f'{rnk_y} yrs' if rnk_y is not None else 'N/A'}\n"
-                                )      
+                                    f"On Rank: {f'{rnk_y} yrs' if rnk_y is not None else 'N/A'}"
+                                )
+                                # Confidential PII columns strictly gated to Top Admin / Confidential Clearance
+                                if can_view_confidential_hr:
+                                    row_line += (
+                                        f" | [CONFIDENTIAL] Contact: {getattr(r, 'contact', 'N/A')} | "
+                                        f"NIN: {getattr(r, 'nin', 'N/A')} | TIN: {getattr(r, 'tin', 'N/A')} | "
+                                        f"Acc No: {getattr(r, 'acc_no', 'N/A')} | Exact DOB: {getattr(r, 'dob', 'N/A')}"
+                                    )
+                                live_data_context += row_line + "\n"
             except Exception as e:
                 db.rollback()
                 diagnostic_errors.append(f"HR/Users Table: {str(e)}")
 
         else:
-            live_data_context = "🛑 System Note: Direct database querying for the AI is either globally disabled or restricted by your command clearance tier."
+            live_data_context = "🛑 System Note: Direct database querying for the AI is either globally disabled or restricted by your system user clearance tier."
+
+        can_view_confidential_hr = is_top_admin or user_perms.get('ai_hr_confidential') is True
+
+        pii_rule = (
+            "SECURITY PROTOCOL (HIGH COMMAND CONFIDENTIAL ACCESS GRANTED): You are authorized to reference all Nominal Roll columns "
+            "present in the live database extracts, including Force Number, Rank, Name, Sex, Position, Age Bracket (18+), Education Level, "
+            "IPPS, Bank/Branch, Home District, Tribe, Station, District, Region, Section/Unit, Directorate, Status/Deployability, "
+            "Length of Service (DOE), Station Tenure (D.O. Post), Rank Tenure (D.O. Pro), as well as confidential fields "
+            "(Contact, NIN, TIN, Bank Account Number, and Exact DOB). Never fabricate values not present in the extracts."
+            if can_view_confidential_hr
+            else
+            "SECURITY PROTOCOL: You are strictly forbidden from disclosing, processing, or hallucinating confidential PII "
+            "(Contact/Phone, NIN, TIN, Bank Account Number, and Exact DOB). You only have access to OPSEC-cleared Nominal Roll columns: "
+            "Force Number, Rank, Name, Sex, Position, Age Bracket (18+), Education Level, IPPS, Bank/Branch name, Home District, Tribe, "
+            "Station, District, Region, Section/Unit, Directorate, Status/Deployability, Length of Service (from DOE), "
+            "Length of Deployment at Current Station (from D.O. Post), Period on Current Rank (from D.O. Pro), and aggregate data completeness counts."
+        )
 
         system_rules = (
             "You are the Kampala Metropolitan Police (KMP) Tactical AI Assistant. "
             f"CRITICAL PROTOCOL: Address the user using their full official credential: {current_user.fnum} {current_user.rank} {current_user.name}. "
             "Maintain a highly professional, concise, law-enforcement tone.\n\n"
-            "SECURITY PROTOCOL: You are strictly forbidden from processing or hallucinating sensitive PII. "
-            "You only have access to the OPSEC-cleared columns: Force Number, Rank, Name, Age Bracket, Sex, IPPS, Unit, "
-            "Length of Service (from DOE), Length of Deployment at Current Station (from D.O. Post), and Period on Current Rank (from D.O. Pro).\n\n"
-            "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation, answer platform policy questions, analyze uploaded photos/screenshots, and search uploaded command files."
+            f"{pii_rule}\n\n"
+            "CAPABILITIES: You can answer direct operational questions using live database extracts, guide users through system navigation, "
+            "answer platform policy questions, analyze uploaded photos/screenshots, and search uploaded command files."
         )
 
         retrieved_docs = ""
