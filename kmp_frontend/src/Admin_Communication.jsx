@@ -92,14 +92,16 @@ const buildThreads = (flatMsgs) => {
   const processed = new Set();
 
   sorted.forEach(msg => {
-    if (processed.has(msg.id)) return;
+    if (!msg || processed.has(msg.id)) return;
 
-    const baseSubj = msg.subject.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
+    const safeSubj = String(msg.subject || '(No Subject)');
+    const baseSubj = safeSubj.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
 
     const replies = sorted.filter(m => {
-      if (m.id === msg.id || processed.has(m.id)) return false;
-      const mBase = m.subject.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
-      const isRe = /^RE:/i.test(m.subject);
+      if (!m || m.id === msg.id || processed.has(m.id)) return false;
+      const mSubj = String(m.subject || '');
+      const mBase = mSubj.replace(/^(RE:\s*)+/i, '').trim().toLowerCase();
+      const isRe = /^RE:/i.test(mSubj);
       return mBase === baseSubj && isRe;
     });
 
@@ -450,29 +452,46 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
       if (end) params.append('end_date', end);
       if (params.toString()) url += `?${params.toString()}`;
 
-      const token = sessionStorage.getItem('kmp_authToken');
+      const token = sessionStorage.getItem('kmp_authToken') || localStorage.getItem('kmp_authToken');
       const response = await fetch(url, { 
         method: 'GET',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
       });
 
-      if (response.ok) {
-        const rawData = await response.json();
-        const messageArray = Array.isArray(rawData) ? rawData : (rawData.messages || []);
-        
-        const data = messageArray.map(msg => ({
-            ...msg,
-            created_at: adjustTimeOffset(msg.created_at)
-        }));
-
-        const userFnum = currentUser?.fnum || "";
-        const threadedData = buildThreads(data);
-
-        setInboxMessages(threadedData.filter(t => t.sender_fnum !== userFnum || t.replies.some(r => r.sender_fnum !== userFnum)));
-        setOutboxMessages(threadedData.filter(t => t.sender_fnum === userFnum || t.replies.some(r => r.sender_fnum === userFnum)));
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        setNotification({
+          type: 'error',
+          text: `❌ Inbox load failed (HTTP ${response.status}): ${errBody.detail || 'Server error'}`
+        });
+        return;
       }
+
+      const rawData = await response.json();
+      const messageArray = Array.isArray(rawData) ? rawData : (rawData.messages || []);
+      
+      const data = messageArray.map(msg => ({
+          ...msg,
+          subject: msg.subject || '(No Subject)',
+          message_type: msg.message_type || 'GENERAL_INFO',
+          target_audience: msg.target_audience || 'ALL_USERS',
+          created_at: adjustTimeOffset(msg.created_at)
+      }));
+
+      const userFnum = String(currentUser?.fnum || "").trim().toUpperCase();
+      const threadedData = buildThreads(data);
+
+      setInboxMessages(threadedData.filter(t =>
+        String(t.sender_fnum || "").trim().toUpperCase() !== userFnum ||
+        t.replies.some(r => String(r.sender_fnum || "").trim().toUpperCase() !== userFnum)
+      ));
+      setOutboxMessages(threadedData.filter(t =>
+        String(t.sender_fnum || "").trim().toUpperCase() === userFnum ||
+        t.replies.some(r => String(r.sender_fnum || "").trim().toUpperCase() === userFnum)
+      ));
     } catch (err) { 
-      console.error("Network error fetching messages:", err); 
+      console.error("Network error fetching messages:", err);
+      setNotification({ type: 'error', text: `❌ Inbox error: ${err.message}` });
     } finally { 
       setIsLoadingInbox(false); 
     }

@@ -1,4 +1,5 @@
 # routers/analytics.py
+import gc
 import io
 import json
 import re
@@ -40,6 +41,16 @@ REGIONAL_HIERARCHY = {
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU"]
 }
+
+RANK_HIERARCHY = [
+    'IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP', 'IP', 'AIP',
+    'HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'PC', 'PPC', 'SPC'
+]
+RANK_ORDER_MAP = {rk: idx for idx, rk in enumerate(RANK_HIERARCHY)}
+
+def sort_by_rank_hierarchy(items):
+    """Sorts (rank, count) tuples from highest UPF rank to lowest, with unknown ranks at the end."""
+    return sorted(items, key=lambda x: (RANK_ORDER_MAP.get(str(x[0]).strip().upper(), 999), -x[1]))
 
 def _presence_label(val) -> str:
     s = str(val or "").strip().upper()
@@ -778,20 +789,25 @@ def get_dashboard_intelligence(
                     val = extractor(r)
                     col_maps[col_key][val] = col_maps[col_key].get(val, 0) + 1
 
-            def to_pie(d):
-                return [{"name": k, "value": v} for k, v in sorted(d.items(), key=lambda x: x[1], reverse=True) if v > 0]
+            def to_pie(d, col_key=None):
+                items = [(k, v) for k, v in d.items() if v > 0]
+                if col_key == "rank":
+                    ordered = sort_by_rank_hierarchy(items)
+                else:
+                    ordered = sorted(items, key=lambda x: x[1], reverse=True)
+                return [{"name": k, "value": v} for k, v in ordered]
 
             return {
                 "total": len(records_subset),
                 "genderDistribution": to_pie(col_maps.get("sex", {})),
                 "deployability": to_pie(col_maps.get("status", {})),
-                "rankDistribution": to_pie(col_maps.get("rank", {})),
+                "rankDistribution": to_pie(col_maps.get("rank", {}), "rank"),
                 "serviceLength": to_pie(col_maps.get("doe", {})),
                 "deploymentLength": to_pie(col_maps.get("do_post", {})),
                 "rankTenure": to_pie(col_maps.get("do_pro", {})),
                 "ageDemographics": to_pie(col_maps.get("dob", {})),
                 "bankBranch": to_pie(col_maps.get("bank_branch", {})),
-                "columns": {col_key: to_pie(col_maps[col_key]) for col_key, _, _ in active_columns}
+                "columns": {col_key: to_pie(col_maps[col_key], col_key) for col_key, _, _ in active_columns}
             }
 
         reg_grouped_nom = {}
@@ -1197,7 +1213,7 @@ def export_analytics_report(
                 counts[k] = counts.get(k, 0) + 1
             return counts
 
-        mp_dimensions = [(label, extractor) for _, label, extractor in resolve_selected_columns(columns)]
+        mp_dimensions = [(col_key, label, extractor) for col_key, label, extractor in resolve_selected_columns(columns)]
 
         comparison_level_export = get_comparison_level(current_user, region)
         reg_grouped_export = {}
@@ -1208,11 +1224,26 @@ def export_analytics_report(
         group_col_header = "Station" if comparison_level_export == "STATION" else "Region"
 
         curr_mp_row = 1
-        for dim_title, extractor in mp_dimensions:
+        for col_key, dim_title, extractor in mp_dimensions:
             general_counts = build_mp_counts(nom_records, extractor)
-            sorted_cats = [k for k, v in sorted(general_counts.items(), key=lambda x: x[1], reverse=True) if v > 0]
-            if not sorted_cats:
+            nonzero_items = [(k, v) for k, v in general_counts.items() if v > 0]
+            if not nonzero_items:
                 continue
+
+            if col_key == "rank":
+                ordered_items = sort_by_rank_hierarchy(nonzero_items)
+                sorted_cats = [k for k, _ in ordered_items]
+            else:
+                ordered_items = sorted(nonzero_items, key=lambda x: x[1], reverse=True)
+                # OOM GUARD: Cap high-cardinality columns (e.g. bank_branch) to Top 15 + "OTHER"
+                if len(ordered_items) > 15:
+                    top_items = ordered_items[:15]
+                    other_sum = sum(v for _, v in ordered_items[15:])
+                    general_counts = dict(top_items)
+                    general_counts["OTHER"] = other_sum
+                    sorted_cats = [k for k, _ in top_items] + ["OTHER"]
+                else:
+                    sorted_cats = [k for k, _ in ordered_items]
 
             ws_mp.cell(row=curr_mp_row, column=1, value=dim_title.upper()).fill = section_fill
             ws_mp.cell(row=curr_mp_row, column=1).font = section_font
@@ -1267,9 +1298,15 @@ def export_analytics_report(
                 c.fill = header_fill; c.font = header_font; c.alignment = Alignment(horizontal="center", vertical="center")
             curr_mp_row += 1
 
+            top_cat_set = set(sorted_cats) - {"OTHER"}
             col_totals = {cat: 0 for cat in sorted_cats}
             for r_idx, grp_name in enumerate(sorted_export_groups, 1):
-                r_counts = build_mp_counts(reg_grouped_export[grp_name], extractor)
+                raw_counts = build_mp_counts(reg_grouped_export[grp_name], extractor)
+                r_counts = {}
+                for k, v in raw_counts.items():
+                    bucket = k if k in top_cat_set else ("OTHER" if "OTHER" in sorted_cats else k)
+                    r_counts[bucket] = r_counts.get(bucket, 0) + v
+
                 row_tot = 0
                 ws_mp.cell(row=curr_mp_row, column=1, value=r_idx)
                 ws_mp.cell(row=curr_mp_row, column=2, value=grp_name)
@@ -1296,8 +1333,15 @@ def export_analytics_report(
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
             ws_mp.column_dimensions[col[0].column_letter].width = min(max(max_len + 3, 12), 40)
 
+        # Free ORM lists from RAM before serializing Excel + ZIP
+        del cr_records, ops_records, ss_records, nom_records, agric_records, ex_records, lockup_records, accidents_records, reg_grouped_export
+        gc.collect()
+
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
+        wb.close()
+        del wb
+        gc.collect()
 
         zip_stream = io.BytesIO()
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
@@ -1308,6 +1352,7 @@ def export_analytics_report(
             zf.setpassword(zip_password)
             zf.writestr(f"{fnum_clean}_Analytics_Report_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
 
+        excel_stream.close()
         zip_stream.seek(0)
 
         record_neon_activity(
