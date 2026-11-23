@@ -1,7 +1,7 @@
 // src/CrimeIncidentRegistry.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
 import {  
-  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame, Box, FileText, Download, ArrowUpRight
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame, Box, FileText, Download, ArrowUpRight, Upload, Sparkles
 } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -103,13 +103,20 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-// 🟢 EMBEDDED COMPONENT: Statement Recorder (Wide A4 Workspace + Live Multi-Page Break Detection)
+// 🟢 EMBEDDED COMPONENT: Statement Recorder (Type | Upload .docx | Scan Handwritten + Live A4 Multi-Page)
 const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) => {
     const [category, setCategory] = useState('COMPLAINANT');
     const [personName, setPersonName] = useState('');
     const [content, setContent] = useState('');
     const [isSaving, setIsSaving] = useState(false);
-    const [viewMode, setViewMode] = useState('WRITE'); // 'WRITE' | 'PREVIEW'
+
+    // 'WRITE' | 'PREVIEW' | 'DOCX' | 'HANDWRITTEN'
+    const [viewMode, setViewMode] = useState('WRITE');
+    const [docxFile, setDocxFile] = useState(null);
+    const [handwrittenFile, setHandwrittenFile] = useState(null);
+    const [isParsingHandwritten, setIsParsingHandwritten] = useState(false);
+    const [statusBanner, setStatusBanner] = useState(null);
+
     const [pageAlert, setPageAlert] = useState(null);
     const prevPageCountRef = useRef(1);
 
@@ -124,13 +131,15 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
         const now = new Date();
         const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, ' ').toUpperCase();
         const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'C';
-
         setMeta(prev => ({ ...prev, date: dateStr, time: timeStr }));
     }, []);
 
     const dynamicTitle = `STATEMENT OF ${category}`;
+    const formattedRefHeader = /^(SD|CRB|DEF|GEF|CID|TAR)/i.test(meta.sdRef.trim())
+        ? meta.sdRef.trim().toUpperCase()
+        : `SD REF: ${meta.sdRef.trim().toUpperCase()}`;
 
-    // 🟢 A4 Line-Wrap & Multi-Page Break Calculator (matches jsPDF A4 layout)
+    // A4 Line-Wrap & Multi-Page Break Calculator
     const pagination = useMemo(() => {
         const CHARS_PER_LINE = 78;
         const CONT_PAGE_LINES = 41;
@@ -180,18 +189,9 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
         const linesRemaining = Math.max(0, activeCapacity - currentPageLines);
         const fillPercent = Math.min(100, Math.round((currentPageLines / activeCapacity) * 100));
 
-        return {
-            pages,
-            totalPages,
-            totalLines: allLines.length,
-            currentPageLines,
-            activeCapacity,
-            linesRemaining,
-            fillPercent
-        };
+        return { pages, totalPages, totalLines: allLines.length, currentPageLines, activeCapacity, linesRemaining, fillPercent };
     }, [personName, content]);
 
-    // 🟢 Notify user immediately when typing crosses onto a new page
     useEffect(() => {
         if (pagination.totalPages > prevPageCountRef.current) {
             setPageAlert(`Page ${pagination.totalPages - 1} is full — proceeding to Page ${pagination.totalPages}.`);
@@ -202,9 +202,11 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
         prevPageCountRef.current = pagination.totalPages;
     }, [pagination.totalPages]);
 
+    // 1. Commit System-Typed (or Reviewed Handwritten) Statement
     const handleSave = async (e) => {
         e.preventDefault();
         setIsSaving(true);
+        setStatusBanner(null);
 
         const payload = {
             statement_category: category,
@@ -235,6 +237,86 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
             alert(`Error: ${err.message}`);
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    // 2. Upload Typed Word (.docx) Statement Directly
+    const handleUploadDocx = async () => {
+        if (!docxFile) return alert("Please select a .docx file first.");
+        if (!personName.trim()) return alert("Please enter the Name & Particulars of the statement maker.");
+
+        setIsSaving(true);
+        setStatusBanner(null);
+        try {
+            const reportId = report.sn || report.id;
+            const fd = new FormData();
+            fd.append('statement_category', category);
+            fd.append('person_name', personName.trim());
+            fd.append('date_recorded', meta.date);
+            fd.append('time_recorded', meta.time);
+            fd.append('place_recorded', meta.place);
+            fd.append('sd_ref', meta.sdRef);
+            fd.append('file', docxFile);
+
+            const res = await authFetch(`/api/v1/reports/${reportId}/statements/upload-docx`, {
+                method: 'POST',
+                body: fd
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || "Failed to upload .docx statement.");
+
+            alert(`✅ Word statement extracted (${data.extracted_chars || 0} chars) and archived to case file.`);
+            if (onStatementSaved) onStatementSaved();
+            onClose();
+        } catch (err) {
+            alert(`Upload Failed: ${err.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // 3. Parse Handwritten Statement (PDF / Image) via Gemini Vision -> Pre-fills Editor
+    const handleParseHandwritten = async () => {
+        if (!handwrittenFile) return alert("Please select a PDF or photo of the handwritten statement.");
+
+        setIsParsingHandwritten(true);
+        setStatusBanner(null);
+        try {
+            const reportId = report.sn || report.id;
+            const fd = new FormData();
+            fd.append('file', handwrittenFile);
+
+            const res = await authFetch(`/api/v1/reports/${reportId}/statements/parse-handwritten`, {
+                method: 'POST',
+                body: fd
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || "Handwritten parsing failed.");
+
+            const parsed = data.parsed || {};
+            if (parsed.statement_category) {
+                const cat = parsed.statement_category.toUpperCase();
+                if (['COMPLAINANT', 'WITNESS', 'ACCUSED', 'SUSPECT', 'CHARGE AND CAUTION'].includes(cat)) {
+                    setCategory(cat);
+                }
+            }
+            if (parsed.person_name) setPersonName(parsed.person_name);
+            if (parsed.content) setContent(parsed.content);
+            setMeta(prev => ({
+                date: parsed.date_recorded || prev.date,
+                time: parsed.time_recorded || prev.time,
+                place: parsed.place_recorded || prev.place,
+                sdRef: parsed.sd_ref || prev.sdRef
+            }));
+
+            setStatusBanner("✅ Handwritten statement transcribed! Please review and correct any names or dates below before committing.");
+            setViewMode('WRITE');
+        } catch (err) {
+            alert(`Handwriting Parse Error: ${err.message}`);
+        } finally {
+            setIsParsingHandwritten(false);
         }
     };
 
@@ -272,15 +354,13 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
         doc.text(doc.splitTextToSize(meta.place, 28), leftMargin, currentY + 33);
 
         doc.setFont("helvetica", "bold");
-        doc.text("SD REF:", leftMargin, currentY + 50);
+        doc.text("REF:", leftMargin, currentY + 50);
         doc.setFont("helvetica", "normal");
-        doc.text(doc.splitTextToSize(meta.sdRef, 28), leftMargin, currentY + 55);
+        doc.text(doc.splitTextToSize(formattedRefHeader, 28), leftMargin, currentY + 55);
 
-        // Vertical margin divider line on Page 1
         doc.setDrawColor(180);
         doc.line(contentLeft - 4, 30, contentLeft - 4, 276);
 
-        // Wrapped UPF Particulars Header
         const profileHeader = `${personName.trim().toUpperCase()} STATES THAT;`;
         doc.setFontSize(10);
         doc.setFont("helvetica", "bold");
@@ -305,7 +385,7 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
 
                 doc.setFontSize(8.5);
                 doc.setFont("helvetica", "bold");
-                doc.text(`SD REF: ${meta.sdRef}`, leftMargin, 16);
+                doc.text(formattedRefHeader, leftMargin, 16);
                 doc.text(`${dynamicTitle} (CONT. — PAGE ${pageNum})`, contentLeft, 16);
 
                 currentY = 26;
@@ -316,7 +396,6 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
             currentY += 6;
         });
 
-        // Sign-off block
         currentY += 12;
         if (currentY > pageBottomLimit - 10) {
             doc.addPage();
@@ -328,7 +407,6 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
         doc.setFont("helvetica", "normal");
         doc.text(`${currentUser?.fnum || ''} ${currentUser?.rank || ''} ${currentUser?.name || ''}`.trim(), contentLeft + 32, currentY);
 
-        // Stamp "Page X of Y" footers on every page
         const totalPdfPages = doc.internal.getNumberOfPages();
         for (let i = 1; i <= totalPdfPages; i++) {
             doc.setPage(i);
@@ -352,34 +430,41 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
                             <FileText className="mr-2 w-4 h-4 text-amber-400" /> Official Statement Recording
                         </h3>
                         <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[11px] font-black uppercase tracking-wider">
-                            Page {pagination.totalPages} of {pagination.totalPages} • {pagination.totalLines} Lines
+                            Page {pagination.totalPages} • {pagination.totalLines} Lines
                         </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700">
-                            <button
-                                type="button"
-                                onClick={() => setViewMode('WRITE')}
-                                className={`px-3 py-1 rounded-md text-[11px] font-extrabold uppercase transition cursor-pointer ${
-                                    viewMode === 'WRITE' ? 'bg-amber-600 text-white shadow' : 'text-slate-300 hover:text-white'
-                                }`}
-                            >
-                                Write Mode
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setViewMode('PREVIEW')}
-                                className={`px-3 py-1 rounded-md text-[11px] font-extrabold uppercase transition cursor-pointer ${
-                                    viewMode === 'PREVIEW' ? 'bg-amber-600 text-white shadow' : 'text-slate-300 hover:text-white'
-                                }`}
-                            >
-                                A4 Pages ({pagination.totalPages})
-                            </button>
+                            {[
+                                { id: 'WRITE', label: '✍️ Write' },
+                                { id: 'DOCX', label: '📄 Upload .docx' },
+                                { id: 'HANDWRITTEN', label: '✨ Scan Handwritten' },
+                                { id: 'PREVIEW', label: `A4 Pages (${pagination.totalPages})` }
+                            ].map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => setViewMode(tab.id)}
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-extrabold uppercase transition cursor-pointer ${
+                                        viewMode === tab.id ? 'bg-amber-600 text-white shadow' : 'text-slate-300 hover:text-white'
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
                         </div>
                         <button onClick={onClose} className="hover:bg-slate-700 p-1.5 rounded transition cursor-pointer"><X size={18} /></button>
                     </div>
                 </div>
+
+                {/* Status / Transcription Banner */}
+                {statusBanner && (
+                    <div className="bg-emerald-700 text-white px-5 py-2 text-xs font-extrabold flex items-center justify-between shrink-0">
+                        <span>{statusBanner}</span>
+                        <button type="button" onClick={() => setStatusBanner(null)} className="text-white/80 hover:text-white cursor-pointer"><X size={14} /></button>
+                    </div>
+                )}
 
                 {/* Live Page-Transition Banner */}
                 {pageAlert && (
@@ -398,32 +483,34 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
 
                         {/* Left Metadata & Live Page Meter Sidebar */}
-                        <div className="lg:col-span-3 space-y-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-300 dark:border-slate-700 shadow-sm lg:sticky lg:top-0">
+                        <div className="lg:col-span-3 space-y-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-300 dark:border-slate-700 shadow-sm lg:sticky lg:top-0">
                             <div>
                                 <label className="block text-[10px] font-black text-slate-500 uppercase">Statement Category</label>
                                 <select value={category} onChange={e => setCategory(e.target.value)} className="w-full mt-1 p-2 text-xs font-bold rounded border border-slate-300 dark:border-slate-700 outline-none bg-white dark:bg-slate-800 focus:border-amber-500 cursor-pointer">
                                     <option value="COMPLAINANT">COMPLAINANT</option>
                                     <option value="WITNESS">WITNESS</option>
                                     <option value="ACCUSED">ACCUSED</option>
+                                    <option value="SUSPECT">SUSPECT</option>
+                                    <option value="CHARGE AND CAUTION">CHARGE AND CAUTION</option>
                                 </select>
                             </div>
 
-                            <div className="grid grid-cols-2 lg:grid-cols-1 gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+                            <div className="grid grid-cols-2 lg:grid-cols-1 gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-500 uppercase">Date</label>
-                                    <div className="font-mono text-sm font-bold text-slate-800 dark:text-slate-100">{meta.date}</div>
+                                    <input type="text" value={meta.date} onChange={e => setMeta({ ...meta, date: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 font-mono text-xs font-bold rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500" />
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-500 uppercase">Time</label>
-                                    <div className="font-mono text-sm font-bold text-slate-800 dark:text-slate-100">{meta.time}</div>
+                                    <input type="text" value={meta.time} onChange={e => setMeta({ ...meta, time: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 font-mono text-xs font-bold rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500" />
                                 </div>
                                 <div>
                                     <label className="block text-[10px] font-black text-slate-500 uppercase">Place (Station)</label>
-                                    <div className="text-xs font-bold uppercase text-slate-800 dark:text-slate-100">{meta.place}</div>
+                                    <input type="text" value={meta.place} onChange={e => setMeta({ ...meta, place: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 text-xs font-bold uppercase rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500" />
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase">File Ref</label>
-                                    <div className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase">{meta.sdRef}</div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">SD Ref / CRB No</label>
+                                    <input type="text" value={meta.sdRef} onChange={e => setMeta({ ...meta, sdRef: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:border-amber-500" />
                                 </div>
                             </div>
 
@@ -449,9 +536,9 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
                             </div>
                         </div>
 
-                        {/* Right Wide A4 Writing Canvas / Multi-Page Sheet Preview */}
+                        {/* Right Workspace Panel */}
                         <div className="lg:col-span-9 space-y-4">
-                            {viewMode === 'WRITE' ? (
+                            {viewMode === 'WRITE' && (
                                 <div className="bg-white dark:bg-slate-900 p-5 sm:p-7 rounded-xl border border-slate-300 dark:border-slate-700 shadow-md space-y-4">
                                     <h2 className="text-center font-black text-lg text-slate-800 dark:text-slate-100 uppercase underline underline-offset-4 decoration-2">
                                         {dynamicTitle}
@@ -490,12 +577,103 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
                                         />
                                     </div>
                                 </div>
-                            ) : (
+                            )}
+
+                            {viewMode === 'DOCX' && (
+                                <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-xl border border-slate-300 dark:border-slate-700 shadow-md space-y-5">
+                                    <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+                                        <h2 className="font-black text-base text-slate-800 dark:text-slate-100 uppercase flex items-center">
+                                            <Upload className="w-4 h-4 mr-2 text-amber-600" /> Upload Typed Microsoft Word Statement (.docx)
+                                        </h2>
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            Text will be extracted directly into the Case Diary timeline while the original unaltered <code>.docx</code> file is archived in encrypted cloud storage.
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">
+                                            Name & Full UPF Identity Particulars of {category} *
+                                        </label>
+                                        <textarea
+                                            rows="2"
+                                            placeholder="E.g. A/2408 AIP AFEDRA VINCENT, M/A AGED 32, POLICE OFFICER..."
+                                            value={personName}
+                                            onChange={e => setPersonName(e.target.value)}
+                                            className="w-full p-3 border border-slate-300 dark:border-slate-700 rounded-lg outline-none uppercase font-bold text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:border-amber-500"
+                                        />
+                                    </div>
+
+                                    <div className="border-2 border-dashed border-amber-400 dark:border-amber-700 rounded-xl p-8 text-center bg-amber-50/40 dark:bg-amber-950/20 space-y-3">
+                                        <Upload className="w-10 h-10 mx-auto text-amber-600" />
+                                        <div className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                                            {docxFile ? `Selected: ${docxFile.name}` : 'Select a typed .docx statement file'}
+                                        </div>
+                                        <input
+                                            type="file"
+                                            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                            onChange={(e) => setDocxFile(e.target.files?.[0] || null)}
+                                            className="text-xs file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-amber-600 file:text-white hover:file:bg-amber-700 cursor-pointer"
+                                        />
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleUploadDocx}
+                                            disabled={isSaving || !docxFile || !personName.trim()}
+                                            className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center cursor-pointer"
+                                        >
+                                            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                                            {isSaving ? 'Extracting & Archiving...' : 'Upload & Commit .docx Statement'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {viewMode === 'HANDWRITTEN' && (
+                                <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-xl border border-slate-300 dark:border-slate-700 shadow-md space-y-5">
+                                    <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+                                        <h2 className="font-black text-base text-slate-800 dark:text-slate-100 uppercase flex items-center">
+                                            <Sparkles className="w-4 h-4 mr-2 text-amber-500" /> AI Handwritten Statement Scanner (PDF / Photo)
+                                        </h2>
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            Upload a scanned PDF or clear photo of a handwritten statement. AI will transcribe all pages and pre-fill the editor for your review before saving.
+                                        </p>
+                                    </div>
+
+                                    <div className="border-2 border-dashed border-blue-400 dark:border-blue-700 rounded-xl p-8 text-center bg-blue-50/40 dark:bg-blue-950/20 space-y-3">
+                                        <Sparkles className="w-10 h-10 mx-auto text-blue-600" />
+                                        <div className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                                            {handwrittenFile ? `Selected: ${handwrittenFile.name}` : 'Select Handwritten Statement PDF, JPG, or PNG'}
+                                        </div>
+                                        <input
+                                            type="file"
+                                            accept=".pdf,image/jpeg,image/png,image/webp"
+                                            onChange={(e) => setHandwrittenFile(e.target.files?.[0] || null)}
+                                            className="text-xs file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-700 file:text-white hover:file:bg-blue-800 cursor-pointer"
+                                        />
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleParseHandwritten}
+                                            disabled={isParsingHandwritten || !handwrittenFile}
+                                            className="px-6 py-2.5 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center cursor-pointer"
+                                        >
+                                            {isParsingHandwritten ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                                            {isParsingHandwritten ? 'Transcribing Handwriting...' : 'Transcribe & Open in Editor'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {viewMode === 'PREVIEW' && (
                                 <div className="space-y-6">
                                     {pagination.pages.map((pageLines, pageIdx) => (
                                         <div key={pageIdx} className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-lg space-y-4">
                                             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-2 text-[11px] font-black uppercase text-slate-500">
-                                                <span>{meta.sdRef}</span>
+                                                <span>{formattedRefHeader}</span>
                                                 <span className="text-amber-700 dark:text-amber-400">
                                                     {pageIdx === 0 ? dynamicTitle : `${dynamicTitle} (CONT.)`}
                                                 </span>
@@ -531,9 +709,11 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
                         <Download className="w-4 h-4 mr-2" /> Download PDF Draft ({pagination.totalPages} {pagination.totalPages === 1 ? 'Page' : 'Pages'})
                     </button>
 
-                    <button type="button" onClick={handleSave} disabled={isSaving || !content.trim() || !personName.trim()} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900/50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center transition cursor-pointer">
-                        <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Saving to Ledger...' : 'Commit Statement to Case File'}
-                    </button>
+                    {viewMode !== 'DOCX' && viewMode !== 'HANDWRITTEN' && (
+                        <button type="button" onClick={handleSave} disabled={isSaving || !content.trim() || !personName.trim()} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900/50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center transition cursor-pointer">
+                            <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Saving to Ledger...' : 'Commit Statement to Case File'}
+                        </button>
+                    )}
                 </div>
 
             </div>

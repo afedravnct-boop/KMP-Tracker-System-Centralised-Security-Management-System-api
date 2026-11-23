@@ -12,7 +12,7 @@ from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
@@ -1267,6 +1267,162 @@ def add_case_statement(
         logs_db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to save statement: {str(e)}")
 
+# ====================================================================
+# 6B. UPLOAD TYPED STATEMENT (.DOCX) TO CASE FILE
+# ====================================================================
+@router.post("/reports/{sn}/statements/upload-docx")
+async def upload_case_statement_docx(
+    sn: int,
+    statement_category: str = Form(...),
+    person_name: str = Form(...),
+    date_recorded: str = Form(...),
+    time_recorded: str = Form(...),
+    place_recorded: str = Form(...),
+    sd_ref: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user)
+):
+    if not file or not file.filename or not file.filename.lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Only typed Microsoft Word (.docx) files are accepted.")
+
+    CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
+    StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
+    if not StatementModel or not CrimeModel:
+        raise HTTPException(status_code=500, detail="Database models not configured.")
+
+    query_filter = []
+    if hasattr(CrimeModel, 'sn'): query_filter.append(CrimeModel.sn == sn)
+    if hasattr(CrimeModel, 'id'): query_filter.append(CrimeModel.id == sn)
+
+    report = db.query(CrimeModel).filter(or_(*query_filter)).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Crime report not found.")
+
+    if not verify_record_mutation_clearance(current_user, str(report.station).upper(), str(report.region).upper()):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: You lack clearance to modify records at this station.")
+
+    try:
+        import docx
+        file_bytes = await file.read()
+        doc = docx.Document(io.BytesIO(file_bytes))
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        extracted_text = "\n\n".join(paragraphs)
+
+        if not extracted_text:
+            raise HTTPException(status_code=400, detail="The uploaded .docx file contains no readable text.")
+
+        # Archive original .docx in S3 (if configured)
+        archived_url = None
+        if BUCKET_NAME:
+            try:
+                safe_ref = re.sub(r'[^A-Za-z0-9]+', '_', sd_ref.strip()).strip('_')
+                s3_key = f"statements/{safe_ref}_{uuid.uuid4().hex[:8]}.docx"
+                s3_client.put_object(
+                    Bucket=BUCKET_NAME,
+                    Key=s3_key,
+                    Body=file_bytes,
+                    ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ServerSideEncryption="AES256"
+                )
+                archived_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+            except Exception as s3_err:
+                print(f"⚠️ S3 Statement Archive notice: {s3_err}")
+
+        final_content = extracted_text
+        if archived_url:
+            final_content += f"\n\n[ORIGINAL DOCX ARCHIVED: {file.filename}]"
+
+        new_statement = StatementModel(
+            report_id=report.id,
+            statement_category=statement_category.strip().upper(),
+            person_name=person_name.strip().upper(),
+            date_recorded=date_recorded.strip(),
+            time_recorded=time_recorded.strip(),
+            place_recorded=place_recorded.strip().upper(),
+            sd_ref=sd_ref.strip().upper(),
+            content=final_content,
+            recorded_by=get_officer_signature(current_user)
+        )
+
+        db.add(new_statement)
+        db.commit()
+        db.refresh(new_statement)
+
+        record_neon_activity(
+            logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
+            target_id=str(sn),
+            changes_summary=f"Uploaded .docx {statement_category} statement ({file.filename}) for {person_name[:80]}."
+        )
+        return {
+            "status": "success",
+            "id": new_statement.id,
+            "extracted_chars": len(extracted_text),
+            "archived_url": archived_url,
+            "message": "Typed .docx statement extracted and logged to case file."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to process .docx statement: {str(e)}")
+
+# ====================================================================
+# 6C. PARSE HANDWRITTEN STATEMENT (PDF / IMAGE) VIA GEMINI VISION
+# ====================================================================
+@router.post("/reports/{sn}/statements/parse-handwritten")
+async def parse_handwritten_statement(
+    sn: int,
+    file: UploadFile = File(...),
+    current_user: models.Users = Depends(get_current_user)
+):
+    allowed_types = {"application/pdf", "image/jpeg", "image/png", "image/webp"}
+    if not file or file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Upload a PDF, JPG, or PNG of the handwritten statement.")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        file_bytes = await file.read()
+        client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
+
+        prompt = (
+            "Transcribe this handwritten Uganda Police Force statement accurately. "
+            "Return ONLY a valid JSON object with these exact keys:\n"
+            "{\n"
+            '  "statement_category": "COMPLAINANT | WITNESS | SUSPECT | CHARGE AND CAUTION",\n'
+            '  "person_name": "Full opening bio line before STATES THAT;",\n'
+            '  "date_recorded": "YYYY-MM-DD or as written",\n'
+            '  "time_recorded": "e.g. 1720 HRS",\n'
+            '  "place_recorded": "e.g. CPS MASINDI",\n'
+            '  "sd_ref": "e.g. SD REF: 59/31/03/2025 or CRB NO",\n'
+            '  "content": "Full verbatim transcribed narrative across all pages"\n'
+            "}\n"
+            "Preserve all facts, names, plate numbers, and dates accurately. Do not wrap in markdown."
+        )
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=file_bytes, mime_type=file.content_type)
+            ]
+        )
+
+        raw_text = (response.text or "").strip()
+        raw_text = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw_text, flags=re.IGNORECASE)
+        parsed = json.loads(raw_text)
+
+        return {"status": "success", "parsed": parsed}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Handwritten statement parsing failed: {str(e)}")
 
 # ====================================================================
 # 7. UPGRADE / MODIFY CASE REFERENCE
@@ -1340,6 +1496,12 @@ def export_statement_secure(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    import docx
+    from docx.shared import Inches, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement, parse_xml
+    from docx.oxml.ns import qn, nsdecls
+
     StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
 
@@ -1348,52 +1510,128 @@ def export_statement_secure(
         raise HTTPException(status_code=404, detail="Statement not found.")
 
     report = db.query(CrimeModel).filter(CrimeModel.id == stmt.report_id).first()
-
     if report and not verify_record_mutation_clearance(current_user, str(report.station).upper(), str(report.region).upper()):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: You lack clearance to export records from this station.")
 
     officer_fnum = (current_user.fnum or "UNKNOWN").strip().upper()
     timestamp_str = datetime.now(pytz.timezone('Africa/Nairobi')).strftime("%Y-%m-%d %H:%M:%S EAT")
 
-    document_content = f"""
-======================================================================
-RESTRICTED LAW ENFORCEMENT RECORD — FORENSICALLY STAMPED
-OFFICER: {get_officer_signature(current_user)}
-TIMESTAMP: {timestamp_str}
-======================================================================
+    doc = docx.Document()
+    section = doc.sections[0]
+    section.top_margin = Inches(0.75)
+    section.bottom_margin = Inches(0.75)
+    section.left_margin = Inches(0.6)
+    section.right_margin = Inches(0.6)
 
-                              STATEMENT OF {stmt.statement_category}
+    # Enable continuation-page header (Page 2+ displays SD REF / CRB NO automatically)
+    section.different_first_page_header_footer = True
+    ref_label = stmt.sd_ref if any(k in (stmt.sd_ref or "").upper() for k in ["SD", "CRB"]) else f"SD REF: {stmt.sd_ref}"
 
-DATE:     {stmt.date_recorded}
-TIME:     {stmt.time_recorded}
-PLACE:    {stmt.place_recorded}
-SD REF:   {stmt.sd_ref}
+    cont_header = section.header
+    hp = cont_header.paragraphs[0]
+    hp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    hrun = hp.add_run(ref_label.upper())
+    hrun.bold = True
+    hrun.font.size = Pt(10)
 
-{stmt.person_name} STATES THAT;
+    # Page numbers in continuation footer
+    cont_footer = section.footer
+    fp = cont_footer.paragraphs[0]
+    fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    fldSimple = OxmlElement('w:fldSimple')
+    fldSimple.set(qn('w:instr'), 'PAGE')
+    fp._p.append(fldSimple)
 
-{stmt.content}
+    # Forensic OPSEC Stamp (Top of Page 1)
+    stamp = doc.add_paragraph()
+    stamp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    srun = stamp.add_run(f"RESTRICTED LAW ENFORCEMENT RECORD — STAMPED: {get_officer_signature(current_user)} | {timestamp_str}")
+    srun.font.size = Pt(8)
+    srun.bold = True
 
-----------------------------------------------------------------------
-RECORDED BY: {stmt.recorded_by}
-======================================================================
-"""
+    # Centered Underlined Title: STATEMENT OF COMPLAINANT / WITNESS / SUSPECT
+    title_p = doc.add_paragraph()
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    trun = title_p.add_run(f"STATEMENT OF {stmt.statement_category}")
+    trun.bold = True
+    trun.underline = True
+    trun.font.size = Pt(12)
+
+    # 2-Column Borderless Table (Left Margin Metadata | Right Statement Body)
+    table = doc.add_table(rows=1, cols=2)
+    table.autofit = False
+
+    # Remove table borders
+    tblPr = table._tbl.tblPr
+    borders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        '<w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/>'
+        '<w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="single" w:sz="4" w:color="CCCCCC"/>'
+        '</w:tblBorders>'
+    )
+    tblPr.append(borders)
+
+    left_cell = table.cell(0, 0)
+    right_cell = table.cell(0, 1)
+    left_cell.width = Inches(1.8)
+    right_cell.width = Inches(5.5)
+
+    # Left Margin: DATE, TIME, PLACE, SD REF
+    for label, val in [
+        ("DATE:", stmt.date_recorded),
+        ("TIME:", stmt.time_recorded),
+        ("PLACE:", stmt.place_recorded),
+        ("REF:", ref_label)
+    ]:
+        p = left_cell.add_paragraph()
+        p.paragraph_format.space_after = Pt(10)
+        r_lbl = p.add_run(f"{label}\n")
+        r_lbl.bold = True
+        r_lbl.font.size = Pt(9.5)
+        r_val = p.add_run(str(val or "N/A").upper())
+        r_val.font.size = Pt(9.5)
+
+    # Right Column: Opening Bio + Narrative + Recorded By
+    bio_p = right_cell.paragraphs[0]
+    bio_p.paragraph_format.space_after = Pt(8)
+    bio_run = bio_p.add_run(f"{stmt.person_name} STATES THAT;")
+    bio_run.bold = True
+    bio_run.font.size = Pt(10.5)
+
+    for para_text in (stmt.content or "").split("\n"):
+        if para_text.strip():
+            bp = right_cell.add_paragraph(para_text.strip())
+            bp.paragraph_format.space_after = Pt(6)
+            bp.paragraph_format.line_spacing = 1.25
+            for run in bp.runs:
+                run.font.size = Pt(10.5)
+
+    sig_p = right_cell.add_paragraph()
+    sig_p.paragraph_format.space_before = Pt(14)
+    sig_run = sig_p.add_run(f"RECORDED BY: {stmt.recorded_by}")
+    sig_run.bold = True
+    sig_run.font.size = Pt(9.5)
+
+    docx_buffer = io.BytesIO()
+    doc.save(docx_buffer)
+    docx_buffer.seek(0)
 
     safe_name = re.sub(r'[^A-Za-z0-9]+', '_', (stmt.person_name or 'STATEMENT')).strip('_')[:35]
     safe_ref = re.sub(r'[^A-Za-z0-9]+', '_', (stmt.sd_ref or 'REF')).strip('_')[:30]
-    filename = f"STATEMENT_{stmt.statement_category}_{safe_name}_{safe_ref}.txt"
+    filename = f"STATEMENT_{stmt.statement_category}_{safe_name}_{safe_ref}.docx"
 
     zip_buffer = io.BytesIO()
     with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
         zf.setpassword(officer_fnum.encode('utf-8'))
-        zf.comment = f"Creator: {officer_fnum} | Subject: Statement Export | Timestamp: {timestamp_str}".encode('utf-8')
-        zf.writestr(filename, document_content)
+        zf.comment = f"Creator: {officer_fnum} | Subject: Official Statement Export | Timestamp: {timestamp_str}".encode('utf-8')
+        zf.writestr(filename, docx_buffer.getvalue())
 
     zip_buffer.seek(0)
     zip_filename = f"SECURE_STATEMENT_{safe_ref}.zip"
 
     record_neon_activity(
         logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="CRIME_REGISTRY",
-        target_id=f"STMT_{stmt_id}", changes_summary=f"Exported AES-256 secure statement for {stmt.person_name[:80]}."
+        target_id=f"STMT_{stmt_id}", changes_summary=f"Exported AES-256 official UPF .docx statement for {stmt.person_name[:80]}."
     )
 
     return StreamingResponse(
