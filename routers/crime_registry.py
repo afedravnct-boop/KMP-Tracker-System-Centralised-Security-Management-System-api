@@ -20,6 +20,7 @@ from botocore.exceptions import ClientError
 import openpyxl
 import pytz
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from sqlalchemy.exc import IntegrityError
 
 from app import models
 from app.database import get_db, get_logs_db
@@ -897,8 +898,8 @@ def create_report(
             if existing_ref:
                 raise HTTPException(status_code=400, detail=f"Duplicate Rejection: Reference '{data.get('sd_ref')}' already exists for this station.")
 
-        suspects_data = data.pop('suspectDetails', []) 
-        exhibits_data = data.pop('exhibitDetails', [])
+        suspects_data = data.pop('suspectDetails', None) or []
+        exhibits_data = data.pop('exhibitDetails', None) or []
 
         valid_cols = [c.key for c in CrimeModel.__table__.columns]
         safe_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -980,9 +981,18 @@ def create_report(
         db.rollback()
         logs_db.rollback()
         raise he
+    except IntegrityError:
+        db.rollback()
+        logs_db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Duplicate Rejection: Reference '{data.get('sd_ref')}' already exists for this station."
+        )
     except Exception as e:
         db.rollback()
         logs_db.rollback()
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ====================================================================
