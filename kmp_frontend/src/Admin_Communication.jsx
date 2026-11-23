@@ -724,6 +724,53 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
     }
   };
 
+const normalizeMessageCategory = (msg) => {
+    const rawType = String(msg?.message_type || '').trim().toUpperCase();
+    const rawSubj = String(msg?.subject || '').trim().toUpperCase();
+
+    if (
+      rawType === 'TECHNICAL_GLITCH_ALERT' ||
+      rawType.includes('GLITCH') ||
+      rawSubj.includes('TECHNICAL GLITCH') ||
+      rawSubj.includes('CRASH DETECTED') ||
+      rawSubj.includes('TECHNICAL FAULT')
+    ) {
+      return 'TECHNICAL_GLITCH_ALERT';
+    }
+    if (rawType === 'COMPLAINT_GRIEVANCE' || rawType.includes('COMPLAINT')) {
+      return 'COMPLAINT_GRIEVANCE';
+    }
+    if (rawType === 'DIRECT_MESSAGE' || rawType.includes('INQUIRY')) {
+      return 'DIRECT_MESSAGE';
+    }
+    if (rawType === 'ASSIGNMENT' || rawType.includes('APPOINTMENT')) {
+      return 'ASSIGNMENT';
+    }
+    if (rawType === 'CRITICAL_ALERT') {
+      return 'CRITICAL_ALERT';
+    }
+    return 'GENERAL_INFO';
+  };
+
+  const CATEGORY_TABS = [
+    { key: 'all', label: 'All Types', activeClass: 'bg-slate-900 text-white shadow' },
+    { key: 'GENERAL_INFO', label: '💬 Notices', activeClass: 'bg-blue-600 text-white shadow' },
+    { key: 'TECHNICAL_GLITCH_ALERT', label: '⚠️ Technical Glitches', activeClass: 'bg-amber-600 text-white shadow' },
+    { key: 'COMPLAINT_GRIEVANCE', label: '⚠️ Complaints', activeClass: 'bg-orange-600 text-white shadow' },
+    { key: 'DIRECT_MESSAGE', label: '🔍 Inquiries / Direct', activeClass: 'bg-purple-600 text-white shadow' },
+    { key: 'ASSIGNMENT', label: '📅 Appointments / Assignments', activeClass: 'bg-emerald-600 text-white shadow' },
+    { key: 'CRITICAL_ALERT', label: '🚨 Critical Alerts', activeClass: 'bg-red-600 text-white shadow' },
+  ];
+
+  // Exact unread count per category (Inbox only)
+  const getUnreadCountForCategory = (catKey) => {
+    return inboxMessages.filter((msg) => {
+      if (!isUnreadCheck(msg)) return false;
+      if (catKey === 'all') return true;
+      return normalizeMessageCategory(msg) === catKey;
+    }).length;
+  };
+
   return (
     <div className="p-6 w-full max-w-[1920px] mx-auto space-y-6 relative z-10 font-sans">
       
@@ -1229,13 +1276,39 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
 
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200">
                   <span className="text-xs font-bold text-slate-500 uppercase mr-2">Category Filter:</span>
-                  
-                  <button onClick={() => setActiveFilter('all')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'all' ? 'bg-slate-900 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>All Types</button>
-                  <button onClick={() => setActiveFilter('GENERAL_INFO')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'GENERAL_INFO' ? 'bg-blue-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>💬 Messages / Notices</button>
-                  <button onClick={() => setActiveFilter('TECHNICAL_GLITCH_ALERT')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'TECHNICAL_GLITCH_ALERT' ? 'bg-amber-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>⚠️ Glitch Alerts</button>
-                  <button onClick={() => setActiveFilter('COMPLAINT_GRIEVANCE')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'COMPLAINT_GRIEVANCE' ? 'bg-orange-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>⚠️ Complaints</button>
-                  <button onClick={() => setActiveFilter('DIRECT_MESSAGE')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'DIRECT_MESSAGE' ? 'bg-purple-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>🔍 Inquiries</button>
-                  <button onClick={() => setActiveFilter('ASSIGNMENT')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${activeFilter === 'ASSIGNMENT' ? 'bg-emerald-600 text-white shadow' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'}`}>📅 Appointments / Assignments</button>
+
+                  {CATEGORY_TABS.map((tab) => {
+                    const isActive = activeFilter === tab.key;
+                    const unreadCount = activeTab === 'inbox' ? getUnreadCountForCategory(tab.key) : 0;
+                    const hasUnreadHighlight = !isActive && unreadCount > 0;
+
+                    return (
+                      <button
+                        key={tab.key}
+                        onClick={() => setActiveFilter(tab.key)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                          isActive
+                            ? tab.activeClass
+                            : hasUnreadHighlight
+                              ? 'bg-red-50 text-red-800 border-2 border-red-400 shadow-sm hover:bg-red-100'
+                              : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        {unreadCount > 0 && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded-full text-[10px] font-black leading-none ${
+                              isActive
+                                ? 'bg-white text-slate-900'
+                                : 'bg-red-600 text-white animate-pulse'
+                            }`}
+                          >
+                            {unreadCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1244,7 +1317,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
                   <Inbox className="w-6 h-6 mr-2" /> Syncing network...
                 </div>
               ) : (activeTab === 'inbox' ? inboxMessages : outboxMessages)
-                  .filter(msg => activeFilter === 'all' || msg.message_type === activeFilter).length === 0 ? (
+                  .filter(msg => activeFilter === 'all' || normalizeMessageCategory(msg) === activeFilter).length === 0 ? (
                 <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-12 text-center">
                   <CheckCircle className="w-12 h-12 text-slate-300 mx-auto mb-3" />
                   <h3 className="text-lg font-bold text-slate-600">Box Clear</h3>
@@ -1253,7 +1326,7 @@ const Admin_Communication = ({ currentUser, users, setCurrentPage, onAcknowledge
               ) : (
                 <div className="space-y-4">
                   {(activeTab === 'inbox' ? inboxMessages : outboxMessages)
-                    .filter(msg => activeFilter === 'all' || msg.message_type === activeFilter)
+                    .filter(msg => activeFilter === 'all' || normalizeMessageCategory(msg) === activeFilter)
                     .map((msg) => {
                       const isExpanded = expandedMsgs[msg.id];
                       const isSender = msg.sender_fnum === currentUser?.fnum;
