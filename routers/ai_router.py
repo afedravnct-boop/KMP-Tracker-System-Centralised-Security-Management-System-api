@@ -215,9 +215,9 @@ async def verify_client_diagnosis(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
+            'gemini-3.8-flash',
             'gemini-3.5-flash',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-flash'
+            'gemini-3.1-flash-lite'
         ]
         response = None
         last_exception = None
@@ -299,9 +299,9 @@ async def process_public_tactical_query(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
+            'gemini-3.8-flash',
             'gemini-3.5-flash',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-flash'
+            'gemini-3.1-flash-lite'
         ]
         response = None
         used_model = None
@@ -709,9 +709,9 @@ async def process_tactical_query(
 
         # 🟢 Expanded fallback chain for API compatibility
         candidate_models = [
+            'gemini-3.8-flash',
             'gemini-3.5-flash',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-flash'
+            'gemini-3.1-flash-lite'
         ]
         response = None
         used_model = None
@@ -817,6 +817,10 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
     Background worker that independently commits AI crash diagnostics to AI_Command_Logs 
     and attempts high-command memo dispatch without cross-rollback failures.
     """
+    # Skip normal client validation/auth errors (400, 401, 403, 422) to preserve AI quota
+    telemetry_blob = f"{payload.glitch_category} {json.dumps(payload.network_errors)} {json.dumps(payload.console_logs)}".upper()
+    if any(code in telemetry_blob for code in ["HTTP_400", "400 BAD REQUEST", "HTTP_401", "HTTP_403", "HTTP_422"]):
+        return
     db_gen = get_db()
     logs_db_gen = get_logs_db()
     db = next(db_gen)
@@ -849,18 +853,22 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
         )
         
         if api_key and (payload.console_logs or payload.network_errors):
-            try:
-                client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
-                response = client.models.generate_content(
-                    model='gemini-3.5-flash',
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction="You are the KMP System Diagnostic AI. Return only the requested report concisely."
+            client = genai.Client(api_key=api_key, http_options={'api_version': 'v1'})
+            for m in ['gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite']:
+                try:
+                    response = client.models.generate_content(
+                        model=m,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction="You are the KMP System Diagnostic AI. Return only the requested report concisely."
+                        )
                     )
-                )
-                ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
-            except Exception as ai_err:
-                print(f"AI Auto-Diagnosis failed: {ai_err}")
+                    if response:
+                        ai_diagnosis = response.text if hasattr(response, 'text') else str(response)
+                        break
+                except Exception as ai_err:
+                    print(f"AI Auto-Diagnosis failed on {m}: {ai_err}")
+                    continue
 
         # 3. 🟢 CRITICAL: Save to AI Command Logs Table and Commit Instantly
         try:
@@ -974,13 +982,13 @@ def process_and_diagnose_crash_bg(payload: CrashTelemetryPayload, fnum_val: str)
 
         # 5. Log System Activity
         try:
-            from routers.activity_logger import log_independent_activity
-            log_independent_activity(
+            record_neon_activity(
                 logs_db=logs_db,
                 fnum=fnum_val,
-                action="CRASH_REPORT_GENERATED",
+                action_type="REGISTER",
                 module="FRONTEND_TELEMETRY",
-                details=f"Automated AI crash diagnostic generated for page [{payload.page_name}] and routed to High Command."
+                target_id="CRASH_REPORT",
+                changes_summary=f"Automated AI crash diagnostic generated for page [{payload.page_name}] and routed to High Command."
             )
         except Exception as act_err:
             print(f"⚠️ Failed to record activity log: {act_err}")
