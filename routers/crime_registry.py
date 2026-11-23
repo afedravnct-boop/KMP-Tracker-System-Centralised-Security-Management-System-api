@@ -1408,13 +1408,27 @@ async def parse_handwritten_statement(
             "Preserve all facts, names, plate numbers, and dates accurately. Do not wrap in markdown."
         )
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[
-                prompt,
-                types.Part.from_bytes(data=file_bytes, mime_type=file.content_type)
-            ]
-        )
+        candidate_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"]
+        response = None
+        last_err = None
+
+        for m in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=m,
+                    contents=[
+                        prompt,
+                        types.Part.from_bytes(data=file_bytes, mime_type=file.content_type)
+                    ]
+                )
+                if response:
+                    break
+            except Exception as mod_err:
+                last_err = mod_err
+                continue
+
+        if not response:
+            raise Exception(f"All Gemini models failed: {last_err}")
 
         raw_text = (response.text or "").strip()
         raw_text = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw_text, flags=re.IGNORECASE)
