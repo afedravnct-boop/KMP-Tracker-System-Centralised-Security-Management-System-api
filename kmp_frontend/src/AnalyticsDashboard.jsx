@@ -120,6 +120,19 @@ const presenceLabel = (val) => {
   return s && !['NONE', 'NULL', 'NAN', 'N/A', 'NIL', '-'].includes(s) ? 'RECORDED' : 'MISSING';
 };
 
+const normalizeRankLabel = (rawRank) => {
+  const cleaned = String(rawRank || 'UNKNOWN')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+
+  if (cleaned === 'AIP' || cleaned === 'DAIP' || cleaned === 'D/AIP' || cleaned === 'D.AIP') {
+    return 'AIP';
+  }
+
+  return cleaned || 'UNKNOWN';
+};
+
 const toPieArray = (countMap, limit = 15) =>
   Object.entries(countMap)
     .filter(([, v]) => v > 0)
@@ -149,7 +162,7 @@ const buildManpowerBucket = (list) => {
     );
     inc('status', isInactive ? 'NON-DEPLOYABLE (HEALTH/LEAVE)' : 'ACTIVE (DEPLOYABLE)');
 
-    inc('rank', String(o.rank || 'UNKNOWN').trim().toUpperCase());
+    inc('rank', normalizeRankLabel(o.rank));
     inc('name', presenceLabel(o.name));
     inc('position', String(o.position || 'UNSPECIFIED').trim().toUpperCase());
 
@@ -187,7 +200,8 @@ const buildManpowerBucket = (list) => {
 
   const columns = {};
   ALL_MANPOWER_COLUMNS.forEach((c) => {
-    columns[c.key] = toPieArray(colMaps[c.key]);
+    const bucketLimit = c.key === 'rank' ? Math.max(Object.keys(colMaps[c.key]).length, 100) : 15;
+    columns[c.key] = toPieArray(colMaps[c.key], bucketLimit);
   });
 
   return {

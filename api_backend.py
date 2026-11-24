@@ -766,7 +766,7 @@ def shutdown_scheduler():
         scheduler.shutdown()
 
 # ==========================================
-# 🟢 FULLY CORRECTED MASTER DOWNLOAD (MULTI-SHEET EXPORT)
+# 🟢 FULLY CORRECTED MASTER DOWNLOAD (MEMORY-SAFE STREAMING EXPORT)
 # ==========================================
 @app.get("/api/v1/export-master")
 @app.get("/api/v1/export-master-database")
@@ -785,64 +785,47 @@ def export_master_database(
             details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the fully encrypted multi-sheet master database."
         )
 
-        wb = openpyxl.Workbook()
-        first_sheet_used = False
+        # write_only=True streams rows directly to XML without holding cell objects in RAM
+        wb = openpyxl.Workbook(write_only=True)
+
+        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        header_align = Alignment(horizontal="center", vertical="center")
 
         def create_sheet(sheet_title, *model_names, exclude_cols=None, unlimited=False):
-            nonlocal first_sheet_used
             ModelClass = get_model_safe(*model_names)
             if not ModelClass:
                 return
 
-            ws = wb.active if not first_sheet_used else wb.create_sheet(title=sheet_title)
-            ws.title = sheet_title
-            first_sheet_used = True
+            ws = wb.create_sheet(title=sheet_title)
 
             query = apply_opsec_scope(current_user, db.query(ModelClass), ModelClass)
-            
-            if unlimited:
-                records = query.all()
-            else:
-                records = query.order_by(ModelClass.id.desc()).limit(3000).all() if hasattr(ModelClass, 'id') else query.all()
-            
-            if not records:
-                ws.append(["No Records Found in Your Authorized Jurisdiction."])
-                return
-            
-            first_record = serialize_model_row(records[0])
-            headers = list(first_record.keys())
-            
-            if exclude_cols:
-                headers = [h for h in headers if h.lower() not in exclude_cols]
-                
-            ws.append([h.upper() for h in headers])
+            if not unlimited and hasattr(ModelClass, 'id'):
+                query = query.order_by(ModelClass.id.desc()).limit(3000)
 
-            header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-            header_font = Font(color="FFFFFF", bold=True)
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-
-            for record in records:
+            headers = None
+            for record in query.yield_per(500):
                 row_data = serialize_model_row(record)
+                if headers is None:
+                    headers = list(row_data.keys())
+                    if exclude_cols:
+                        headers = [h for h in headers if h.lower() not in exclude_cols]
+
+                    header_cells = []
+                    for h in headers:
+                        cell = openpyxl.cell.WriteOnlyCell(ws, value=h.upper())
+                        cell.fill = header_fill
+                        cell.font = header_font
+                        cell.alignment = header_align
+                        header_cells.append(cell)
+                    ws.append(header_cells)
+
                 ws.append([clean_html_for_export(str(row_data.get(h, ''))) for h in headers])
 
-            for col in ws.columns:
-                col_letter = col[0].column_letter
-                header_val = str(col[0].value or '').upper()
-                if any(k in header_val for k in ["NARRATIVE", "DETAILS", "REMARKS", "STORY", "REPORT", "DESCRIPTION", "ACTION"]):
-                    ws.column_dimensions[col_letter].width = 45
-                    for cell in col:
-                        if cell.row > 1:
-                            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                else:
-                    ws.column_dimensions[col_letter].width = 20
-                    for cell in col:
-                        if cell.row > 1:
-                            cell.alignment = Alignment(horizontal="left", vertical="center")
+            if headers is None:
+                ws.append(["No Records Found in Your Authorized Jurisdiction."])
 
-            del records
+            gc.collect()
 
         create_sheet("Crime Registry (Print)", "Crime_Reports", exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
         create_sheet("Crime Registry", "Crime_Reports")
@@ -868,7 +851,8 @@ def export_master_database(
         wb.save(excel_stream)
         excel_bytes = excel_stream.getvalue()
         excel_stream.close()
-        wb.close()
+        del wb
+        gc.collect()
         
         zip_stream = io.BytesIO()
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
