@@ -786,16 +786,17 @@ def export_master_database(
         )
 
         wb = openpyxl.Workbook()
-        
-        def create_sheet(sheet_title, *model_names, is_first=False, exclude_cols=None, unlimited=False):
+        first_sheet_used = False
+
+        def create_sheet(sheet_title, *model_names, exclude_cols=None, unlimited=False):
+            nonlocal first_sheet_used
             ModelClass = get_model_safe(*model_names)
-            ws = wb.active if is_first else wb.create_sheet(title=sheet_title)
-            if not is_first:
-                ws.title = sheet_title
-            
             if not ModelClass:
-                ws.append(["Model not found in system architecture."])
                 return
+
+            ws = wb.active if not first_sheet_used else wb.create_sheet(title=sheet_title)
+            ws.title = sheet_title
+            first_sheet_used = True
 
             query = apply_opsec_scope(current_user, db.query(ModelClass), ModelClass)
             
@@ -841,7 +842,9 @@ def export_master_database(
                         if cell.row > 1:
                             cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        create_sheet("Crime Registry (Print)", "Crime_Reports", is_first=True, exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
+            del records
+
+        create_sheet("Crime Registry (Print)", "Crime_Reports", exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
         create_sheet("Crime Registry", "Crime_Reports")
         
         create_sheet("Documents & Reports (Print)", "General_Documents", "GeneralDocuments", "Documents", exclude_cols=["id", "file_path"])
@@ -863,7 +866,9 @@ def export_master_database(
         
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
-        excel_stream.seek(0)
+        excel_bytes = excel_stream.getvalue()
+        excel_stream.close()
+        wb.close()
         
         zip_stream = io.BytesIO()
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
@@ -871,8 +876,10 @@ def export_master_database(
         
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
-            zf.writestr(f"{fnum_clean}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
+            zf.writestr(f"{fnum_clean}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx", excel_bytes)
 
+        del excel_bytes
+        gc.collect()
         zip_stream.seek(0)
         return StreamingResponse(
             zip_stream, media_type="application/zip",

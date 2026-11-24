@@ -1272,16 +1272,23 @@ const DashboardLayout = ({
   const [isMotionExpanded, setIsMotionExpanded] = useState(false);
 
   const [realOnlineUsers, setRealOnlineUsers] = useState([]);
+  const backoffUntilRef = useRef(0);
 
   useEffect(() => {
     if (!hasValidSession()) return;
 
     const syncHeartbeat = async () => {
+      if (document.hidden || Date.now() < backoffUntilRef.current) return;
       try {
         const hb = await authFetch('/api/v1/users/heartbeat', { method: 'POST' });
 
         if (hb.status === 401) {
           window.dispatchEvent(new Event('auth-expired'));
+          return;
+        }
+
+        if (hb.status === 429 || hb.status === 503) {
+          backoffUntilRef.current = Date.now() + 60000;
           return;
         }
 
@@ -1293,6 +1300,10 @@ const DashboardLayout = ({
         }
 
         const response = await authFetch('/api/v1/users/online');
+        if (response.status === 429 || response.status === 503) {
+          backoffUntilRef.current = Date.now() + 60000;
+          return;
+        }
         if (response.ok) {
           setRealOnlineUsers(await response.json());
         }
@@ -2206,15 +2217,46 @@ const App = () => {
     window.location.reload();
   };
 
+  const downloadWithAuth = async (url, fallbackFilename) => {
+    try {
+      const response = await authFetch(url, { method: 'GET' });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Export failed (HTTP ${response.status})`);
+      }
+
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = match?.[1]?.trim() || fallbackFilename;
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.style.display = 'none';
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+      }, 2000);
+    } catch (error) {
+      console.error("Master export failed:", error);
+      alert(`Master Export Failed: ${error.message}`);
+    }
+  };
+
   const handleMasterExport = async (scope, value) => {
     // 🟢 Points directly to the full multi-sheet encrypted master download endpoint
-    let url = `/api/v1/export-master`; 
+    let url = `/api/v1/export-master`;
     if (scope && value && scope !== 'all') {
       url = `/api/v1/reports/export?timeframe=all&scope=${scope}&value=${encodeURIComponent(value)}`;
     }
-    
+
     const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-    downloadWithAuth(url, `SECURE_MASTER_DATABASE_${todayStr}.zip`);
+    await downloadWithAuth(url, `SECURE_MASTER_DATABASE_${todayStr}.zip`);
   };
 
   const handleAcknowledgeComm = (commId) => {

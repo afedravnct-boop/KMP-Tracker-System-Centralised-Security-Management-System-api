@@ -1,5 +1,6 @@
 # routers/consolidated_ledger.py
 import io
+import json
 import re
 from datetime import datetime, date, timedelta
 from typing import Optional, List
@@ -687,7 +688,10 @@ def export_consolidated_ledger(
         return StreamingResponse(
             zip_buffer,
             media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename=KMP_Consolidated_Ledger_{filename_time}.zip"}
+            headers={
+                "Content-Disposition": f"attachment; filename=KMP_Consolidated_Ledger_{filename_time}.zip",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Consolidated Ledger Export Failed: {str(e)}")
