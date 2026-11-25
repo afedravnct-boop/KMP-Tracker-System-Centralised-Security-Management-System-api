@@ -8,6 +8,7 @@ import io
 import json
 import requests
 import pyzipper
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
@@ -43,6 +44,15 @@ REGIONAL_HIERARCHY = {
     "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
     "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+}
+
+ALLOWED_STATEMENT_CATEGORIES = {
+    "COMPLAINANT",
+    "WITNESS",
+    "ACCUSED",
+    "SUSPECT",
+    "CHARGE AND CAUTION",
+    "REFERENCE_UPGRADE"
 }
 
 # ====================================================================
@@ -692,6 +702,12 @@ def export_reports_excel(
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     total_records = len(reports)
 
+    report_ids = [getattr(r, 'id') for r in reports if hasattr(r, 'id') and getattr(r, 'id') is not None]
+    suspects_by_report = {}
+    if SuspectModel and report_ids and hasattr(SuspectModel, 'report_id'):
+        for s in db.query(SuspectModel).filter(SuspectModel.report_id.in_(report_ids)).all():
+            suspects_by_report.setdefault(s.report_id, []).append(s)
+
     suspect_photos_to_bundle = []
 
     for idx, r in enumerate(reports):
@@ -701,7 +717,7 @@ def export_reports_excel(
         suspects_list = []
         suspect_count = c_dict.get('suspects', 0)
         if SuspectModel and hasattr(r, 'id'):
-            suspects_list = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).all()
+            suspects_list = suspects_by_report.get(r.id, [])
             suspect_count = len(suspects_list)
 
         row_data = [
@@ -758,19 +774,28 @@ def export_reports_excel(
         excel_filename = f"KMP_REGISTRY_{file_label}_{timestamp}.xlsx"
         zf.writestr(excel_filename, excel_buffer.getvalue())
 
-        for photo_item in suspect_photos_to_bundle:
-            url = photo_item["url"]
-            target_filename = f"Suspect_Photos/{photo_item['filename']}"
+        def _fetch_photo(item):
+            url = item["url"]
+            target_filename = f"Suspect_Photos/{item['filename']}"
             try:
                 if url.startswith('http://') or url.startswith('https://'):
-                    img_resp = requests.get(url, timeout=3)
+                    img_resp = requests.get(url, timeout=4)
                     if img_resp.status_code == 200:
-                        zf.writestr(target_filename, img_resp.content)
+                        return target_filename, img_resp.content
                 elif os.path.exists(url):
                     with open(url, 'rb') as f:
-                        zf.writestr(target_filename, f.read())
+                        return target_filename, f.read()
             except Exception as ex:
                 print(f"Failed to bundle suspect photo {url}: {str(ex)}")
+            return None
+
+        if suspect_photos_to_bundle:
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                futures = [executor.submit(_fetch_photo, p) for p in suspect_photos_to_bundle]
+                for fut in as_completed(futures):
+                    res_item = fut.result()
+                    if res_item:
+                        zf.writestr(res_item[0], res_item[1])
 
     zip_buffer.seek(0)
     zip_filename = f"KMP_REGISTRY_SECURE_EXPORT_{timestamp}.zip"
@@ -794,11 +819,17 @@ def export_reports_excel(
 # 2. FILE UPLOADS
 # ====================================================================
 @router.post("/investigation/upload")
-def upload_investigation_file(request: Request, file: UploadFile = File(...)):
+def upload_investigation_file(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: models.Users = Depends(get_current_user)
+):
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="No file was provided.")
+    if not BUCKET_NAME:
+        raise HTTPException(status_code=500, detail="AWS_BUCKET_NAME is not configured.")
 
-    file_extension = file.filename.split('.')[-1]
+    file_extension = file.filename.rsplit('.', 1)[-1] if '.' in file.filename else 'bin'
     unique_id = uuid.uuid4().hex[:8]
     s3_key = f"investigations/{unique_id}.{file_extension}"
     full_s3_url = None
@@ -806,9 +837,10 @@ def upload_investigation_file(request: Request, file: UploadFile = File(...)):
     try:
         s3_client.upload_fileobj(
             file.file, BUCKET_NAME, s3_key,
-            ExtraArgs={"ContentType": file.content_type, "ServerSideEncryption": "AES256"}
+            ExtraArgs={"ContentType": file.content_type or "application/octet-stream", "ServerSideEncryption": "AES256"}
         )
-        full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        region_name = os.getenv("AWS_REGION", "eu-central-1")
+        full_s3_url = f"https://{BUCKET_NAME}.s3.{region_name}.amazonaws.com/{s3_key}"
         request.state.audit_detail = file.filename
         
         return {
@@ -1242,6 +1274,10 @@ def add_case_statement(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user)
 ):
+    clean_category = payload.statement_category.strip().upper()
+    if clean_category not in ALLOWED_STATEMENT_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid statement category: {payload.statement_category}")
+
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
     StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
 
@@ -1265,7 +1301,7 @@ def add_case_statement(
     try:
         new_statement = StatementModel(
             report_id=report.id,
-            statement_category=payload.statement_category.strip().upper(),
+            statement_category=clean_category,
             person_name=payload.person_name.strip().upper(),
             date_recorded=payload.date_recorded.strip(),
             time_recorded=payload.time_recorded.strip(),
@@ -1281,7 +1317,7 @@ def add_case_statement(
 
         record_neon_activity(
             logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
-            target_id=str(sn), changes_summary=f"Appended {payload.statement_category} statement for {payload.person_name[:80]} to case file."
+            target_id=str(sn), changes_summary=f"Appended {clean_category} statement for {payload.person_name[:80]} to case file."
         )
         return {"status": "success", "id": new_statement.id, "message": "Statement securely logged to case file."}
     except Exception as e:
@@ -1309,6 +1345,10 @@ async def upload_case_statement_docx(
 ):
     if not file or not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only typed Microsoft Word (.docx) files are accepted.")
+
+    clean_category = statement_category.strip().upper()
+    if clean_category not in ALLOWED_STATEMENT_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid statement category: {statement_category}")
 
     CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports')
     StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
@@ -1359,7 +1399,7 @@ async def upload_case_statement_docx(
 
         new_statement = StatementModel(
             report_id=report.id,
-            statement_category=statement_category.strip().upper(),
+            statement_category=clean_category,
             person_name=person_name.strip().upper(),
             date_recorded=date_recorded.strip(),
             time_recorded=time_recorded.strip(),
@@ -1377,7 +1417,7 @@ async def upload_case_statement_docx(
         record_neon_activity(
             logs_db=logs_db, fnum=current_user.fnum, action_type="UPLOAD", module="CRIME_REGISTRY",
             target_id=str(sn),
-            changes_summary=f"Uploaded .docx {statement_category} statement ({file.filename}) for {person_name[:80]}."
+            changes_summary=f"Uploaded .docx {clean_category} statement ({file.filename}) for {person_name[:80]}."
         )
         return {
             "status": "success",
@@ -1432,7 +1472,7 @@ async def parse_handwritten_statement(
             "Preserve all facts, names, plate numbers, and dates accurately. Do not wrap in markdown."
         )
 
-        candidate_models = ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"]
+        candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
         response = None
         last_err = None
 
