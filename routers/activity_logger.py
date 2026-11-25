@@ -1,19 +1,22 @@
 # routers/activity_logger.py
 from datetime import datetime
+import asyncio
 import base64
 import json
+import re
 import pytz
 from sqlalchemy.orm import Session
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from app import models, database
 
+
 def record_neon_activity(
-    logs_db: Session, 
-    fnum: str, 
-    action_type: str,       
-    module: str,               
-    target_id: str = None, 
+    logs_db: Session,
+    fnum: str,
+    action_type: str,
+    module: str,
+    target_id: str = None,
     changes_summary: str = None
 ):
     """
@@ -26,14 +29,14 @@ def record_neon_activity(
     try:
         eat_tz = pytz.timezone('Africa/Nairobi')
         timestamp_now = datetime.now(eat_tz).replace(tzinfo=None)
-        
+
         upper_action = str(action_type or "ACTION").strip().upper()
         upper_module = str(module or "GENERAL").strip().upper().replace("-", "_")
         clean_fnum = str(fnum or "SYSTEM").strip().upper()
-        
+
         # Filter out noisy background polls
         target_str = str(target_id or "").lower()
-        if any(noise in target_str for noise in ["/ping", "/poll", "/notifications", "/unread", "/favicon.ico"]):
+        if any(noise in target_str for noise in ["/ping", "/poll", "/notifications", "/unread", "/favicon.ico", "/users/online"]):
             return
 
         details = changes_summary or f"Officer [{clean_fnum}] performed action '{upper_action}' on module '{upper_module}'."
@@ -45,7 +48,7 @@ def record_neon_activity(
             details=details,
             created_at=timestamp_now
         )
-        
+
         logs_db.add(new_activity)
         logs_db.commit()
     except Exception as e:
@@ -56,32 +59,184 @@ def record_neon_activity(
         print(f"⚠️ NeonDB Granular Activity Log Error: {str(e)}")
 
 
+def _resolve_module_label(path_lower: str):
+    """Maps API paths to clean (MODULE_CODE, human_label) pairs."""
+    if "crime-reports" in path_lower or "crime" in path_lower:
+        return "CRIME_REGISTRY", "Crime Registry"
+    if "general-documents" in path_lower or "general-docs" in path_lower or "document" in path_lower:
+        return "GENERAL_DOCUMENTS", "Documents & Reports"
+    if "statistics" in path_lower or "stats" in path_lower or "agric" in path_lower:
+        return "OPERATIONAL_STATISTICS", "Operational Statistics"
+    if "lockup" in path_lower:
+        return "SUSPECT_LOCKUP", "Daily Lock-up Matrix"
+    if "exhibit" in path_lower:
+        return "IMPOUNDED_EXHIBITS", "Impounded Exhibits"
+    if "nominal-roll" in path_lower or "hr" in path_lower:
+        return "NOMINAL_ROLL", "Nominal Roll / HR"
+    if "establishment" in path_lower:
+        return "ESTABLISHMENTS", "Establishments"
+    if "stories" in path_lower or "success" in path_lower:
+        return "SUCCESS_STORIES", "Success Stories"
+    if "communication" in path_lower or "comm" in path_lower:
+        return "COMMAND_COMMUNICATIONS", "Command Communications"
+    if "audit" in path_lower:
+        return "AUDIT_LOGS", "Audit Logs"
+    if "export-master" in path_lower or "database/export" in path_lower:
+        return "EXCEL_EXPORTS", "Master Database"
+    if "users" in path_lower or "approve" in path_lower or "request" in path_lower:
+        return "USER_ACCOUNTS", "User Accounts & Access"
+
+    parts = [p for p in path_lower.strip("/").split("/") if p and p not in ("api", "v1")]
+    raw = parts[0] if parts else "GENERAL_SYSTEM"
+    return raw.upper().replace("-", "_"), raw.replace("-", " ").title()
+
+
+def _write_middleware_audit_sync(fnum: str, method: str, path: str, file_detail: str = None):
+    """Runs synchronous DB lookup and audit insert in a worker thread so the async event loop never blocks."""
+    path_lower = path.lower()
+
+    # Lookup Officer Rank & Name from database for forensic accuracy
+    officer_rank = "OFFICER"
+    officer_name = ""
+    main_db = None
+    try:
+        main_db = database.SessionLocal()
+        UserModal = getattr(models, 'Users', getattr(models, 'User', None))
+        if UserModal:
+            user_obj = main_db.query(UserModal).filter(UserModal.fnum == fnum).first()
+            if not user_obj and hasattr(UserModal, 'fNum'):
+                user_obj = main_db.query(UserModal).filter(UserModal.fNum == fnum).first()
+            if user_obj:
+                officer_rank = getattr(user_obj, 'rank', 'OFFICER') or 'OFFICER'
+                officer_name = getattr(user_obj, 'name', '') or ''
+    except Exception:
+        pass
+    finally:
+        if main_db:
+            try:
+                main_db.close()
+            except Exception:
+                pass
+
+    officer_signature = f"{fnum} {officer_rank} {officer_name}".strip()
+    module_name, module_label = _resolve_module_label(path_lower)
+
+    # 1. Authentication & Session Events (matches api_backend.py Audit Logs filter)
+    if "log-logout" in path_lower or "logout" in path_lower:
+        module_name = "USER_AUTHENTICATION"
+        action_type = "LOGOUT"
+        narrative = f"Officer [{officer_signature}] signed out of the system."
+    elif "log-timeout" in path_lower:
+        module_name = "USER_AUTHENTICATION"
+        action_type = "SESSION_TIMEOUT"
+        narrative = f"Officer [{officer_signature}] was automatically logged out due to inactivity timeout."
+    elif "login" in path_lower or "log-session" in path_lower:
+        module_name = "USER_AUTHENTICATION"
+        action_type = "LOGIN"
+        narrative = f"Officer [{officer_signature}] signed in to the system."
+
+    # 2. Exports & Downloads
+    elif "export" in path_lower or "download" in path_lower:
+        action_type = "EXPORT"
+        file_part = f" file '{file_detail}'" if file_detail else " data"
+        narrative = f"Officer [{officer_signature}] exported/downloaded{file_part} from {module_label} ({path})."
+
+    # 3. Deletions & Revocations
+    elif method == "DELETE" or "revoke" in path_lower or "delete" in path_lower:
+        action_type = "DELETE"
+        if "revoke" in path_lower:
+            narrative = f"Officer [{officer_signature}] revoked user access ({path})."
+        else:
+            narrative = f"Officer [{officer_signature}] deleted a record in {module_label} ({path})."
+
+    # 4. Approvals, Password Changes, & Updates
+    elif method in ["PUT", "PATCH"]:
+        if "password" in path_lower:
+            module_name = "PASSWORD_RESETS"
+            action_type = "PASSWORD_CHANGE"
+            narrative = f"Officer [{officer_signature}] changed or reset a security password ({path})."
+        elif "approve" in path_lower:
+            action_type = "APPROVE"
+            narrative = f"Officer [{officer_signature}] approved a pending request in {module_label} ({path})."
+        else:
+            action_type = "UPDATE"
+            narrative = f"Officer [{officer_signature}] updated a record in {module_label} ({path})."
+
+    # 5. Creations, Uploads, & Dispatches
+    elif method == "POST":
+        if "upload" in path_lower:
+            action_type = "UPLOAD"
+            file_part = f" '{file_detail}'" if file_detail else ""
+            narrative = f"Officer [{officer_signature}] uploaded file{file_part} to {module_label} ({path})."
+        elif "approve" in path_lower:
+            action_type = "APPROVE"
+            narrative = f"Officer [{officer_signature}] approved a request in {module_label} ({path})."
+        elif "communication" in path_lower:
+            action_type = "DISPATCH"
+            narrative = f"Officer [{officer_signature}] dispatched a command communication ({path})."
+        else:
+            action_type = "CREATE"
+            narrative = f"Officer [{officer_signature}] created/submitted a new entry in {module_label} ({path})."
+
+    else:
+        return
+
+    # Commit to NeonDB logs branch cleanly
+    logs_db = None
+    try:
+        logs_db = database.LogsSessionLocal()
+        record_neon_activity(
+            logs_db=logs_db,
+            fnum=fnum,
+            action_type=action_type,
+            module=module_name,
+            target_id=path,
+            changes_summary=narrative
+        )
+    except Exception:
+        pass
+    finally:
+        if logs_db:
+            try:
+                logs_db.close()
+            except Exception:
+                pass
+
+
 class SystemActivityMiddleware(BaseHTTPMiddleware):
     """
-    Transparently watches system activity and translates raw HTTP requests
-    into crystal-clear, human-readable operational audit narratives with full officer identification.
+    Records only concrete operational actions (Login, Logout, Create, Upload, Update, Delete, Export/Download).
+    Ignores passive browsing, polling, and failed requests.
     """
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        
+
+        # Ignore failed requests (4xx/5xx) so blocked or failed attempts aren't logged as completed actions
+        if response.status_code >= 400:
+            return response
+
         path = request.url.path
         path_lower = path.lower()
-        
-        # Skip static assets, docs, and high-frequency background heartbeat/ping noise
-        if any(skip in path for skip in ["/static/", "/favicon.ico", "/docs", "/openapi.json", "/heartbeat", "/ping"]) or request.method == "OPTIONS":
+
+        # Skip static assets, docs, CORS preflight, and background polling noise
+        if (
+            request.method == "OPTIONS"
+            or not path.startswith("/api/")
+            or any(skip in path_lower for skip in [
+                "/static/", "/favicon.ico", "/docs", "/openapi.json",
+                "/heartbeat", "/ping", "/users/online", "/activity-logs"
+            ])
+        ):
             return response
 
-        if not path.startswith("/api/"):
-            return response
-
-        # Filter GET requests unless they are critical audit, export, or administrative management operations
+        # Ignore ALL passive GET requests unless it is an explicit export or download
         if request.method == "GET":
-            if not any(explicit in path_lower for explicit in ["export", "audit", "dossier", "users", "approve", "general-documents"]):
+            if not any(action in path_lower for action in ["export", "download"]):
                 return response
 
         # Precision FNUM resolution from session state or Authorization Bearer token
         fnum = getattr(request.state, "user_fnum", None) or request.headers.get("X-User-Fnum", None)
-        
+
         if not fnum:
             auth_header = request.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):
@@ -99,122 +254,20 @@ class SystemActivityMiddleware(BaseHTTPMiddleware):
 
         fnum = fnum or "SYSTEM_OFFICER"
 
-        # Lookup Officer Rank & Name from database for absolute forensic accuracy
-        officer_rank = "OFFICER"
-        officer_name = ""
-        main_db = None
-        try:
-            main_db = next(database.get_db())
-            UserModal = getattr(models, 'Users', getattr(models, 'User', None))
-            if UserModal:
-                user_obj = main_db.query(UserModal).filter(UserModal.fnum == fnum).first() or \
-                           main_db.query(UserModal).filter(UserModal.fNum == fnum).first()
-                if user_obj:
-                    officer_rank = getattr(user_obj, 'rank', 'OFFICER') or 'OFFICER'
-                    officer_name = getattr(user_obj, 'name', '') or ''
-        except Exception:
-            pass
-        finally:
-            if main_db:
-                try:
-                    main_db.close()
-                except Exception:
-                    pass
+        # Extract downloaded filename from Content-Disposition header, or uploaded filename from request.state
+        file_detail = getattr(request.state, "audit_detail", None)
+        if not file_detail:
+            disposition = response.headers.get("content-disposition", "")
+            match = re.search(r'filename="?([^";]+)"?', disposition, re.IGNORECASE)
+            if match:
+                file_detail = match.group(1).strip()
 
-        # Universal full officer signature ensuring 95%+ audit clarity
-        officer_signature = f"{fnum} {officer_rank} {officer_name}".strip()
-
-        # Intelligent Path-to-Narrative Translator
-        module_name = "GENERAL_SYSTEM"
-        action_type = "EXECUTE"
-        narrative = f"Officer [{officer_signature}] executed operation on {path}."
-
-        if any(k in path_lower for k in ["login", "auth", "session", "token", "log-timeout"]):
-            module_name = "SECURITY_SESSION"
-            action_type = "USER_AUTHENTICATION"
-            narrative = f"Officer [{officer_signature}] successfully re-authenticated into session towards session timeout (final countdown active prior to user activity trigger)."
-
-        elif "crime-reports" in path_lower:
-            module_name = "CRIME_REGISTRY"
-            if request.method == "POST":
-                action_type = "REGISTER"
-                narrative = f"Officer [{officer_signature}] submitted a new crime report."
-            elif request.method == "GET":
-                action_type = "VIEW"
-                narrative = f"Officer [{officer_signature}] accessed and reviewed the crime registry."
-            elif request.method in ["PUT", "PATCH"]:
-                action_type = "UPDATE"
-                narrative = f"Officer [{officer_signature}] updated an existing crime report."
-
-        elif "general-documents" in path_lower or "general-docs" in path_lower:
-            module_name = "GENERAL_DOCUMENTS"
-            if request.method == "GET":
-                action_type = "VIEW"
-                narrative = f"Officer [{officer_signature}] opened and read general documents."
-            elif request.method == "POST":
-                action_type = "REGISTER"
-                narrative = f"Officer [{officer_signature}] uploaded a new general document/report."
-
-        elif "statistics" in path_lower or "operational-statistics" in path_lower or "agric" in path_lower:
-            module_name = "OPERATIONAL_STATISTICS"
-            if request.method == "POST":
-                action_type = "REGISTER"
-                narrative = f"Officer [{officer_signature}] submitted statistics."
-            else:
-                action_type = "VIEW"
-                narrative = f"Officer [{officer_signature}] reviewed operational statistics."
-
-        elif "lockup" in path_lower:
-            module_name = "SUSPECT_LOCKUP"
-            action_type = "UPDATE" if request.method in ["POST", "PUT"] else "VIEW"
-            narrative = f"Officer [{officer_signature}] updated the suspect lock-up matrix."
-
-        elif "exhibits" in path_lower:
-            module_name = "IMPOUNDED_EXHIBITS"
-            action_type = "REGISTER" if request.method == "POST" else "VIEW"
-            narrative = f"Officer [{officer_signature}] managed impounded fleet and exhibits records."
-
-        elif "nominal-roll" in path_lower:
-            module_name = "NOMINAL_ROLL"
-            action_type = "UPDATE" if request.method in ["POST", "PUT"] else "VIEW"
-            narrative = f"Officer [{officer_signature}] accessed or updated the personnel nominal roll."
-
-        elif "users" in path_lower or "approve" in path_lower:
-            module_name = "USER_MANAGEMENT"
-            action_type = "UPDATE"
-            narrative = f"Officer [{officer_signature}] performed user authorization or management action."
-
-        else:
-            path_parts = path.strip("/").split("/")
-            module_name = path_parts[2].upper().replace("-", "_") if len(path_parts) > 2 else "GENERAL_SYSTEM"
-            method_map = {"GET": "VIEW", "POST": "REGISTER", "PUT": "UPDATE", "PATCH": "UPDATE", "DELETE": "DELETE"}
-            action_type = method_map.get(request.method, "EXECUTE")
-            narrative = f"Officer [{officer_signature}] performed HTTP {request.method} on {path}."
-
-        # Commit to NeonDB logs branch cleanly
-        logs_db = None
-        try:
-            logs_db = next(database.get_logs_db())
-            record_neon_activity(
-                logs_db=logs_db,
-                fnum=fnum,
-                action_type=action_type,
-                module=module_name,
-                target_id=path,
-                changes_summary=narrative
-            )
-        except Exception:
-            pass
-        finally:
-            if logs_db:
-                try:
-                    logs_db.close()
-                except Exception:
-                    pass
+        await asyncio.to_thread(_write_middleware_audit_sync, fnum, request.method, path, file_detail)
 
         return response
 
-# Add this compatibility alias at the bottom of routers/activity_logger.py:
+
+# Compatibility alias
 def log_independent_activity(logs_db: Session, fnum: str, action: str, module: str, details: str):
     """Legacy wrapper mapping to record_neon_activity for backward compatibility."""
     record_neon_activity(

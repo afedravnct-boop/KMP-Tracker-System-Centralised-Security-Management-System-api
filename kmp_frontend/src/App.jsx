@@ -1273,12 +1273,14 @@ const DashboardLayout = ({
 
   const [realOnlineUsers, setRealOnlineUsers] = useState([]);
   const backoffUntilRef = useRef(0);
+  const heartbeatInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!hasValidSession()) return;
 
     const syncHeartbeat = async () => {
-      if (document.hidden || Date.now() < backoffUntilRef.current) return;
+      if (document.hidden || heartbeatInFlightRef.current || Date.now() < backoffUntilRef.current) return;
+      heartbeatInFlightRef.current = true;
       try {
         const hb = await authFetch('/api/v1/users/heartbeat', { method: 'POST' });
 
@@ -1287,7 +1289,7 @@ const DashboardLayout = ({
           return;
         }
 
-        if (hb.status === 429 || hb.status === 503) {
+        if (hb.status === 429 || hb.status >= 500) {
           backoffUntilRef.current = Date.now() + 60000;
           return;
         }
@@ -1300,7 +1302,7 @@ const DashboardLayout = ({
         }
 
         const response = await authFetch('/api/v1/users/online');
-        if (response.status === 429 || response.status === 503) {
+        if (response.status === 429 || response.status >= 500) {
           backoffUntilRef.current = Date.now() + 60000;
           return;
         }
@@ -1308,12 +1310,15 @@ const DashboardLayout = ({
           setRealOnlineUsers(await response.json());
         }
       } catch (err) {
+        backoffUntilRef.current = Date.now() + 60000;
         console.warn("Heartbeat sync paused...");
+      } finally {
+        heartbeatInFlightRef.current = false;
       }
     };
 
     syncHeartbeat();
-    const heartbeatInterval = setInterval(syncHeartbeat, 15000);
+    const heartbeatInterval = setInterval(syncHeartbeat, 45000);
     return () => clearInterval(heartbeatInterval);
   }, [currentUser?.fnum]);
 
@@ -1815,6 +1820,8 @@ const App = () => {
   const [filterStation, setFilterStation] = useState('ALL STATIONS');
 
   const lastActivityRef = useRef(Date.now());
+  const fetchInFlightRef = useRef(false);
+  const fetchBackoffUntilRef = useRef(0);
 
   const grandTotals = useMemo(() => {
     return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
@@ -2084,10 +2091,12 @@ const App = () => {
 
     const fetchAllData = async () => {
       if (document.hidden || !hasValidSession()) return;
+      if (fetchInFlightRef.current || Date.now() < fetchBackoffUntilRef.current) return;
 
       const isUserIdle = (Date.now() - lastActivityRef.current) > 60000;
       if (isUserIdle) return;
 
+      fetchInFlightRef.current = true;
       try {
         const [resUsers, resStats, resStories, resEst, resNom, resArc, resCommsPing, resDocs] = await Promise.all([
           authFetch('/api/v1/users', { signal: controller.signal }).catch(() => null),
@@ -2100,10 +2109,17 @@ const App = () => {
           authFetch('/api/v1/general-documents', { signal: controller.signal }).catch(() => null)
         ]);
 
+        const allResponses = [resUsers, resStats, resStories, resEst, resNom, resArc, resCommsPing, resDocs];
+
         // 🟢 Halt cleanly and trigger session-expired flow on any 401
-        if ([resUsers, resStats, resStories, resEst, resNom, resArc, resCommsPing, resDocs].some(r => r && r.status === 401)) {
+        if (allResponses.some(r => r && r.status === 401)) {
           window.dispatchEvent(new Event('auth-expired'));
           return;
+        }
+
+        // 🟢 Back off 60s if backend is rate-limited or under heavy load
+        if (allResponses.some(r => r && (r.status === 429 || r.status >= 500))) {
+          fetchBackoffUntilRef.current = Date.now() + 60000;
         }
 
         if (resStats && resStats.ok) setStats(await resStats.json());
@@ -2183,14 +2199,17 @@ const App = () => {
           }
         }
       } catch (error) {
+        fetchBackoffUntilRef.current = Date.now() + 60000;
         if (error.name !== 'AbortError' && error.message !== 'UNAUTHORIZED') {
           console.warn("Network congestion or temporary blip intercepted. Holding execution:", error.message);
         }
+      } finally {
+        fetchInFlightRef.current = false;
       }
     };
 
     fetchAllData();
-    const pollingInterval = setInterval(fetchAllData, 60000);
+    const pollingInterval = setInterval(fetchAllData, 120000);
 
     const handleVisibilityChange = () => {
       if (!document.hidden && hasValidSession()) {

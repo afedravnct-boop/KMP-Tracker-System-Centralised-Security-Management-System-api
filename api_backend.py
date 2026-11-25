@@ -766,16 +766,29 @@ def shutdown_scheduler():
         scheduler.shutdown()
 
 # ==========================================
-# 🟢 FULLY CORRECTED MASTER DOWNLOAD (MEMORY-SAFE STREAMING EXPORT)
+# 🟢 SINGLE-QUERY DUAL-SHEET MASTER DOWNLOAD (MEMORY-SAFE STREAMING)
 # ==========================================
 @app.get("/api/v1/export-master")
 @app.get("/api/v1/export-master-database")
 @app.get("/api/v1/database/export")
 def export_master_database(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(require_export_privilege)
 ):
+    import tempfile
+
+    xlsx_path = None
+    zip_path = None
+
+    def cleanup_file(path: str):
+        try:
+            if path and os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+
     try:
         log_independent_activity(
             logs_db=logs_db,
@@ -792,87 +805,136 @@ def export_master_database(
         header_font = Font(color="FFFFFF", bold=True)
         header_align = Alignment(horizontal="center", vertical="center")
 
-        def create_sheet(sheet_title, *model_names, exclude_cols=None, unlimited=False):
+        def make_header_cells(ws, cols):
+            cells = []
+            for h in cols:
+                cell = openpyxl.cell.WriteOnlyCell(ws, value=h.upper())
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
+                cells.append(cell)
+            return cells
+
+        def create_sheets(full_title, *model_names, print_title=None, print_exclude_cols=None, unlimited=False):
             ModelClass = get_model_safe(*model_names)
             if not ModelClass:
                 return
 
-            ws = wb.create_sheet(title=sheet_title)
+            ws_print = wb.create_sheet(title=print_title) if print_title else None
+            ws_full = wb.create_sheet(title=full_title)
 
             query = apply_opsec_scope(current_user, db.query(ModelClass), ModelClass)
             if not unlimited and hasattr(ModelClass, 'id'):
                 query = query.order_by(ModelClass.id.desc()).limit(3000)
 
-            headers = None
+            exclude_set = {c.lower() for c in (print_exclude_cols or [])}
+            full_headers = None
+            print_headers = None
+
+            # Single database query & single row cleaning feeds both sheets
             for record in query.yield_per(500):
                 row_data = serialize_model_row(record)
-                if headers is None:
-                    headers = list(row_data.keys())
-                    if exclude_cols:
-                        headers = [h for h in headers if h.lower() not in exclude_cols]
 
-                    header_cells = []
-                    for h in headers:
-                        cell = openpyxl.cell.WriteOnlyCell(ws, value=h.upper())
-                        cell.fill = header_fill
-                        cell.font = header_font
-                        cell.alignment = header_align
-                        header_cells.append(cell)
-                    ws.append(header_cells)
+                if full_headers is None:
+                    full_headers = list(row_data.keys())
+                    ws_full.append(make_header_cells(ws_full, full_headers))
 
-                ws.append([clean_html_for_export(str(row_data.get(h, ''))) for h in headers])
+                    if ws_print is not None:
+                        print_headers = [h for h in full_headers if h.lower() not in exclude_set]
+                        ws_print.append(make_header_cells(ws_print, print_headers))
 
-            if headers is None:
-                ws.append(["No Records Found in Your Authorized Jurisdiction."])
+                cleaned_row = {h: clean_html_for_export(str(row_data.get(h, ''))) for h in full_headers}
+
+                if ws_print is not None:
+                    ws_print.append([cleaned_row[h] for h in print_headers])
+
+                ws_full.append([cleaned_row[h] for h in full_headers])
+
+            if full_headers is None:
+                empty_msg = ["No Records Found in Your Authorized Jurisdiction."]
+                if ws_print is not None:
+                    ws_print.append(empty_msg)
+                ws_full.append(empty_msg)
 
             gc.collect()
 
-        create_sheet("Crime Registry (Print)", "Crime_Reports", exclude_cols=["id", "narrative", "daily_lock_up", "created_at"])
-        create_sheet("Crime Registry", "Crime_Reports")
-        
-        create_sheet("Documents & Reports (Print)", "General_Documents", "GeneralDocuments", "Documents", exclude_cols=["id", "file_path"])
-        create_sheet("Documents & Reports", "General_Documents", "GeneralDocuments", "Documents")
+        # Paired sheets (1 query -> 2 sheets)
+        create_sheets(
+            "Crime Registry", "Crime_Reports",
+            print_title="Crime Registry (Print)",
+            print_exclude_cols=["id", "narrative", "daily_lock_up", "created_at"]
+        )
+
+        create_sheets(
+            "Documents & Reports", "General_Documents", "GeneralDocuments", "Documents",
+            print_title="Documents & Reports (Print)",
+            print_exclude_cols=["id", "file_path"]
+        )
 
         user_role = str(current_user.role).strip().upper() if current_user.role else ""
         if user_role == "SUPER_ADMIN":
-            create_sheet("AI Command (Print)", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs", exclude_cols=["id", "created_at", "updated_at"])
-            create_sheet("AI Command", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs")
+            create_sheets(
+                "AI Command", "AI_Logs", "AILogs", "AICommandLogs", "AI_Command_Logs",
+                print_title="AI Command (Print)",
+                print_exclude_cols=["id", "created_at", "updated_at"]
+            )
 
-        create_sheet("Success Stories", "Success_Stories", "SuccessStories")
-        
-        create_sheet("Nominal Roll (Print)", "Nominal_Roll", "NominalRoll", exclude_cols=["id", "profile_photo_path", "fingerprints"], unlimited=True)
-        create_sheet("Nominal Roll", "Nominal_Roll", "NominalRoll", unlimited=True)
-        
-        create_sheet("Archived Personnel", "NominalRollArchive", "Nominal_Roll_Archives", "NominalRollArchives", "Archived_Personnel", unlimited=True)
-        
-        create_sheet("Impounded Exhibits", "Exhibits", "Impounded_Exhibits", "ImpoundedExhibits")
-        
-        excel_stream = io.BytesIO()
-        wb.save(excel_stream)
-        excel_bytes = excel_stream.getvalue()
-        excel_stream.close()
+        # Single sheets
+        create_sheets("Success Stories", "Success_Stories", "SuccessStories")
+
+        # Nominal Roll paired sheets (1 query -> 2 sheets)
+        create_sheets(
+            "Nominal Roll", "Nominal_Roll", "NominalRoll",
+            print_title="Nominal Roll (Print)",
+            print_exclude_cols=["id", "profile_photo_path", "fingerprints"],
+            unlimited=True
+        )
+
+        create_sheets(
+            "Archived Personnel",
+            "NominalRollArchive", "Nominal_Roll_Archives", "NominalRollArchives", "Archived_Personnel",
+            unlimited=True
+        )
+
+        create_sheets("Impounded Exhibits", "Exhibits", "Impounded_Exhibits", "ImpoundedExhibits")
+
+        # Stream workbook to temp disk file instead of RAM
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_xlsx:
+            xlsx_path = tmp_xlsx.name
+        wb.save(xlsx_path)
         del wb
         gc.collect()
-        
-        zip_stream = io.BytesIO()
+
         eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
         fnum_clean = str(current_user.fnum).replace('/', '_').upper()
-        
-        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
-            zf.writestr(f"{fnum_clean}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx", excel_bytes)
+        inner_xlsx_name = f"{fnum_clean}_Master_Database_{eat_time.strftime('%Y%m%d')}.xlsx"
+        zip_filename = f"SECURE_MASTER_DATABASE_{eat_time.strftime('%y%m%d')}.zip"
 
-        del excel_bytes
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_zip:
+            zip_path = tmp_zip.name
+
+        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+            zf.setpassword(str(current_user.fnum).strip().encode('utf-8'))
+            zf.write(xlsx_path, arcname=inner_xlsx_name)
+
+        # Remove raw .xlsx immediately; schedule .zip deletion after download completes
+        cleanup_file(xlsx_path)
+        xlsx_path = None
         gc.collect()
-        zip_stream.seek(0)
-        return StreamingResponse(
-            zip_stream, media_type="application/zip",
+
+        background_tasks.add_task(cleanup_file, zip_path)
+        return FileResponse(
+            path=zip_path,
+            media_type="application/zip",
+            filename=zip_filename,
             headers={
-                'Content-Disposition': f'attachment; filename="SECURE_MASTER_DATABASE_{eat_time.strftime("%y%m%d")}.zip"', 
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
                 'Access-Control-Expose-Headers': 'Content-Disposition'
             }
         )
     except Exception as e:
+        cleanup_file(xlsx_path)
+        cleanup_file(zip_path)
         raise HTTPException(status_code=500, detail=f"Failed to generate master export: {str(e)}")
 
 # ====================================================================
