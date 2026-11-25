@@ -12,7 +12,7 @@ from typing import Optional, List, Union
 from datetime import datetime, date
 from decimal import Decimal
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, Form, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, text
@@ -189,8 +189,6 @@ def verify_record_mutation_clearance(current_user, target_station, target_region
 
 
 def apply_opsec_scope(current_user, query, ModelClass):
-    import json
-    import re
     if not ModelClass:
         return query
         
@@ -285,7 +283,7 @@ def apply_opsec_scope(current_user, query, ModelClass):
 
 
 # ====================================================================
-# 1. RETRIEVE CRIME REPORTS (CHRONOLOGICAL HYDRATION ENHANCED)
+# 1. RETRIEVE CRIME REPORTS (BATCH HYDRATED FOR LOW POOL OVERHEAD)
 # ====================================================================
 @router.get("/reports")
 def get_reports(
@@ -383,25 +381,41 @@ def get_reports(
         reports = query.order_by(pk_col.desc()).limit(limit).all()
     else:
         reports = query.limit(limit).all()
-    
+
+    report_ids = [getattr(r, 'id') for r in reports if hasattr(r, 'id') and getattr(r, 'id') is not None]
+
     SuspectModel = get_model_safe('Suspect_Lockup', 'SuspectLockup', 'suspect_lockup')
     StatementModel = get_model_safe('Case_Statements', 'CaseStatements')
+
+    suspects_by_report = {}
+    if SuspectModel and report_ids and hasattr(SuspectModel, 'report_id'):
+        all_suspects = db.query(SuspectModel).filter(SuspectModel.report_id.in_(report_ids)).all()
+        for s in all_suspects:
+            suspects_by_report.setdefault(s.report_id, []).append(clean_model_dict(s))
+
+    history_by_report = {}
+    if StatementModel and report_ids and hasattr(StatementModel, 'report_id'):
+        order_col = getattr(StatementModel, 'created_at', getattr(StatementModel, 'id', None))
+        stmt_query = db.query(StatementModel).filter(StatementModel.report_id.in_(report_ids))
+        if order_col is not None:
+            stmt_query = stmt_query.order_by(order_col.asc())
+        for h in stmt_query.all():
+            history_by_report.setdefault(h.report_id, []).append(clean_model_dict(h))
     
     result = []
     for r in reports:
         c_dict = clean_model_dict(r)
+        r_id = getattr(r, 'id', None)
         
-        if SuspectModel and hasattr(r, 'id'):
-            suspects = db.query(SuspectModel).filter(SuspectModel.report_id == r.id).all()
-            c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
+        if SuspectModel and r_id is not None:
+            c_dict['suspectDetails'] = suspects_by_report.get(r_id, [])
         else:
             c_dict['suspectDetails'] = getattr(r, 'suspect_details', getattr(r, 'suspectDetails', []))
 
-        # 🟢 NEW: Fetch chronological case history (Statements & Upgrades)
-        c_dict['caseHistory'] = []
-        if StatementModel and hasattr(r, 'id'):
-            history = db.query(StatementModel).filter(StatementModel.report_id == r.id).order_by(StatementModel.created_at.asc()).all()
-            c_dict['caseHistory'] = [clean_model_dict(h) for h in history]
+        if StatementModel and r_id is not None:
+            c_dict['caseHistory'] = history_by_report.get(r_id, [])
+        else:
+            c_dict['caseHistory'] = []
             
         c_dict['sn'] = getattr(r, 'sn', getattr(r, 'id', 1))
         c_dict['sdRef'] = getattr(r, 'sd_ref', getattr(r, 'sdRef', ''))
@@ -422,15 +436,6 @@ def get_reports(
         c_dict['parsedRecoveries'] = parsed_crime['parsedRecoveries']
         
         result.append(c_dict)
-
-    record_neon_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action_type="VIEW",
-        module="CRIME_REGISTRY",
-        target_id="ALL_REPORTS",
-        changes_summary=f"Officer accessed Crime Registry reports ledger (Fetched {len(result)} entries)."
-    )
 
     return result
 
@@ -758,7 +763,7 @@ def export_reports_excel(
             target_filename = f"Suspect_Photos/{photo_item['filename']}"
             try:
                 if url.startswith('http://') or url.startswith('https://'):
-                    img_resp = requests.get(url, timeout=10)
+                    img_resp = requests.get(url, timeout=3)
                     if img_resp.status_code == 200:
                         zf.writestr(target_filename, img_resp.content)
                 elif os.path.exists(url):
@@ -789,7 +794,7 @@ def export_reports_excel(
 # 2. FILE UPLOADS
 # ====================================================================
 @router.post("/investigation/upload")
-def upload_investigation_file(file: UploadFile = File(...)):
+def upload_investigation_file(request: Request, file: UploadFile = File(...)):
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="No file was provided.")
 
@@ -804,6 +809,7 @@ def upload_investigation_file(file: UploadFile = File(...)):
             ExtraArgs={"ContentType": file.content_type, "ServerSideEncryption": "AES256"}
         )
         full_s3_url = f"https://{BUCKET_NAME}.s3.{os.getenv('AWS_REGION')}.amazonaws.com/{s3_key}"
+        request.state.audit_detail = file.filename
         
         return {
             "status": "success", 
@@ -1153,13 +1159,19 @@ def get_consolidated_ledger(
             if offence_col is not None and pk_col is not None:
                 q_crimes = q_crimes.order_by(offence_col.asc(), pk_col.desc())
             
-            for c in q_crimes.all():
+            all_crimes = q_crimes.all()
+            crime_ids = [getattr(c, 'id') for c in all_crimes if hasattr(c, 'id') and getattr(c, 'id') is not None]
+            suspects_by_crime = {}
+            if SuspectModel and crime_ids and hasattr(SuspectModel, 'report_id'):
+                for s in db.query(SuspectModel).filter(SuspectModel.report_id.in_(crime_ids)).all():
+                    suspects_by_crime.setdefault(s.report_id, []).append(clean_model_dict(s))
+
+            for c in all_crimes:
                 c_dict = clean_model_dict(c)
                 c_dict['offence'] = str(c_dict.get('offence', 'GENERAL CRIME')).strip().upper()
                 c_dict['category'] = str(c_dict.get('category', 'GENERAL CRIMES')).strip().upper()
                 if SuspectModel and hasattr(c, 'id'):
-                    suspects = db.query(SuspectModel).filter(SuspectModel.report_id == c.id).all()
-                    c_dict['suspectDetails'] = [clean_model_dict(s) for s in suspects]
+                    c_dict['suspectDetails'] = suspects_by_crime.get(c.id, [])
                 
                 parsed_c = parse_crime_incident_backend(c_dict['offence'], c_dict.get('narrative'))
                 c_dict['parsedSuspects'] = parsed_c['parsedSuspects']
@@ -1282,6 +1294,7 @@ def add_case_statement(
 # ====================================================================
 @router.post("/reports/{sn}/statements/upload-docx")
 async def upload_case_statement_docx(
+    request: Request,
     sn: int,
     statement_category: str = Form(...),
     person_name: str = Form(...),
@@ -1360,8 +1373,9 @@ async def upload_case_statement_docx(
         db.commit()
         db.refresh(new_statement)
 
+        request.state.audit_detail = file.filename
         record_neon_activity(
-            logs_db=logs_db, fnum=current_user.fnum, action_type="UPDATE", module="CRIME_REGISTRY",
+            logs_db=logs_db, fnum=current_user.fnum, action_type="UPLOAD", module="CRIME_REGISTRY",
             target_id=str(sn),
             changes_summary=f"Uploaded .docx {statement_category} statement ({file.filename}) for {person_name[:80]}."
         )
