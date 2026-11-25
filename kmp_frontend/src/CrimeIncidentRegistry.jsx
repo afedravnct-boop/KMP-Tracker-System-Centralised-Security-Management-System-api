@@ -1,2775 +1,2407 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { 
-  LayoutDashboard, BarChart3, Trophy, UserPlus, LogOut, Menu, 
-  Search, PlusCircle, Edit, Download, Shield, CheckCircle, 
-  Award, Maximize2, Minimize2, Activity, User, Lock, 
-  AlertTriangle, RadioReceiver, Eye, X, Building, Image, 
-  Camera, Users, Home, Unlock, Send, Archive, PieChart,
-  Bell, MessageSquare, Upload, ArrowLeft, ArrowRight, Globe, WifiOff, Wifi, FileText, Sparkles,
-  Truck, HelpCircle // 🟢 Add Truck here
+// src/CrimeIncidentRegistry.jsx
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, lazy } from 'react';
+import {  
+  Shield, Users, PlusCircle, Edit, Search, X, AlertTriangle, CheckCircle, Lock, Camera, Filter, HardDrive, Save, Sprout, Loader2, Car, Flame, Box, FileText, Download, ArrowUpRight, Upload, Sparkles
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import CommandLedger from './CommandLedger';
-import ConsolidatedLedger from './ConsolidatedLedger';
-import HrEstablishmentsLedger from './HrEstablishmentsLedger';
-import Admin_Communication from './Admin_Communication';
-import BulkNominalRollUpload from './BulkNominalRollUpload';
-import { syncOfflineQueue, getOfflineQueueCount } from './utils/offlineSync';
-import AnalyticsDashboard from './AnalyticsDashboard';
-import OfficerDossierModal from './OfficerDossierModal';
-import WordReportUpload from './WordReportUpload';
-import './index.css';
-import SessionExpiredModal from './SessionExpiredModal';
-import AdminApprovals from "./AdminApprovals";
-import CrimeIncidentRegistry from './CrimeIncidentRegistry';
-import Statistics from './Statistics';
-import Nominal_Roll from './Nominal_Roll';
-import Establishments from './Establishments';
-import SuccessStories from './SuccessStories';
-import SystemAssistant from './SystemAssistant';
-import AICommandConsole from "./AICommandConsole";
-import { authFetch, hasValidSession, getAuthToken, setAuthSession, clearAuthSession } from './api';
-import { FullUserPolicyText } from './policyContent';
-import ExhibitsRegistry from './ExhibitsRegistry';
-import LockupMatrixLedger from './LockupMatrixLedger';
-import ErrorBoundary from './ErrorBoundary';
-import LoginScreen from './Login';
-import { isStationEquivalent, checkClearance, calculateGrandTotals, stripHtmlTags, canViewGlobalJurisdiction, formatEATDateTime } from './helpers';
+import { authFetch, hasValidSession } from './api';
+import { jsPDF } from 'jspdf'; 
 
-// ====================================================================
-// 1. CONSTANTS & CONFIGURATION
-// ====================================================================
-const API_URL = import.meta.env.VITE_API_URL || "https://kmp-ops-data.onrender.com";
+export const stripHtmlTags = (str) => {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/<[^>]*>?/gm, '');
+};
 
 const REGIONAL_HIERARCHY = {
   "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
-  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
+  "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
   "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
-  "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
+  "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "TRAFFIC", "LOGISTICS", "FLYING SQUAD", "CRIME INTELLIGENCE", "PRO", "KMP CID"],
+  "POLICE HEADQUARTERS": ["NAGURU"]
 };
 
-const POSITIONS = {
-  ADMIN: [
-    "System Manager", "IGP", "DIGP", "Director OPS", "Director CT", "Director CI", 
-    "Director CID", "Director HRM & A", "Director logistics & engineering", 
-    "KMP Commander", "Deputy KMP Commander",
-    "KMP CID Commander", "KMP CI Commander", "KMP Operations Commander", 
-    "KMP Traffic & Road Safety Commander", "KMP SOCO", "KMP 999 eru commander", 
-    "999 ERU Data Officer", "Regional HR Officer", "KMP SFC Coordinator",
-    "Departmental Data Officer", "Regional Data officer", "Divisional Data Officer", "Station Data Officer", "Regional Data Assistant Officer", "Division Data Assistant Officer", "Station Data Assistant Officer", "Regional Traffic Officer", "Divisional Traffic Officer", "Divisional CID Officer", "Divisional CI Officer", "Regional CFPU Officer", "Divisional CFPU Officer", "Regional Fire Officer", "Divisional Fire Officer", "Regional Logistics Officer", "Divisional Logistics Officer", "Station SOCO", "Divisional SOCO", "Regional SOCO"
-  ],
-  RPC: [
-    "KMP South Commander", "KMP North Commander", "KMP East Commander", "Deputy Commander KMP south", "Deputy Commander KMP North", "Deputy Commander KMP East"
-  ]
+const STANDARD_OFFENCES = ["Murder", "Aggravated Robbery", "Theft", "Assault", "Burglary", "Defilement / Rape", "Traffic Accident (Fatal)", "Traffic Accident (Minor)", "Fraud / Forgery", "Drug Offenses"];
+const EXHIBIT_CATEGORIES = ['MOTOR VEHICLE', 'MOTORCYCLE', 'ELECTRONICS/COMPUTER', 'FIREARM/AMMUNITION', 'CURRENCY/MONEY', 'NARCOTICS/DRUGS', 'DOCUMENTS/VALUABLES', 'WATERCRAFT/BOAT', 'GENERAL PROPERTY'];
+
+const isStationEquivalent = (statA, statB) => {
+  const a = stripHtmlTags(statA || '').trim().toUpperCase();
+  const b = stripHtmlTags(statB || '').trim().toUpperCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+
+  const cleanA = a.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+  const cleanB = b.replace(/(\s+HEADQUARTERS|\s+HQ)$/, '');
+
+  return cleanA === cleanB && cleanA.length > 0;
 };
 
-// ====================================================================
-// 3. CUSTOM HOOKS
-// ====================================================================
-export function usePersistentState(key, initialValue) {
-  const [state, setState] = useState(() => {
-    const saved = typeof window !== 'undefined' ? sessionStorage.getItem(key) : null;
-    if (saved) {
-      try { return JSON.parse(saved); } catch (e) { return initialValue; }
+const getOfficialRegionForStation = (stationName, dbRegion) => {
+  const cleanStation = stripHtmlTags(stationName || '').trim().toUpperCase();
+  const cleanDbRegion = stripHtmlTags(dbRegion || '').trim().toUpperCase();
+
+  if (REGIONAL_HIERARCHY[cleanDbRegion] && REGIONAL_HIERARCHY[cleanDbRegion].some(s => isStationEquivalent(s, cleanStation))) {
+    return cleanDbRegion;
+  }
+
+  for (const [regionName, stationsList] of Object.entries(REGIONAL_HIERARCHY)) {
+    if (stationsList.some(s => isStationEquivalent(s, cleanStation))) {
+      return regionName;
     }
-    return initialValue;
+  }
+
+  return cleanDbRegion || 'KMP GENERAL';
+};
+
+const autoCapitalize = (text) => {
+  if (!text) return '';
+  return stripHtmlTags(text).replace(/(^\s*(?:<[^>]+>\s*)*|[\.\!\?]\s+(?:<[^>]+>\s*)*|<(?:p|br|div|li|h[1-6])[^>]*>\s*)([a-z])/gi, (match, prefix, letter) => {
+    return prefix + letter.toUpperCase();
   });
+};
 
-  const setPersistentState = (newValue) => {
-    setState(prev => {
-      const valToSave = typeof newValue === 'function' ? newValue(prev) : newValue;
-      sessionStorage.setItem(key, JSON.stringify(valToSave));
-      return valToSave;
-    });
-  };
+const extractPlainText = (htmlString) => {
+  if (!htmlString) return '';
+  return stripHtmlTags(htmlString);
+};
 
-  return [state, setPersistentState];
-}
-
-// ====================================================================
-// 4. SHARED UI COMPONENTS
-// ====================================================================
-const NetworkStatusBadge = () => {
-  const [queueCount, setQueueCount] = useState(0);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  useEffect(() => {
-    const updateStatus = () => {
-      setIsOnline(navigator.onLine);
-      setQueueCount(getOfflineQueueCount());
-    };
-
-    updateStatus();
-
-    window.addEventListener('online', updateStatus);
-    window.addEventListener('offline', updateStatus);
-    
-    const interval = setInterval(updateStatus, 5000);
-
-    return () => {
-      window.removeEventListener('online', updateStatus);
-      window.removeEventListener('offline', updateStatus);
-      clearInterval(interval);
-    };
-  }, []);
-
+const MetricCard = ({ title, value, colorClass }) => {
+  const isKMPMaster = title === 'KMP Master Lock-up' || title === 'KMP Master';
   return (
-    <div className="flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-bold border shadow-sm">
-      {isOnline ? (
-        <span className="flex items-center text-green-600 bg-green-50 border-green-200 px-2.5 py-1 rounded-full">
-          <Wifi size={14} className="mr-1.5" /> Live Sync Active
-        </span>
-      ) : (
-        <span className="flex items-center text-amber-600 bg-amber-50 border-amber-200 px-2.5 py-1 rounded-full animate-pulse">
-          <WifiOff size={14} className="mr-1.5" /> Offline Mode
-        </span>
-      )}
-
-      {queueCount > 0 && (
-        <span className="bg-red-600 text-white px-2 py-0.5 rounded-full text-[10px] shadow">
-          {queueCount} Queued
-        </span>
-      )}
+    <div className={`bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-[0_1px_2px_rgba(0,0,0,0.05)] flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${isKMPMaster ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 ring-1 ring-amber-300 dark:ring-amber-800 shadow-md scale-[1.02]' : ''}`}>
+      <h4 className={`text-[8px] font-extrabold mb-0.5 uppercase tracking-wider leading-tight w-full break-words ${isKMPMaster ? 'text-amber-800 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
+        {stripHtmlTags(title)}
+      </h4>
+      <div className={`text-sm font-black leading-none flex items-center justify-center ${colorClass}`}>
+        {value === "Pending" ? (
+          <span className="text-[10px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900 animate-pulse">Pending</span>
+        ) : (
+          stripHtmlTags(String(value))
+        )}
+      </div>
     </div>
   );
 };
 
-const MetricCard = ({ title, value, colorClass = "text-slate-800 dark:text-slate-100" }) => (
-  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 flex flex-col justify-center items-center text-center transition-transform hover:scale-105">
-    <span className="text-xs text-gray-500 dark:text-slate-400 font-bold mb-1 uppercase tracking-wide">{title}</span>
-    <span className={`text-3xl font-extrabold ${colorClass}`}>{value}</span>
-  </div>
-);
-
 const ExpandableTableCard = ({ title, children, onToggle }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const openFullScreen = () => {
-    setIsExpanded(true);
-    if (typeof onToggle === 'function') onToggle(true);
-  };
-
-  const closeFullScreen = () => {
-    setIsExpanded(false);
-    if (typeof onToggle === 'function') onToggle(false);
-  };
-
+  const [expanded, setExpanded] = useState(false);
   return (
     <>
-      {isExpanded ? (
-        <div className="fixed inset-0 z-[100] bg-gray-100 dark:bg-slate-950 flex flex-col p-4 sm:p-8 animate-in fade-in zoom-in duration-200">
-          <div className="bg-slate-900 text-white p-4 rounded-t-xl flex justify-between items-center shadow-lg">
-            <h3 className="font-bold text-lg flex items-center">
-               <Maximize2 className="mr-2 w-5 h-5 text-blue-400"/> {title} (Full Screen Mode)
-            </h3>
-            <button onClick={closeFullScreen} className="hover:bg-slate-700 p-2 rounded-lg transition-colors flex items-center bg-slate-800 border border-slate-600">
-              <Minimize2 size={18} className="mr-2"/> Close Expansion
-            </button>
-          </div>
-          <div className="bg-white dark:bg-slate-900 flex-1 overflow-auto rounded-b-xl shadow-2xl p-4 border border-gray-300 dark:border-slate-700 custom-scrollbar">
-            {children}
-          </div>
+      {expanded && <div className="fixed inset-0 bg-slate-950/80 z-[9990] animate-in fade-in" />}
+      <div className={expanded ? "fixed inset-4 sm:inset-10 z-[9999] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-300 dark:border-slate-700 flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden" : "bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col"}>
+        <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 sm:px-5 sm:py-3 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
+          <h3 className="font-extrabold text-white text-xs uppercase tracking-wider">{stripHtmlTags(title)}</h3>
+          <button onClick={(e) => { e.stopPropagation(); const nextState = !expanded; setExpanded(nextState); if (onToggle) onToggle(nextState); }} className="text-[11px] text-blue-400 hover:text-white font-bold transition flex items-center bg-slate-800 hover:bg-slate-700 px-2.5 py-1 rounded-md border border-slate-700 shadow-inner cursor-pointer">
+            {expanded ? 'Collapse View ↙' : 'Expand View ↗'}
+          </button>
         </div>
-      ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col h-full relative z-10">
-          <div className="bg-slate-50 dark:bg-slate-800 px-4 py-3 border-b border-gray-200 dark:border-slate-700 flex justify-between items-center">
-             <h3 className="text-gray-800 dark:text-slate-200 font-bold text-sm uppercase tracking-wider">{title}</h3>
-             <button onClick={openFullScreen} className="text-gray-500 dark:text-slate-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-slate-700 p-1.5 rounded transition-colors" title="Expand to Full Screen">
-                <Maximize2 size={18}/>
-             </button>
-          </div>
-          <div className="p-0 overflow-auto max-h-[500px] custom-scrollbar w-full text-slate-900 dark:text-slate-100">
-             {children}
-          </div>
+        <div className={`w-full ${expanded ? 'flex-1 overflow-hidden [&>div]:max-h-full [&>div]:h-full' : ''}`}>
+          {children}
         </div>
-      )}
+      </div>
     </>
   );
 };
 
-const HomeDashboard = ({ currentUser, setCurrentPage, reports = [], stats = [], onMasterExport, onViewConsolidated, adminCommsData, onAcknowledgeComm, onOpenInbox }) => {
-  const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role);
-  const isRPC = ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander'].includes(currentUser?.role);
+// 🟢 EMBEDDED COMPONENT: Statement Recorder (Type | Upload .docx | Scan Handwritten + Live A4 Multi-Page)
+const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) => {
+    const [category, setCategory] = useState('COMPLAINANT');
+    const [personName, setPersonName] = useState('');
+    const [content, setContent] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
 
-  const rawComms = adminCommsData || [];
-  const safeComms = Array.isArray(rawComms) ? rawComms : (rawComms.data || rawComms.items || []);
+    // 'WRITE' | 'PREVIEW' | 'DOCX' | 'HANDWRITTEN'
+    const [viewMode, setViewMode] = useState('WRITE');
+    const [docxFile, setDocxFile] = useState(null);
+    const [handwrittenFile, setHandwrittenFile] = useState(null);
+    const [isParsingHandwritten, setIsParsingHandwritten] = useState(false);
+    const [statusBanner, setStatusBanner] = useState(null);
 
-  const canViewCrime = checkClearance(currentUser, 'acc_crime', true);
-  const canViewOps = checkClearance(currentUser, 'acc_ops', true);
-  const canViewStories = checkClearance(currentUser, 'acc_stories', true);
-  const canViewEst = checkClearance(currentUser, 'acc_est', true);
-  const canViewAnalytics = checkClearance(currentUser, 'acc_analytics', true);
-  const canViewHR = checkClearance(currentUser, 'acc_hr', true);
-  const canViewExhibits = checkClearance(currentUser, 'acc_exhibits', true);
-  
-  // 🟢 Clearance check for Daily Lock-up Matrix module
-  const canViewLockup = checkClearance(currentUser, 'acc_lockup', true);
-  
-  const canViewApprovals = checkClearance(currentUser, 'acc_approvals', isAdmin || ['RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role));
-  const canViewConsolidated = checkClearance(currentUser, 'acc_consolidated', isAdmin || currentUser?.permissions?.consolidated);
-  const canExportData = checkClearance(currentUser, 'export_data', isRPC || currentUser?.permissions?.export_data);
+    const [pageAlert, setPageAlert] = useState(null);
+    const prevPageCountRef = useRef(1);
 
-  const hasUnread = adminCommsData?.hasUnread === true;
+    const [meta, setMeta] = useState({
+        date: '',
+        time: '',
+        place: stripHtmlTags(report?.station || currentUser?.station || 'UNKNOWN STATION'),
+        sdRef: stripHtmlTags(report?.sdRef || report?.sd_ref || 'UNKNOWN REF')
+    });
 
-  return (
-    <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6 relative z-10 animate-in fade-in duration-300">
-      
-      <div className="text-center flex flex-col items-center mt-2">
-        <img src="/upf_badge.png" alt="UPF Logo" className="w-16 h-16 mb-1 object-contain drop-shadow-md contrast-200 brightness-75 dark:contrast-100" />
-        <h1 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-wide">UGANDA POLICE FORCE</h1>
-        <h2 className="text-base font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wide">KAMPALA METROPOLITAN POLICE HEADQUARTERS</h2>
-        <h3 className="text-[11px] font-bold text-blue-600 dark:text-blue-400 mt-2 uppercase tracking-widest bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-800">Centralised Security Data Management System</h3>
-      </div>
+    useEffect(() => {
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, ' ').toUpperCase();
+        const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'C';
+        setMeta(prev => ({ ...prev, date: dateStr, time: timeStr }));
+    }, []);
 
-      <div className="w-full">
-        <h3 className="text-center text-xs font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
-          Welcome, <span className="text-blue-700 dark:text-blue-400">{currentUser.rank} {currentUser.name}</span>. Select an operational module.
-        </h3>   
-      </div>
+    const dynamicTitle = `STATEMENT OF ${category}`;
+    const formattedRefHeader = /^(SD|CRB|DEF|GEF|CID|TAR)/i.test(meta.sdRef.trim())
+        ? meta.sdRef.trim().toUpperCase()
+        : `SD REF: ${meta.sdRef.trim().toUpperCase()}`;
 
-      <div onClick={onOpenInbox} className={`min-h-[4.5rem] rounded-xl p-4 flex items-center cursor-pointer transition-all group relative overflow-hidden mb-2 ${
-        hasUnread 
-          ? "bg-blue-50 dark:bg-blue-900/40 border border-blue-400 dark:border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] animate-pulse ring-1 ring-blue-400" 
-          : "bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md hover:-translate-y-1 hover:border-green-400 dark:hover:border-green-500"
-      }`}>
-        {hasUnread && (
-          <>
-            <div className="absolute top-2 right-2 w-3 h-3 bg-blue-500 rounded-full shadow-[0_0_10px_#3b82f6] animate-ping"></div>
-            <div className="absolute top-2 right-2 w-3 h-3 bg-blue-500 rounded-full border border-white dark:border-slate-900"></div>
-          </>
-        )}
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center mr-3 transition-colors shrink-0 ${
-          hasUnread 
-            ? "bg-blue-100 dark:bg-blue-800 text-blue-600 dark:text-blue-300" 
-            : "bg-slate-900 dark:bg-slate-800 text-white group-hover:bg-slate-800 dark:group-hover:bg-slate-700 text-slate-400"
-        }`}>
-          <RadioReceiver size={18} className={hasUnread ? "animate-bounce" : ""} />
-        </div>
-        <div className="flex-1">
-          <h3 className={`text-sm leading-tight ${hasUnread ? "font-black text-blue-900 dark:text-blue-300" : "font-extrabold text-slate-900 dark:text-white"}`}>
-            Command Dispatches & Alerts
-          </h3>
-          <p className="text-[11px] font-medium mt-0.5 line-clamp-2 transition-colors duration-300 flex items-center">
-            {hasUnread ? (
-              <span className="text-blue-700 dark:text-blue-400 font-bold">Priority: Unread Correspondences pending your review.</span>
-            ) : (
-              <span className="text-slate-500 dark:text-slate-400">Secure directives, network alerts, and command communications.</span>
-            )}
-          </p>
-        </div>
-      </div>
+    // A4 Line-Wrap & Multi-Page Break Calculator
+    const pagination = useMemo(() => {
+        const CHARS_PER_LINE = 78;
+        const CONT_PAGE_LINES = 41;
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full">
-        {canViewCrime && (
-          <div onClick={() => setCurrentPage('reports')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-blue-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-300 dark:hover:border-blue-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white dark:group-hover:bg-blue-500 dark:group-hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all shrink-0">
-              <LayoutDashboard size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Crime Registry</h3>
-              <p className="text-[11px] text-slate-500 dark:text-blue-200/70 font-medium mt-0.5 leading-snug">Log and track daily incidents.</p>
-            </div>
-          </div>
-        )}
+        const wrapTextToLines = (text) => {
+            if (!text) return [];
+            const paragraphs = String(text).split('\n');
+            const wrapped = [];
+            paragraphs.forEach((para) => {
+                if (para.length === 0) {
+                    wrapped.push('');
+                    return;
+                }
+                let remaining = para;
+                while (remaining.length > CHARS_PER_LINE) {
+                    let breakIdx = remaining.lastIndexOf(' ', CHARS_PER_LINE);
+                    if (breakIdx <= 0) breakIdx = CHARS_PER_LINE;
+                    wrapped.push(remaining.slice(0, breakIdx));
+                    remaining = remaining.slice(breakIdx).trimStart();
+                }
+                wrapped.push(remaining);
+            });
+            return wrapped;
+        };
 
-        {/* 🟢 DAILY SUSPECTS LOCK-UP MATRIX CARD */}
-        {canViewLockup && (
-          <div onClick={() => setCurrentPage('lockup-matrix')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-amber-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-amber-400 dark:hover:border-amber-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mr-3 group-hover:bg-amber-500 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all shrink-0">
-              <Lock size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Daily Lock-up Matrix</h3>
-              <p className="text-[11px] text-slate-500 dark:text-amber-200/70 font-medium mt-0.5 leading-snug">Cell census & detention durations.</p>
-            </div>
-          </div>
-        )}
-        
-        {canViewOps && (
-          <div onClick={() => setCurrentPage('statistics')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-indigo-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-indigo-300 dark:hover:border-indigo-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mr-3 group-hover:bg-indigo-600 group-hover:text-white dark:group-hover:bg-indigo-500 dark:group-hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] transition-all shrink-0">
-              <BarChart3 size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">OPS Statistics</h3>
-              <p className="text-[11px] text-slate-500 dark:text-indigo-200/70 font-medium mt-0.5 leading-snug">Weekly numerical aggregates.</p>
-            </div>
-          </div>
-        )}
+        const profileHeader = `${(personName || '').trim().toUpperCase()} STATES THAT;`;
+        const headerLines = Math.max(1, wrapTextToLines(profileHeader).length);
+        const firstPageCapacity = Math.max(18, 38 - headerLines);
 
-        {canViewStories && (
-          <div onClick={() => setCurrentPage('success')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-amber-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-amber-400 dark:hover:border-amber-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mr-3 group-hover:bg-amber-500 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all shrink-0">
-              <Trophy size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Success Stories</h3>
-              <p className="text-[11px] text-slate-500 dark:text-amber-200/70 font-medium mt-0.5 leading-snug">Document tactical milestones.</p>
-            </div>
-          </div>
-        )}
+        const allLines = wrapTextToLines(content);
+        const pages = [];
 
-        {canViewEst && (
-          <div onClick={() => setCurrentPage('establishments')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-emerald-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-emerald-300 dark:hover:border-emerald-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mr-3 group-hover:bg-emerald-600 group-hover:text-white dark:group-hover:bg-emerald-500 dark:group-hover:shadow-[0_0_15px_rgba(16,185,129,0.5)] transition-all shrink-0">
-              <Building size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Establishments</h3>
-              <p className="text-[11px] text-slate-500 dark:text-emerald-200/70 font-medium mt-0.5 leading-snug">Map divisions, stations, posts.</p>
-            </div>
-          </div>
-        )}
-
-        {canViewExhibits && (
-          <div onClick={() => setCurrentPage('exhibits')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-teal-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-teal-400 dark:hover:border-teal-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-teal-50 dark:bg-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center mr-3 group-hover:bg-teal-600 group-hover:text-white dark:group-hover:bg-teal-500 dark:group-hover:shadow-[0_0_15px_rgba(20,184,166,0.5)] transition-all shrink-0">
-              <Truck size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Impounded Exhibits</h3>
-              <p className="text-[11px] text-slate-500 dark:text-teal-200/70 font-medium mt-0.5 leading-snug">Fleet & property registry.</p>
-            </div>
-          </div>
-        )}
-
-        {canViewAnalytics && (
-          <div onClick={() => setCurrentPage('analytics')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-cyan-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-cyan-400 dark:hover:border-cyan-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-cyan-50 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 flex items-center justify-center mr-3 group-hover:bg-cyan-600 group-hover:text-white dark:group-hover:bg-cyan-500 dark:group-hover:shadow-[0_0_15px_rgba(6,182,212,0.5)] transition-all shrink-0">
-              <PieChart size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Analytics Dashboard</h3>
-              <p className="text-[11px] text-slate-500 dark:text-cyan-200/70 font-medium mt-0.5 leading-snug">Graphs, cross-tabs & reports.</p>
-            </div>
-          </div>
-        )}
-
-        {canViewHR && (
-          <div onClick={() => setCurrentPage('nominal-roll')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-purple-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-purple-300 dark:hover:border-purple-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-purple-50 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center mr-3 group-hover:bg-purple-600 group-hover:text-white dark:group-hover:bg-purple-500 dark:group-hover:shadow-[0_0_15px_rgba(168,85,247,0.5)] transition-all shrink-0">
-              <Users size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Nominal Roll</h3>
-              <p className="text-[11px] text-slate-500 dark:text-purple-200/70 font-medium mt-0.5 leading-snug">Personnel deployment registry.</p>
-            </div>
-          </div>
-        )}
-
-        {checkClearance(currentUser, 'acc_documents', true) && (
-          <div onClick={() => setCurrentPage('reports_hub')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-blue-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 dark:hover:border-blue-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center mr-3 group-hover:bg-blue-600 group-hover:text-white dark:group-hover:bg-blue-500 dark:group-hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all shrink-0">
-              <FileText size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">Documents & Reports</h3>
-              <p className="text-[11px] text-slate-500 dark:text-blue-200/70 font-medium mt-0.5 leading-snug">Universal file intake hub.</p>
-            </div>
-          </div>
-        )}
-
-        {checkClearance(currentUser, 'acc_ai', true) && (
-          <div onClick={() => setCurrentPage('ai_console')} className="bg-white dark:bg-slate-900/80 rounded-xl shadow-sm border border-slate-200 dark:border-amber-900/50 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-amber-400 dark:hover:border-amber-500 dark:hover:bg-slate-800 group">
-            <div className="w-10 h-10 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center mr-3 group-hover:bg-amber-500 group-hover:text-white dark:group-hover:bg-amber-500 dark:group-hover:shadow-[0_0_15px_rgba(245,158,11,0.5)] transition-all shrink-0">
-              <Sparkles size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 leading-tight">AI Command Console</h3>
-              <p className="text-[11px] text-slate-500 dark:text-amber-200/70 font-medium mt-0.5 leading-snug">Natural language intelligence queries.</p>
-            </div>
-          </div>
-        )}
-
-        {canViewApprovals && (
-          <div onClick={() => setCurrentPage('approvals')} className="bg-slate-900 dark:bg-slate-950 rounded-xl shadow-sm border border-slate-700 dark:border-slate-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 dark:hover:border-slate-600 group lg:col-span-2">
-            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0">
-              <UserPlus size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-white leading-tight">Access Approvals</h3>
-              <p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Review system logs and pending signups.</p>
-            </div>
-          </div>
-        )}
-        
-        {canViewConsolidated && (
-          <div onClick={onViewConsolidated} className="bg-slate-900 dark:bg-slate-950 rounded-xl shadow-sm border border-slate-700 dark:border-slate-800 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-slate-500 dark:hover:border-slate-600 group lg:col-span-2">
-            <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center mr-3 group-hover:bg-slate-700 group-hover:text-white transition-colors shrink-0">
-              <Eye size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-white leading-tight">Consolidated Entries</h3>
-              <p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-snug">Cross-domain master visualization.</p>
-            </div>
-          </div>
-        )}
-
-        {canExportData && (
-          <div onClick={() => onMasterExport('all', 'all')} className="bg-blue-900 dark:bg-blue-950 rounded-xl shadow-sm border border-blue-800 dark:border-blue-900 p-4 flex items-center cursor-pointer transition-all hover:shadow-md hover:-translate-y-1 hover:border-blue-400 dark:hover:border-blue-700 group lg:col-span-2">
-            <div className="w-10 h-10 rounded-full bg-blue-800 dark:bg-blue-900 text-blue-200 flex items-center justify-center mr-3 group-hover:bg-blue-700 group-hover:text-white transition-colors shrink-0">
-              <Download size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-extrabold text-white leading-tight">Download Master Database</h3>
-              <p className="text-[11px] text-blue-200 dark:text-blue-300/70 font-medium mt-0.5 leading-snug">Export full encrypted .xlsx ledger.</p>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const RANK_SENIORITY = {
-  "IGP": 1,
-  "DIGP": 2,
-  "AIGP": 3,
-  "SCP": 4,
-  "CP": 5,
-  "ACP": 6,
-  "SSP": 7,
-  "SP": 8,
-  "SASP": 9,
-  "ASP": 10,
-  "IP": 11,
-  "AIP": 12,
-  "HCM": 13,
-  "HC": 14,
-  "S/SGT": 15,
-  "SSGT": 15,
-  "SGT": 16,
-  "CPL": 17,
-  "L/CPL": 18,
-  "LCPL": 18,
-  "PC": 19,
-  "PPC": 20, 
-  "SPC": 21
-};
-
-const getRankWeight = (rankStr) => {
-  if (!rankStr) return 99;
-  let cleanRank = rankStr.trim().toUpperCase();
-  if (cleanRank.startsWith('D/')) cleanRank = cleanRank.substring(2);
-  return RANK_SENIORITY[cleanRank] !== undefined ? RANK_SENIORITY[cleanRank] : 50;
-};
-
-const parseEducationLevel = (rawVal) => {
-  if (!rawVal) return "UNEDUCATED / NOT SPECIFIED";
-  const str = rawVal.toString().trim().toUpperCase();
-  
-  if (!str || str === 'NONE' || str === 'N/A' || str === 'NIL' || str === 'NO' || str === 'UNEDUCATED') {
-    return "UNEDUCATED";
-  }
-
-  if (
-    str.includes("BACHELOR") || str.includes("DEGREE") || str.includes("B.A") || 
-    str.includes("B.SC") || str.includes("BSC") || str.includes("BED") || 
-    str.includes("LLB") || str.includes("BIT") || str.includes("BBA")
-  ) {
-    let course = str
-      .replace(/BACHELOR['’]?S?(\s+OF|\s+IN)?/g, '')
-      .replace(/DEGREE(\s+IN)?/g, '')
-      .replace(/B\.?SC\.?/g, 'SCIENCE')
-      .replace(/B\.?A\.?/g, 'ARTS')
-      .replace(/B\.?COM\.?/g, 'COMMERCE')
-      .replace(/B\.?I\.?T\.?/g, 'INFORMATION TECHNOLOGY')
-      .replace(/B\.?B\.?A\.?/g, 'BUSINESS ADMINISTRATION')
-      .replace(/L\.?L\.?B\.?/g, 'LAW')
-      .trim();
-
-    return course && course !== 'SCIENCE' && course !== 'ARTS'
-      ? `BACHELORS - ${course}`
-      : `BACHELORS (${str})`;
-  }
-
-  if (str.includes("DIPLOMA") || str.includes("DIP.")) {
-    let course = str
-      .replace(/DIPLOMA(\s+IN)?/g, '')
-      .replace(/DIP\.?/g, '')
-      .trim();
-
-    return course ? `DIPLOMA - ${course}` : `DIPLOMA (${str})`;
-  }
-
-  if (str.includes("CERTIFICATE") || str.includes("CERT.")) {
-    let course = str
-      .replace(/CERTIFICATE(\s+IN)?/g, '')
-      .replace(/CERT\.?/g, '')
-      .trim();
-
-    return course ? `CERTIFICATE - ${course}` : `CERTIFICATE (${str})`;
-  }
-
-  if (str.includes("UBTEB") || str.includes("VOCATIONAL") || str.includes("TECHNICAL")) return "UBTEB / TECHNICAL";
-  if (str.includes("UACE") || str.includes("A LEVEL") || str.includes("A-LEVEL") || str.includes("S.6") || str.includes("S6") || str.includes("SENIOR 6")) return "UACE (A-LEVEL)";
-  if (str.includes("UCE") || str.includes("O LEVEL") || str.includes("O-LEVEL") || str.includes("S.4") || str.includes("S4") || str.includes("SENIOR 4")) return "UCE (O-LEVEL)";
-  
-  if (str.includes("S.3") || str.includes("S3") || str.includes("SENIOR 3")) return "S.3";
-  if (str.includes("S.2") || str.includes("S2") || str.includes("SENIOR 2")) return "S.2";
-  if (str.includes("S.1") || str.includes("S1") || str.includes("SENIOR 1")) return "S.1";
-
-  if (str.includes("P.7") || str.includes("P7") || str.includes("PLE") || str.includes("PRIMARY 7")) return "P.7 (PLE)";
-  if (str.includes("P.6") || str.includes("P6") || str.includes("PRIMARY 6")) return "P.6";
-  if (str.includes("P.5") || str.includes("P5") || str.includes("PRIMARY 5")) return "P.5";
-  if (str.includes("P.4") || str.includes("P4") || str.includes("PRIMARY 4")) return "P.4";
-  if (str.includes("P.3") || str.includes("P3") || str.includes("PRIMARY 3")) return "P.3";
-  if (str.includes("P.2") || str.includes("P2") || str.includes("PRIMARY 2")) return "P.2";
-  if (str.includes("P.1") || str.includes("P1") || str.includes("PRIMARY 1")) return "P.1";
-
-  return str;
-};
-
-const AdminProfile = ({ currentUser, setCurrentUser, setCurrentPage, onLogout }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [isRequestMode, setIsRequestMode] = useState(false);
-  const [notification, setNotification] = useState(null);
-  const [viewingImage, setViewingImage] = useState(null);
-  
-  const [passwordData, setPasswordData] = useState({ old_password: '', new_password: '' });
-  
-  const handlePasswordChange = async (e) => {
-    e.preventDefault();
-    setNotification("⏳ Updating security key...");
-    try {
-      const response = await authFetch(`/api/v1/users/change-password`, {
-        method: "PUT", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify(passwordData)
-      });
-      
-      const data = await response.json().catch(() => ({}));
-      
-      if (!response.ok) {
-        // 🟢 FIX: Handle FastAPI's Array of Objects (422 Validation Errors)
-        let errorMsg = "Failed to update password.";
-        if (Array.isArray(data.detail)) {
-            errorMsg = data.detail.map(err => `${err.msg}`).join(', ');
-        } else if (data.detail) {
-            errorMsg = typeof data.detail === 'object' ? JSON.stringify(data.detail) : data.detail;
+        if (allLines.length === 0) {
+            pages.push([]);
+        } else {
+            pages.push(allLines.slice(0, firstPageCapacity));
+            let cursor = firstPageCapacity;
+            while (cursor < allLines.length) {
+                pages.push(allLines.slice(cursor, cursor + CONT_PAGE_LINES));
+                cursor += CONT_PAGE_LINES;
+            }
         }
-        throw new Error(errorMsg);
+
+        const totalPages = pages.length;
+        const activeCapacity = totalPages === 1 ? firstPageCapacity : CONT_PAGE_LINES;
+        const currentPageLines = pages[totalPages - 1]?.length || 0;
+        const linesRemaining = Math.max(0, activeCapacity - currentPageLines);
+        const fillPercent = Math.min(100, Math.round((currentPageLines / activeCapacity) * 100));
+
+        return { pages, totalPages, totalLines: allLines.length, currentPageLines, activeCapacity, linesRemaining, fillPercent };
+    }, [personName, content]);
+
+    useEffect(() => {
+        if (pagination.totalPages > prevPageCountRef.current) {
+            setPageAlert(`Page ${pagination.totalPages - 1} is full — proceeding to Page ${pagination.totalPages}.`);
+            const timer = setTimeout(() => setPageAlert(null), 5000);
+            prevPageCountRef.current = pagination.totalPages;
+            return () => clearTimeout(timer);
+        }
+        prevPageCountRef.current = pagination.totalPages;
+    }, [pagination.totalPages]);
+
+    // 1. Commit System-Typed (or Reviewed Handwritten) Statement
+    const handleSave = async (e) => {
+        e.preventDefault();
+        setIsSaving(true);
+        setStatusBanner(null);
+
+        const payload = {
+            statement_category: category,
+            person_name: personName,
+            date_recorded: meta.date,
+            time_recorded: meta.time,
+            place_recorded: meta.place,
+            sd_ref: meta.sdRef,
+            content: content
+        };
+
+        try {
+            const reportId = report.sn || report.id;
+            const res = await authFetch(`/api/v1/reports/${reportId}/statements`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.detail || "Failed to save statement.");
+            }
+            alert("Statement securely attached to case file.");
+            if (onStatementSaved) onStatementSaved();
+            onClose();
+        } catch (err) {
+            alert(`Error: ${err.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // 2. Upload Typed Word (.docx) Statement Directly
+    const handleUploadDocx = async () => {
+        if (!docxFile) return alert("Please select a .docx file first.");
+        if (!personName.trim()) return alert("Please enter the Name & Particulars of the statement maker.");
+
+        setIsSaving(true);
+        setStatusBanner(null);
+        try {
+            const reportId = report.sn || report.id;
+            const fd = new FormData();
+            fd.append('statement_category', category);
+            fd.append('person_name', personName.trim());
+            fd.append('date_recorded', meta.date);
+            fd.append('time_recorded', meta.time);
+            fd.append('place_recorded', meta.place);
+            fd.append('sd_ref', meta.sdRef);
+            fd.append('file', docxFile);
+
+            const res = await authFetch(`/api/v1/reports/${reportId}/statements/upload-docx`, {
+                method: 'POST',
+                body: fd
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || "Failed to upload .docx statement.");
+
+            alert(`✅ Word statement extracted (${data.extracted_chars || 0} chars) and archived to case file.`);
+            if (onStatementSaved) onStatementSaved();
+            onClose();
+        } catch (err) {
+            alert(`Upload Failed: ${err.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // 3. Parse Handwritten Statement (PDF / Image) via Gemini Vision -> Pre-fills Editor
+    const handleParseHandwritten = async () => {
+        if (!handwrittenFile) return alert("Please select a PDF or photo of the handwritten statement.");
+
+        setIsParsingHandwritten(true);
+        setStatusBanner(null);
+        try {
+            const reportId = report.sn || report.id;
+            const fd = new FormData();
+            fd.append('file', handwrittenFile);
+
+            const res = await authFetch(`/api/v1/reports/${reportId}/statements/parse-handwritten`, {
+                method: 'POST',
+                body: fd
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || "Handwritten parsing failed.");
+
+            const parsed = data.parsed || {};
+            if (parsed.statement_category) {
+                const cat = parsed.statement_category.toUpperCase();
+                if (['COMPLAINANT', 'WITNESS', 'ACCUSED', 'SUSPECT', 'CHARGE AND CAUTION'].includes(cat)) {
+                    setCategory(cat);
+                }
+            }
+            if (parsed.person_name) setPersonName(parsed.person_name);
+            if (parsed.content) setContent(parsed.content);
+            setMeta(prev => ({
+                date: parsed.date_recorded || prev.date,
+                time: parsed.time_recorded || prev.time,
+                place: parsed.place_recorded || prev.place,
+                sdRef: parsed.sd_ref || prev.sdRef
+            }));
+
+            setStatusBanner("✅ Handwritten statement transcribed! Please review and correct any names or dates below before committing.");
+            setViewMode('WRITE');
+        } catch (err) {
+            alert(`Handwriting Parse Error: ${err.message}`);
+        } finally {
+            setIsParsingHandwritten(false);
+        }
+    };
+
+    const generatePDF = () => {
+        const doc = new jsPDF();
+        doc.setFont("helvetica");
+
+        const leftMargin = 15;
+        const contentLeft = 48;
+        const rightMargin = 195;
+        const maxLineWidth = rightMargin - contentLeft;
+        const pageBottomLimit = 274;
+        let currentY = 20;
+
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text(dynamicTitle, 105, currentY, { align: "center" });
+
+        currentY += 14;
+        doc.setFontSize(9.5);
+        doc.setFont("helvetica", "bold");
+        doc.text("DATE:", leftMargin, currentY);
+        doc.setFont("helvetica", "normal");
+        doc.text(meta.date, leftMargin, currentY + 5);
+
+        doc.setFont("helvetica", "bold");
+        doc.text("TIME:", leftMargin, currentY + 14);
+        doc.setFont("helvetica", "normal");
+        doc.text(meta.time, leftMargin, currentY + 19);
+
+        doc.setFont("helvetica", "bold");
+        doc.text("PLACE:", leftMargin, currentY + 28);
+        doc.setFont("helvetica", "normal");
+        doc.text(doc.splitTextToSize(meta.place, 28), leftMargin, currentY + 33);
+
+        doc.setFont("helvetica", "bold");
+        doc.text("REF:", leftMargin, currentY + 50);
+        doc.setFont("helvetica", "normal");
+        doc.text(doc.splitTextToSize(formattedRefHeader, 28), leftMargin, currentY + 55);
+
+        doc.setDrawColor(180);
+        doc.line(contentLeft - 4, 30, contentLeft - 4, 276);
+
+        const profileHeader = `${personName.trim().toUpperCase()} STATES THAT;`;
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        const headerLines = doc.splitTextToSize(profileHeader, maxLineWidth);
+        headerLines.forEach(line => {
+            doc.text(line, contentLeft, currentY);
+            currentY += 5.5;
+        });
+
+        currentY += 3;
+        doc.setFont("helvetica", "normal");
+
+        const textLines = doc.splitTextToSize(content, maxLineWidth);
+        let pageNum = 1;
+
+        textLines.forEach(line => {
+            if (currentY > pageBottomLimit) {
+                doc.addPage();
+                pageNum += 1;
+                doc.setDrawColor(180);
+                doc.line(contentLeft - 4, 22, contentLeft - 4, 276);
+
+                doc.setFontSize(8.5);
+                doc.setFont("helvetica", "bold");
+                doc.text(formattedRefHeader, leftMargin, 16);
+                doc.text(`${dynamicTitle} (CONT. — PAGE ${pageNum})`, contentLeft, 16);
+
+                currentY = 26;
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "normal");
+            }
+            doc.text(line, contentLeft, currentY);
+            currentY += 6;
+        });
+
+        currentY += 12;
+        if (currentY > pageBottomLimit - 10) {
+            doc.addPage();
+            pageNum += 1;
+            currentY = 26;
+        }
+        doc.setFont("helvetica", "bold");
+        doc.text("RECORDED BY:", contentLeft, currentY);
+        doc.setFont("helvetica", "normal");
+        doc.text(`${currentUser?.fnum || ''} ${currentUser?.rank || ''} ${currentUser?.name || ''}`.trim(), contentLeft + 32, currentY);
+
+        const totalPdfPages = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= totalPdfPages; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "italic");
+            doc.text(`Page ${i} of ${totalPdfPages}`, 105, 288, { align: "center" });
+        }
+
+        const safeName = personName.trim().slice(0, 35).replace(/[^a-zA-Z0-9]/g, '_');
+        doc.save(`${meta.sdRef.replace(/[\/:\s]+/g, '_')}_${category}_${safeName || 'STATEMENT'}.pdf`);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-950/85 z-[99999] flex items-center justify-center p-2 sm:p-4">
+            <div className="bg-white dark:bg-slate-900 w-[96vw] max-w-[1280px] h-[92vh] rounded-xl shadow-2xl overflow-hidden flex flex-col border border-slate-300 dark:border-slate-700">
+
+                <div className="bg-slate-900 px-5 py-3 flex flex-wrap justify-between items-center gap-3 text-white shrink-0 border-b border-amber-500">
+                    <div className="flex items-center gap-3">
+                        <h3 className="font-black text-sm uppercase tracking-wider flex items-center">
+                            <FileText className="mr-2 w-4 h-4 text-amber-400" /> Official Statement Recording
+                        </h3>
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-300 text-[11px] font-black uppercase tracking-wider">
+                            Page {pagination.totalPages} • {pagination.totalLines} Lines
+                        </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700">
+                            {[
+                                { id: 'WRITE', label: '✍️ Write' },
+                                { id: 'DOCX', label: '📄 Upload .docx' },
+                                { id: 'HANDWRITTEN', label: '✨ Scan Handwritten' },
+                                { id: 'PREVIEW', label: `A4 Pages (${pagination.totalPages})` }
+                            ].map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => setViewMode(tab.id)}
+                                    className={`px-2.5 py-1 rounded-md text-[11px] font-extrabold uppercase transition cursor-pointer ${
+                                        viewMode === tab.id ? 'bg-amber-600 text-white shadow' : 'text-slate-300 hover:text-white'
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                        <button onClick={onClose} className="hover:bg-slate-700 p-1.5 rounded transition cursor-pointer"><X size={18} /></button>
+                    </div>
+                </div>
+
+                {statusBanner && (
+                    <div className="bg-emerald-700 text-white px-5 py-2 text-xs font-extrabold flex items-center justify-between shrink-0">
+                        <span>{statusBanner}</span>
+                        <button type="button" onClick={() => setStatusBanner(null)} className="text-white/80 hover:text-white cursor-pointer"><X size={14} /></button>
+                    </div>
+                )}
+
+                {pageAlert && (
+                    <div className="bg-blue-600 text-white px-5 py-2 text-xs font-extrabold flex items-center justify-between animate-in fade-in shrink-0">
+                        <span className="flex items-center">
+                            <CheckCircle className="w-4 h-4 mr-2 shrink-0" /> {pageAlert}
+                        </span>
+                        <button type="button" onClick={() => setViewMode('PREVIEW')} className="underline text-[11px] font-black uppercase cursor-pointer">
+                            Inspect A4 Pages →
+                        </button>
+                    </div>
+                )}
+
+                <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-100 dark:bg-slate-950 custom-scrollbar">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+
+                        <div className="lg:col-span-3 space-y-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-300 dark:border-slate-700 shadow-sm lg:sticky lg:top-0">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase">Statement Category</label>
+                                <select value={category} onChange={e => setCategory(e.target.value)} className="w-full mt-1 p-2 text-xs font-bold rounded border border-slate-300 dark:border-slate-700 outline-none bg-white dark:bg-slate-800 focus:border-amber-500 cursor-pointer">
+                                    <option value="COMPLAINANT">COMPLAINANT</option>
+                                    <option value="WITNESS">WITNESS</option>
+                                    <option value="ACCUSED">ACCUSED</option>
+                                    <option value="SUSPECT">SUSPECT</option>
+                                    <option value="CHARGE AND CAUTION">CHARGE AND CAUTION</option>
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 lg:grid-cols-1 gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">Date</label>
+                                    <input type="text" value={meta.date} onChange={e => setMeta({ ...meta, date: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 font-mono text-xs font-bold rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">Time</label>
+                                    <input type="text" value={meta.time} onChange={e => setMeta({ ...meta, time: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 font-mono text-xs font-bold rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">Place (Station)</label>
+                                    <input type="text" value={meta.place} onChange={e => setMeta({ ...meta, place: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 text-xs font-bold uppercase rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">SD Ref / CRB No</label>
+                                    <input type="text" value={meta.sdRef} onChange={e => setMeta({ ...meta, sdRef: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:border-amber-500" />
+                                </div>
+                            </div>
+
+                            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase text-slate-600 dark:text-slate-300">
+                                    <span>Active Page {pagination.totalPages}</span>
+                                    <span>{pagination.currentPageLines} / {pagination.activeCapacity} Lines</span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+                                    <div
+                                        className={`h-full transition-all duration-200 ${
+                                            pagination.fillPercent >= 90 ? 'bg-red-600' : pagination.fillPercent >= 70 ? 'bg-amber-500' : 'bg-emerald-600'
+                                        }`}
+                                        style={{ width: `${pagination.fillPercent}%` }}
+                                    />
+                                </div>
+                                <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                    {pagination.linesRemaining <= 3
+                                        ? `⚠️ ${pagination.linesRemaining} line(s) left before Page ${pagination.totalPages + 1}.`
+                                        : `${pagination.linesRemaining} line(s) remaining on Page ${pagination.totalPages}.`}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="lg:col-span-9 space-y-4">
+                            {viewMode === 'WRITE' && (
+                                <div className="bg-white dark:bg-slate-900 p-5 sm:p-7 rounded-xl border border-slate-300 dark:border-slate-700 shadow-md space-y-4">
+                                    <h2 className="text-center font-black text-lg text-slate-800 dark:text-slate-100 uppercase underline underline-offset-4 decoration-2">
+                                        {dynamicTitle}
+                                    </h2>
+
+                                    <div>
+                                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">
+                                            Name & Full UPF Identity Particulars of {category} *
+                                        </label>
+                                        <textarea
+                                            rows="3"
+                                            placeholder="E.g. A/2408 AIP AFEDRA VINCENT, MALE ADULT AGED 32, A POLICE OFFICER ATTACHED TO KMP HEADQUARTERS, RESIDENT OF THE SAME ADDRESS, TELEPHONE NUMBER 0779302872"
+                                            value={personName}
+                                            onChange={e => setPersonName(e.target.value)}
+                                            className="w-full p-3 border border-slate-300 dark:border-slate-700 rounded-lg outline-none uppercase font-bold text-sm leading-snug bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:border-amber-500 focus:bg-white dark:focus:bg-slate-900 resize-y"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="block font-bold text-slate-700 dark:text-slate-300 text-xs">
+                                                Narrative / Statement Content *
+                                            </label>
+                                            <span className="text-[11px] font-extrabold text-amber-700 dark:text-amber-400">
+                                                {pagination.totalPages > 1
+                                                    ? `Continuing on Page ${pagination.totalPages} of ${pagination.totalPages}`
+                                                    : 'Page 1 of 1'}
+                                            </span>
+                                        </div>
+                                        <textarea
+                                            rows="20"
+                                            placeholder="States that; On Monday 31 Mar 25 at about 1500 Hrs..."
+                                            value={content}
+                                            onChange={e => setContent(e.target.value)}
+                                            className="w-full p-4 border border-slate-300 dark:border-slate-700 rounded-lg outline-none font-mono text-sm leading-relaxed bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 custom-scrollbar focus:border-amber-500 min-h-[460px]"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {viewMode === 'DOCX' && (
+                                <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-xl border border-slate-300 dark:border-slate-700 shadow-md space-y-5">
+                                    <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+                                        <h2 className="font-black text-base text-slate-800 dark:text-slate-100 uppercase flex items-center">
+                                            <Upload className="w-4 h-4 mr-2 text-amber-600" /> Upload Typed Microsoft Word Statement (.docx)
+                                        </h2>
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            Text will be extracted directly into the Case Diary timeline while the original unaltered <code>.docx</code> file is archived in encrypted cloud storage.
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">
+                                            Name & Full UPF Identity Particulars of {category} *
+                                        </label>
+                                        <textarea
+                                            rows="2"
+                                            placeholder="E.g. A/2408 AIP AFEDRA VINCENT, M/A AGED 32, POLICE OFFICER..."
+                                            value={personName}
+                                            onChange={e => setPersonName(e.target.value)}
+                                            className="w-full p-3 border border-slate-300 dark:border-slate-700 rounded-lg outline-none uppercase font-bold text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:border-amber-500"
+                                        />
+                                    </div>
+
+                                    <div className="border-2 border-dashed border-amber-400 dark:border-amber-700 rounded-xl p-8 text-center bg-amber-50/40 dark:bg-amber-950/20 space-y-3">
+                                        <Upload className="w-10 h-10 mx-auto text-amber-600" />
+                                        <div className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                                            {docxFile ? `Selected: ${docxFile.name}` : 'Select a typed .docx statement file'}
+                                        </div>
+                                        <input
+                                            type="file"
+                                            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                            onChange={(e) => setDocxFile(e.target.files?.[0] || null)}
+                                            className="text-xs file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-amber-600 file:text-white hover:file:bg-amber-700 cursor-pointer"
+                                        />
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleUploadDocx}
+                                            disabled={isSaving || !docxFile || !personName.trim()}
+                                            className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center cursor-pointer"
+                                        >
+                                            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+                                            {isSaving ? 'Extracting & Archiving...' : 'Upload & Commit .docx Statement'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {viewMode === 'HANDWRITTEN' && (
+                                <div className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-xl border border-slate-300 dark:border-slate-700 shadow-md space-y-5">
+                                    <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
+                                        <h2 className="font-black text-base text-slate-800 dark:text-slate-100 uppercase flex items-center">
+                                            <Sparkles className="w-4 h-4 mr-2 text-amber-500" /> AI Handwritten Statement Scanner (PDF / Photo)
+                                        </h2>
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            Upload a scanned PDF or clear photo of a handwritten statement. AI will transcribe all pages and pre-fill the editor for your review before saving.
+                                        </p>
+                                    </div>
+
+                                    <div className="border-2 border-dashed border-blue-400 dark:border-blue-700 rounded-xl p-8 text-center bg-blue-50/40 dark:bg-blue-950/20 space-y-3">
+                                        <Sparkles className="w-10 h-10 mx-auto text-blue-600" />
+                                        <div className="text-xs font-extrabold text-slate-700 dark:text-slate-200">
+                                            {handwrittenFile ? `Selected: ${handwrittenFile.name}` : 'Select Handwritten Statement PDF, JPG, or PNG'}
+                                        </div>
+                                        <input
+                                            type="file"
+                                            accept=".pdf,image/jpeg,image/png,image/webp"
+                                            onChange={(e) => setHandwrittenFile(e.target.files?.[0] || null)}
+                                            className="text-xs file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-700 file:text-white hover:file:bg-blue-800 cursor-pointer"
+                                        />
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={handleParseHandwritten}
+                                            disabled={isParsingHandwritten || !handwrittenFile}
+                                            className="px-6 py-2.5 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center cursor-pointer"
+                                        >
+                                            {isParsingHandwritten ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                                            {isParsingHandwritten ? 'Transcribing Handwriting...' : 'Transcribe & Open in Editor'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {viewMode === 'PREVIEW' && (
+                                <div className="space-y-6">
+                                    {pagination.pages.map((pageLines, pageIdx) => (
+                                        <div key={pageIdx} className="bg-white dark:bg-slate-900 p-6 sm:p-8 rounded-xl border-2 border-slate-300 dark:border-slate-700 shadow-lg space-y-4">
+                                            <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-2 text-[11px] font-black uppercase text-slate-500">
+                                                <span>{formattedRefHeader}</span>
+                                                <span className="text-amber-700 dark:text-amber-400">
+                                                    {pageIdx === 0 ? dynamicTitle : `${dynamicTitle} (CONT.)`}
+                                                </span>
+                                                <span>Page {pageIdx + 1} of {pagination.totalPages}</span>
+                                            </div>
+
+                                            {pageIdx === 0 && (
+                                                <div className="font-bold text-xs uppercase text-slate-900 dark:text-slate-100 leading-relaxed">
+                                                    {(personName || '[PARTICULARS NOT ENTERED]').toUpperCase()} STATES THAT;
+                                                </div>
+                                            )}
+
+                                            <div className="font-mono text-xs sm:text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed min-h-[380px]">
+                                                {pageLines.join('\n') || <span className="text-slate-400 italic">No statement content typed yet...</span>}
+                                            </div>
+
+                                            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-[10px] font-bold text-slate-500">
+                                                <span>Recorded By: {currentUser?.fnum} {currentUser?.rank} {currentUser?.name}</span>
+                                                <span>Page {pageIdx + 1} of {pagination.totalPages}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                    </div>
+                </div>
+
+                <div className="bg-slate-100 dark:bg-slate-800 px-6 py-3.5 flex flex-wrap justify-between items-center gap-3 shrink-0 border-t border-slate-200 dark:border-slate-700">
+                    <button type="button" onClick={generatePDF} className="px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold uppercase rounded-lg shadow flex items-center transition cursor-pointer">
+                        <Download className="w-4 h-4 mr-2" /> Download PDF Draft ({pagination.totalPages} {pagination.totalPages === 1 ? 'Page' : 'Pages'})
+                    </button>
+
+                    {viewMode !== 'DOCX' && viewMode !== 'HANDWRITTEN' && (
+                        <button type="button" onClick={handleSave} disabled={isSaving || !content.trim() || !personName.trim()} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-900/50 text-white text-xs font-black uppercase rounded-lg shadow flex items-center transition cursor-pointer">
+                            <Save className="w-4 h-4 mr-2" /> {isSaving ? 'Saving to Ledger...' : 'Commit Statement to Case File'}
+                        </button>
+                    )}
+                </div>
+
+            </div>
+        </div>
+    );
+};
+
+// 🟢 EMBEDDED COMPONENT: Reference Escalator
+const ReferenceEscalator = ({ report, onClose, onEscalationComplete }) => {
+    const [refType, setRefType] = useState('CRB:');
+    const [refNumber, setRefNumber] = useState('');
+    const [reason, setReason] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    const oldRef = stripHtmlTags(report?.sdRef || report?.sd_ref || 'UNKNOWN');
+
+    const handleSave = async (e) => {
+        e.preventDefault();
+
+        const cleanRefNumber = refNumber.trim().toUpperCase();
+        const finalRef = `${refType} ${cleanRefNumber}`.trim();
+        
+        const caseRegex = /^\d{1,4}\/\d{4}$/;
+        if (!caseRegex.test(cleanRefNumber)) {
+            return alert(`Invalid ${refType} format! Must follow the format 001/2026 (Incident Number / Year).`);
+        }
+
+        setIsSaving(true);
+        const now = new Date();
+
+        const payload = {
+            new_reference: finalRef,
+            reason: reason.trim().toUpperCase(),
+            date_recorded: now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, ' ').toUpperCase(),
+            time_recorded: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'C'
+        };
+
+        try {
+            const reportId = report.sn || report.id;
+            const res = await authFetch(`/api/v1/reports/${reportId}/upgrade-reference`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.detail || "Database rejected escalation.");
+            }
+            alert(`✅ Case successfully escalated to ${finalRef}.`);
+            if (onEscalationComplete) onEscalationComplete();
+            onClose();
+        } catch (err) {
+            alert(`Error: ${err.message}`);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/80 z-[99999] flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-xl shadow-2xl overflow-hidden border border-blue-400">
+                <div className="bg-blue-700 text-white px-5 py-3 flex justify-between items-center shrink-0">
+                    <h3 className="font-extrabold flex items-center text-xs tracking-wider uppercase"><ArrowUpRight size={16} className="mr-2"/> Escalate / Transition Case Reference</h3>
+                    <button onClick={onClose} className="hover:bg-blue-800 p-1 rounded transition"><X size={16}/></button>
+                </div>
+                <div className="p-6 bg-slate-50 dark:bg-slate-900 space-y-4">
+                    <div className="bg-slate-200 dark:bg-slate-800 p-3 rounded text-center">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Current Reference</div>
+                        <div className="font-black text-lg text-slate-800 dark:text-slate-200">{oldRef}</div>
+                    </div>
+
+                    <div>
+                        <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">New Upgraded Reference Prefix & Number *</label>
+                        <div className="flex shadow-sm rounded w-full">
+                            <select value={refType} onChange={e => setRefType(e.target.value)} className="bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-200 text-xs rounded-l px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer">
+                                <option value="CRB:">CRB:</option><option value="DEF:">DEF:</option><option value="GEF:">GEF:</option><option value="CID:">CID:</option>
+                            </select>
+                            <input type="text" value={refNumber} onChange={e => setRefNumber(e.target.value)} required className="flex-1 text-xs border-blue-300 dark:border-blue-700 border-y border-r rounded-r p-2 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100" placeholder="e.g. 001/2026" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 text-xs">Reason for Transition / Escalation *</label>
+                        <textarea 
+                            rows="3"
+                            placeholder="e.g. Investigations revealed malice, upgrading to CRB..."
+                            value={reason}
+                            onChange={e => setReason(e.target.value)}
+                            required
+                            className="w-full p-2 border border-slate-300 dark:border-slate-700 rounded outline-none uppercase font-bold text-xs bg-white dark:bg-slate-950 custom-scrollbar"
+                        />
+                    </div>
+                </div>
+                <div className="bg-slate-100 dark:bg-slate-800 p-3 border-t dark:border-slate-700 flex justify-end space-x-2">
+                    <button onClick={onClose} className="px-3 py-1.5 bg-slate-300 hover:bg-slate-400 text-slate-800 rounded font-bold text-xs cursor-pointer">Cancel</button>
+                    <button onClick={handleSave} disabled={isSaving || !refNumber || !reason} className="px-4 py-1.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-900 text-white rounded font-bold text-xs uppercase shadow cursor-pointer flex items-center">
+                        {isSaving ? <Loader2 size={14} className="mr-2 animate-spin"/> : <Save size={14} className="mr-2"/>} Commit Transition
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setReports, setSidebarOpen, isReadOnlyObserver }) {
+  const [serverReports, setServerReports] = useState([]);
+  const [isFetchingReports, setIsFetchingReports] = useState(false);
+    
+  const [lockupData, setLockupData] = useState([]);
+  const [showAgriculturalOnly, setShowAgriculturalOnly] = useState(false);
+  const [showAccidentsOnly, setShowAccidentsOnly] = useState(false);
+  const [showFiresOnly, setShowFiresOnly] = useState(false);
+
+  const userRoleClean = stripHtmlTags(currentUser?.role || '').toUpperCase();
+  const userPosClean = stripHtmlTags(currentUser?.position || '').toUpperCase();
+  const userRegClean = stripHtmlTags(currentUser?.region || '').toUpperCase();
+
+  const isGlobalTier = ['SUPER_ADMIN', 'ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) ||  
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||  
+    currentUser?.permissions?.view_global_roster === true;
+
+  const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+  const isKmpSpecialist = userRoleClean === 'ASSISTANT_SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
+
+  const canViewGlobalLevel = canViewGlobal || isGlobalTier || isKmpSystemManager || isKmpSpecialist;
+  const canViewGlobalActive = canViewGlobalLevel;
+    
+  const isRegionalCommand = ['RPC', 'DEPUTY_RPC', 'SYSTEM_MANAGER', 'ASSISTANT_SYSTEM_MANAGER', 'REGIONAL_ADMIN', 'ASSISTANT_REGIONAL_ADMIN'].includes(userRoleClean) && !canViewGlobalLevel;
+
+  const [filterRegion, setFilterRegion] = useState(canViewGlobalActive ? 'ALL REGIONS' : userRegClean);
+  const [filterStation, setFilterStation] = useState((canViewGlobalActive || isRegionalCommand) ? 'ALL STATIONS' : stripHtmlTags(currentUser?.station || '').toUpperCase());
+
+  const isFilterInitialized = useRef(false);
+  useEffect(() => {
+    if (!isFilterInitialized.current && currentUser?.station) {
+      if (canViewGlobalActive) {
+        setFilterRegion('ALL REGIONS');
+        setFilterStation('ALL STATIONS');
+      } else if (isRegionalCommand) {
+        setFilterRegion(userRegClean);
+        setFilterStation('ALL STATIONS');
+      } else {
+        setFilterRegion(userRegClean);
+        setFilterStation(stripHtmlTags(currentUser?.station || '').toUpperCase());
       }
-      
-      setNotification(`✅ ${data.message || 'Password successfully updated'}`);
-      setPasswordData({ old_password: '', new_password: '' });
-    } catch (err) { 
-      setNotification(`❌ Error: ${err.message}`); 
+      isFilterInitialized.current = true;
     }
+  }, [canViewGlobalActive, isRegionalCommand, userRegClean, currentUser?.station]);
+
+  const [operation, setOperation] = useState('new');
+  const [notification, setNotification] = useState(null);
+  const [selectedCase, setSelectedCase] = useState(null);
+  const selectedCaseRef = useRef(null);
+  selectedCaseRef.current = selectedCase;
+  const setReportsRef = useRef(setReports);
+  setReportsRef.current = setReports;
+  const reportsFetchInFlightRef = useRef(false);
+  
+  const [showStatementRecorder, setShowStatementRecorder] = useState(false);
+  const [showReferenceEscalator, setShowReferenceEscalator] = useState(false);
+    
+  const [showHqGrandModal, setShowHqGrandModal] = useState(false);
+  const [hqGrandTotalInput, setHqGrandTotalInput] = useState('');
+  const [showLockupMatrixModal, setShowLockupMatrixModal] = useState(false);  
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+    
+  const [dateFilter, setDateFilter] = useState('ALL TIME');
+  const [updateSearch, setUpdateSearch] = useState('');
+  
+  const [filterOffence, setFilterOffence] = useState('ALL OFFENCES');
+  const [uniqueOffences, setUniqueOffences] = useState([]);
+
+  const [showLockup, setShowLockup] = useState(false);
+  const [newSuspect, setNewSuspect] = useState({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' });
+  const [editingSuspectId, setEditingSuspectId] = useState(null);
+
+  const [showExhibitModal, setShowExhibitModal] = useState(false);
+  const [currentExhibitSuspectId, setCurrentExhibitSuspectId] = useState(null);
+  const [newExhibit, setNewExhibit] = useState({
+    category: 'GENERAL PROPERTY', type_make: '', colour: '', assorted_items: 'NIL', reason: '', status: 'UNDER INVESTIGATION', photo_url: ''
+  });
+
+  const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
+
+  const getDateRangeParams = (filterOption) => {
+    if (filterOption === 'ALL TIME') return { start: null, end: null };
+    
+    const end = new Date();
+    const start = new Date();
+    
+    if (filterOption === 'LAST 7 DAYS') { start.setDate(start.getDate() - 7); }
+    else if (filterOption === 'LAST 14 DAYS') { start.setDate(start.getDate() - 14); }
+    else if (filterOption === 'LAST 21 DAYS') { start.setDate(start.getDate() - 21); }
+    else if (filterOption === 'LAST 30 DAYS') { start.setDate(start.getDate() - 30); }
+    else if (filterOption === 'LAST 60 DAYS') { start.setDate(start.getDate() - 60); }
+    else if (filterOption === 'LAST 90 DAYS') { start.setDate(start.getDate() - 90); }
+    else if (filterOption === 'LAST 120 DAYS') { start.setDate(start.getDate() - 120); }
+    else if (filterOption === 'LAST 180 DAYS') { start.setDate(start.getDate() - 180); }
+    
+    const pad = (n) => n.toString().padStart(2, '0');
+    const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    
+    return { start: format(start), end: format(end) };
   };
 
-  const canAutoApprove = ['SUPER_ADMIN', 'ADMIN'].includes(currentUser?.role);
-  const OFFICER_RANKS = ['AIP', 'IP', 'ASP', 'SP', 'SASP', 'SSP', 'ACP', 'CP', 'SCP', 'AIGP', 'DIGP', 'IGP'];
+  const handleSelectSuspectToEdit = (suspect) => {
+    setNewSuspect({
+      name: suspect.name || '',
+      sex: suspect.sex || 'MALE',
+      age: suspect.age !== null && suspect.age !== undefined ? String(suspect.age) : '',
+      tribe: suspect.tribe || '',
+      nationality: suspect.nationality || '',
+      residence: suspect.residence || '',
+      contact: suspect.contact || '',
+      mental_health_status: suspect.mental_health_status || 'NORMAL',
+      photo_url: suspect.photo_url || ''
+    });
+    setEditingSuspectId(suspect.id);
+  };
 
   const [formData, setFormData] = useState({
-    fnum: currentUser?.fnum || '', name: currentUser?.name || '', rank: currentUser?.rank || '',
-    sex: currentUser?.sex || 'MALE',
-    region: currentUser?.region || '', station: currentUser?.station || '', email: currentUser?.email || '',
-    phone: currentUser?.phone || '', profile_photo_path: currentUser?.profile_photo_path || ''
+    sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
+    region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
+    date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+    offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], exhibitDetails: [], updateText: ''
   });
 
-  const isOfficerRank = OFFICER_RANKS.includes(formData.rank?.toUpperCase().trim());
-  const wasNCO = !OFFICER_RANKS.includes(currentUser?.rank?.toUpperCase().trim());
-  const canEditFnum = canAutoApprove || (isOfficerRank && wasNCO);
+  const handleToggleAgric = () => {
+    const next = !showAgriculturalOnly;
+    setShowAgriculturalOnly(next);
+    setShowAccidentsOnly(false);
+    setShowFiresOnly(false);
+    setFormData(prev => ({ ...prev, category: next ? 'AGRIC_CRIME' : '' }));
+  };
 
-  const handleInputChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleToggleAccidents = () => {
+    const next = !showAccidentsOnly;
+    setShowAccidentsOnly(next);
+    setShowAgriculturalOnly(false);
+    setShowFiresOnly(false);
+    setFormData(prev => ({ ...prev, category: next ? 'ACCIDENT' : '' }));
+  };
 
-  const handlePhotoUpload = async (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setNotification("⏳ Uploading and saving new profile photo...");
-      const uploadData = new FormData();
-      uploadData.append("file", file);
-      uploadData.append("fnum", currentUser.fnum);
-      uploadData.append("category", "user_profile");
+  const handleToggleFires = () => {
+    const next = !showFiresOnly;
+    setShowFiresOnly(next);
+    setShowAgriculturalOnly(false);
+    setShowAccidentsOnly(false);
+    setFormData(prev => ({ ...prev, category: next ? 'FIRE INCIDENTS' : '' }));
+  };
 
+  useEffect(() => {
+    const fetchLockupData = async () => {
+      if (!hasValidSession()) return;
       try {
-        const response = await authFetch('/api/v1/users/upload-profile', { 
-          method: "POST", 
-          body: uploadData 
-        });
-        
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.detail || "Upload failed on server.");
-        }
-
-        const data = await response.json();
-        const s3Url = data.full_s3_url || data.cloud_storage_path;
-
-        const securePayload = { ...formData, profile_photo_path: s3Url };
-        const updateRes = await authFetch('/api/v1/users/profile/update', {
-          method: "PUT", 
-          headers: { "Content-Type": "application/json" }, 
-          body: JSON.stringify(securePayload)
-        });
-
-        if (!updateRes.ok) {
-          const errData = await updateRes.json().catch(() => ({}));
-          throw new Error(errData.detail || "Failed to link photo to profile in database.");
-        }
-
-        setFormData(prev => ({ ...prev, profile_photo_path: s3Url }));
-        setCurrentUser(prev => ({ ...prev, profile_photo_path: s3Url }));
-        setNotification("✅ Photo uploaded and permanently saved successfully!");
-        setTimeout(() => setNotification(null), 4000);
-      } catch (error) { 
-        setNotification(`❌ Error: ${error.message}`); 
-      }
-    }
-  };
-
-  const handleRequestSubmit = async (e) => {
-    if (e) e.preventDefault();
-    setNotification("⏳ Sending official request to Command...");
-    try {
-      const response = await authFetch('/api/v1/requests', {
-        method: "POST", 
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fnum: currentUser.fnum, requested_fnum: formData.fnum !== currentUser.fnum ? formData.fnum : null,
-          requested_name: formData.name !== currentUser.name ? formData.name : null, requested_rank: formData.rank !== currentUser.rank ? formData.rank : null,
-          requested_sex: formData.sex !== currentUser.sex ? formData.sex : null,
-          requested_region: formData.region !== currentUser.region ? formData.region : null, requested_station: formData.station !== currentUser.station ? formData.station : null,
-        })
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to send request.");
-      }
-      
-      setNotification("✅ Request successfully logged for Command review.");
-      setIsRequestMode(false);
-      setFormData({ ...formData, fnum: currentUser.fnum, name: currentUser.name, rank: currentUser.rank, region: currentUser.region, station: currentUser.station, sex: currentUser.sex });
-      setTimeout(() => setNotification(null), 5000);
-    } catch (err) { 
-      setNotification(`❌ Error: ${err.message}`); 
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    if (e) e.preventDefault();
-    setNotification("⏳ Verifying profile data with HR Nominal Roll...");
-    try {
-      const response = await authFetch(`/api/v1/users/profile/update`, {
-        method: "PUT", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify(formData)
-      });
-      const data = await response.json();
-
-      if (!response.ok) throw new Error(data.detail || "Failed to update database.");
-      if (data.new_token) setAuthSession(data.new_token, formData.fnum);
-
-      setCurrentUser({ ...currentUser, ...formData });
-      setNotification("✅ Profile verified and successfully updated!");
-      setIsEditing(false); 
-      setIsRequestMode(false);
-      setTimeout(() => setNotification(null), 4000);
-    } catch (err) { 
-      setNotification(`❌ ${err.message}`); 
-    }
-  };
-
-  const handleContactSubmit = async (e) => {
-    if (e) e.preventDefault();
-    setNotification("⏳ Saving contact details...");
-    try {
-      const securePayload = { ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path };
-
-      const response = await authFetch(`/api/v1/users/profile/update`, {
-        method: "PUT", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify(securePayload)
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to update database.");
-
-      setCurrentUser({ ...currentUser, email: formData.email, phone: formData.phone, profile_photo_path: formData.profile_photo_path });
-      setNotification("✅ Contact info and photo successfully updated!");
-      setTimeout(() => setNotification(null), 4000);
-    } catch (err) { 
-      setNotification(`❌ ${err.message}`); 
-    }
-  };
-
-  const handleProfileSave = (e) => {
-    e.preventDefault();
-    if (canAutoApprove || formData.fnum !== currentUser.fnum) handleSubmit(e);
-    else handleRequestSubmit(e);
-  };
-
-  const handlePermanentAccountDeletion = async () => {
-    if (!window.confirm(`⚠️ CRITICAL WARNING: You are about to permanently delete your account (${currentUser.fnum}) from the database. This action CANNOT be undone. Proceed?`)) {
-      return;
-    }
-    try {
-      const res = await authFetch(`/api/v1/users/${encodeURIComponent(currentUser.fnum)}/permanent-delete`, {
-        method: 'DELETE'
-      });
-      if (!res.ok) throw new Error(await res.text());
-      alert("Account successfully deleted.");
-      if (onLogout) onLogout();
-    } catch (err) {
-      alert(`Deletion Failed: ${err.message}`);
-    }
-  };
-
-  return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6 mt-10 relative z-10 animate-in fade-in duration-300">
-      <button onClick={() => setCurrentPage && setCurrentPage('home')} className="flex items-center text-xs font-bold text-slate-500 hover:text-blue-700 transition-colors bg-white hover:bg-blue-50 px-4 py-2 rounded-lg shadow-xs border border-slate-200 w-fit cursor-pointer">
-        <Home size={16} className="mr-2" /> Return to Master Dashboard
-      </button>
-
-      <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
-        <div className="bg-slate-900 px-6 py-8 border-b border-slate-800 flex justify-between items-center relative">
-          <div className="flex items-center z-10">
-            <div className="relative group">
-              {formData.profile_photo_path ? (
-                <img src={formData.profile_photo_path} alt="" className={`w-24 h-24 rounded-full object-cover shadow-2xl border-4 border-slate-700 bg-white transition-transform ${isEditing ? 'opacity-80' : 'cursor-pointer hover:scale-105'}`} onClick={() => !isEditing && setViewingImage(formData.profile_photo_path)} onError={(e) => { e.target.style.display='none'; }} />
-              ) : (
-                <div className="w-24 h-24 bg-blue-600 rounded-full flex items-center justify-center text-white font-extrabold text-4xl shadow-2xl border-4 border-slate-700">{currentUser?.name?.charAt(0) || 'A'}</div>
-              )}
-              {isEditing && (
-                <label className="absolute bottom-0 right-0 bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full cursor-pointer shadow-lg border-2 border-slate-800 transition-colors transform hover:scale-110">
-                  <Camera size={16} /> <input type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-                </label>
-              )}
-            </div>
-            <div className="ml-6 text-white">
-              <h2 className="text-2xl font-extrabold tracking-tight">{currentUser?.name}</h2>
-              <p className="text-blue-300 font-medium tracking-wide mt-1 uppercase text-xs">{currentUser?.rank} • {currentUser?.station} • {currentUser?.region}</p>
-            </div>
-          </div>
-          <button onClick={() => { setIsEditing(!isEditing); setIsRequestMode(false); }} className={`z-10 flex items-center px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-xs cursor-pointer ${isEditing ? 'bg-slate-700 text-white border border-slate-600' : 'bg-blue-600 text-white hover:bg-blue-500'}`}>
-            {isEditing ? <><X size={16} className="mr-2"/> Cancel Edit</> : <><Edit size={16} className="mr-2"/> Update Profile</>}
-          </button>
-        </div>
-
-        <div className="p-8">
-          {notification && (
-            <div className={`p-4 rounded-lg mb-6 font-medium text-xs flex items-center shadow-xs ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 text-red-700 border border-red-200' : notification.includes('⏳') ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
-               {notification}
-            </div>
-          )}
-
-          {isEditing ? (
-            <div className="space-y-6">
-              <div className={`p-6 rounded-xl border transition-colors duration-300 ${canAutoApprove ? 'bg-blue-50 border-blue-200' : isRequestMode ? 'bg-amber-50 border-amber-300' : 'bg-slate-100 border-slate-200'}`}>
-                <div className="flex justify-between items-center mb-4 border-b pb-2 border-slate-200/50">
-                  <div className={`flex items-center text-xs font-extrabold uppercase tracking-wider ${canAutoApprove ? 'text-blue-700' : isRequestMode ? 'text-amber-700' : 'text-slate-500'}`}>
-                    {canAutoApprove ? <Unlock size={14} className="mr-2" /> : isRequestMode ? <Edit size={14} className="mr-2" /> : <Lock size={14} className="mr-2" />} 
-                    Official Deployment Records {canAutoApprove ? "(Admin Override Active)" : isRequestMode ? "(Drafting Request)" : "(Restricted)"}
-                  </div>
-                  {!canAutoApprove && !isRequestMode && (
-                    <button type="button" onClick={() => setIsRequestMode(true)} className="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs cursor-pointer"><Shield size={12} className="mr-1"/> Request Modification</button>
-                  )}
-                  {!canAutoApprove && isRequestMode && (
-                    <button type="button" onClick={handleProfileSave} className="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded font-bold transition flex items-center shadow-xs cursor-pointer"><Send size={12} className="mr-1"/> Send Official Request</button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Full Name</label>
-                    <input type="text" name="name" value={formData.name} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                      Sex / Gender {!canAutoApprove && "(Requires Request & Clearance)"}
-                    </label>
-                    <select 
-                      name="sex" 
-                      value={formData.sex} 
-                      onChange={handleInputChange} 
-                      disabled={!canAutoApprove && !isRequestMode} 
-                      className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`}
-                    >
-                      <option value="MALE">MALE</option>
-                      <option value="FEMALE">FEMALE</option>
-                    </select>
-                  </div>
-                  <div className="flex gap-4 col-span-2">
-                    <div className="w-1/2">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Force / File Number</label>
-                      <input type="text" name="fnum" value={formData.fnum} onChange={(e) => setFormData({...formData, fnum: e.target.value.toUpperCase()})} disabled={!canEditFnum} className={`w-full p-2.5 border rounded-lg text-xs font-bold transition-all ${canEditFnum ? 'bg-amber-50 border-amber-400 text-slate-900 focus:ring-2 focus:ring-amber-500 shadow-inner' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
-                      {canEditFnum && <p className="text-[9px] text-blue-600 mt-1 font-bold animate-pulse">Unlocked for Promotion Verification</p>}
-                    </div>
-                    <div className="w-1/2">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Rank</label>
-                      <input type="text" name="rank" value={formData.rank} onChange={(e) => setFormData({...formData, rank: e.target.value.toUpperCase()})} disabled={!canAutoApprove && !isRequestMode && !wasNCO} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${(canAutoApprove || isRequestMode || wasNCO) ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Command Region</label>
-                    <input type="text" name="region" value={formData.region} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Assigned Station</label>
-                    <input type="text" name="station" value={formData.station} onChange={handleInputChange} disabled={!canAutoApprove && !isRequestMode} className={`w-full p-2.5 rounded-lg text-xs font-bold border ${canAutoApprove || isRequestMode ? 'bg-white border-blue-300 text-slate-900 focus:ring-2 focus:ring-blue-500' : 'bg-slate-200 border-slate-300 text-slate-600 cursor-not-allowed'}`} />
-                  </div>
-                </div>
-              </div>
-
-              <form onSubmit={handleContactSubmit} className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
-                <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
-                  <Edit size={14} className="mr-2" /> Editable Contact Data
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Official Email</label>
-                    <input type="email" name="email" value={formData.email} onChange={handleInputChange} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs font-medium text-slate-900" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Contact Number</label>
-                    <input type="tel" name="phone" value={formData.phone} onChange={handleInputChange} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs font-medium text-slate-900" />
-                  </div>
-                </div>
-                <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
-                  <button type="submit" className="bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors flex items-center text-xs cursor-pointer">💾 Save Profile Changes</button>
-                </div>
-              </form>
-
-              <form onSubmit={handlePasswordChange} className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-4">
-                <div className="flex items-center text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">
-                  <Lock size={14} className="mr-2 text-red-500" /> Security: Change Password
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Current Password</label>
-                    <input type="password" required value={passwordData.old_password} onChange={(e) => setPasswordData({...passwordData, old_password: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">New Password (Min 8 Chars, Upper, Lower, Number, Symbol)</label>
-                    <input type="password" required value={passwordData.new_password} onChange={(e) => setPasswordData({...passwordData, new_password: e.target.value})} placeholder="8+ chars with A-Z, a-z, 0-9, symbol" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-xs" />
-                  </div>
-                </div>
-                <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
-                  <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded-lg shadow-xs transition-colors text-xs cursor-pointer">Update Security Key</button>
-                </div>
-              </form>
-
-              {currentUser?.role === 'SUPER_ADMIN' && (
-                <div className="bg-red-50 p-6 rounded-xl border border-red-200 shadow-xs space-y-3">
-                  <h4 className="text-xs font-bold text-red-800 uppercase tracking-wider border-b border-red-200 pb-2 flex items-center">
-                    <AlertTriangle size={14} className="mr-2 text-red-600" /> Danger Zone: Permanent Account Purge
-                  </h4>
-                  <p className="text-xs text-red-700">Permanently erase this account and all associated access credentials from the central database.</p>
-                  <button type="button" onClick={handlePermanentAccountDeletion} className="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-lg text-xs transition cursor-pointer shadow-xs">
-                    Purge Account Permanently
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-2 flex items-center">
-                <Shield size={14} className="mr-2 text-slate-400" /> Comprehensive Officer Profile
-              </h4>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
-                <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Force/File Number</label>
-                  <div className="text-xs font-extrabold text-slate-900">{currentUser?.fnum}</div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">IPPS Number</label>
-                  <div className="text-xs font-bold text-slate-800">{currentUser?.ipps || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Sex</label>
-                  <div className="text-xs font-bold text-slate-800">{currentUser?.sex || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">System Role</label>
-                  <div className={`text-xs font-extrabold ${canAutoApprove ? 'text-emerald-600' : 'text-blue-600'}`}>{currentUser?.role || 'USER'}</div>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Title / Position</label>
-                  <div className="text-xs font-bold text-slate-800">{currentUser?.position || 'N/A'}</div>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Command Chain (Region / Station)</label>
-                  <div className="text-xs font-bold text-slate-800">{currentUser?.region || 'N/A'} / {currentUser?.station || 'N/A'}</div>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Official Email</label>
-                  <div className="text-xs font-bold text-slate-800 truncate">{currentUser?.email || 'N/A'}</div>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-bold text-slate-400 uppercase mb-1 block">Contact Number</label>
-                  <div className="text-xs font-bold text-slate-800">{currentUser?.phone || 'N/A'}</div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {viewingImage && (
-        <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingImage(null)}>
-          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer">
-            <X size={24}/>
-          </button>
-          <img 
-            src={viewingImage} 
-            alt="Full Profile" 
-            className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" 
-            onClick={(e) => e.stopPropagation()} 
-          />
-        </div>
-      )}
-    </div>
-  );
-};
-
-
-
-const GrandTotalBreakdownModal = ({ isOpen, onClose, allSubmissions, grandTotals }) => {
-  if (!isOpen) return null;
-
-  const breakdownTree = {};
-  
-  (Array.isArray(allSubmissions) ? allSubmissions : []).forEach(entry => {
-    if (entry.is_hq_grand_total || (entry.station || '').includes('HEADQUARTERS GENERAL TOTAL')) return;
-    
-    const region = (entry.region || 'UNKNOWN REGION').trim().toUpperCase();
-    const station = (entry.station || 'UNKNOWN STATION').trim().toUpperCase();
-    const val = Number(entry.total_value || entry.count || entry.amount || entry.daily_lock_up) || 0;
-
-    if (!breakdownTree[region]) {
-      breakdownTree[region] = { total: 0, stations: {} };
-    }
-    if (!breakdownTree[region].stations[station]) {
-      breakdownTree[region].stations[station] = 0;
-    }
-    
-    breakdownTree[region].stations[station] += val;
-    breakdownTree[region].total += val;
-  });
-
-  return (
-    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-300 animate-in zoom-in-95 flex flex-col max-h-[85vh]">
-        <div className="bg-slate-900 text-white px-6 py-4 flex justify-between items-center shrink-0">
-          <div>
-            <h3 className="font-extrabold uppercase text-sm tracking-wider flex items-center">
-              <BarChart3 className="mr-2 text-blue-400" size={18} /> Grand Total Jurisdiction Breakdown
-            </h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">Hierarchical aggregation of regional and station entries.</p>
-          </div>
-          <button onClick={onClose} className="hover:bg-slate-800 p-1.5 rounded transition cursor-pointer"><X size={18}/></button>
-        </div>
-
-        <div className="bg-blue-50 border-b border-blue-100 p-4 px-6 flex justify-between items-center shrink-0">
-          <div>
-            <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Active Master Lockup</span>
-            <h2 className="text-2xl font-black text-slate-900">{grandTotals.displayTotal.toLocaleString()}</h2>
-          </div>
-          <div className="text-right">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stations Sum</span>
-            <div className="text-lg font-extrabold text-slate-800">{grandTotals.stationSum.toLocaleString()}</div>
-          </div>
-        </div>
-
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50">
-          {Object.keys(breakdownTree).length === 0 ? (
-            <p className="text-center text-xs text-slate-500 py-8">No station submissions found to aggregate.</p>
-          ) : (
-            Object.entries(breakdownTree).map(([regionName, regionData]) => (
-              <div key={regionName} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-                <div className="bg-slate-100 px-4 py-2.5 border-b border-slate-200 flex justify-between items-center">
-                  <span className="text-xs font-black text-slate-900 tracking-wider uppercase">{regionName}</span>
-                  <span className="text-xs font-extrabold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
-                    {regionData.total.toLocaleString()} Total
-                  </span>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {Object.entries(regionData.stations).map(([stationName, stationVal]) => (
-                    <div key={stationName} className="px-6 py-2.5 flex justify-between items-center text-xs hover:bg-slate-50 transition-colors">
-                      <span className="font-semibold text-slate-700 uppercase">{stationName}</span>
-                      <span className="font-bold text-slate-900">{stationVal.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="bg-white p-4 border-t border-slate-200 flex justify-end shrink-0">
-          <button onClick={onClose} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs uppercase tracking-wider shadow cursor-pointer">
-            Close Breakdown
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const WorkspaceSecurityCurtain = () => {
-  const [isWorkspaceIdle, setIsWorkspaceIdle] = useState(false);
-  const [isReadingMode, setIsReadingMode] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-  
-  const [showIdleWarning, setShowIdleWarning] = useState(false);
-  const [idleCountdown, setIdleCountdown] = useState(60);
-  const [isTimedOut, setIsTimedOut] = useState(false);
-
-  const activityRef = useRef(Date.now());
-
-  useEffect(() => {
-    const handleActivity = () => {
-      activityRef.current = Date.now();
-      
-      if (showIdleWarning) {
-        setShowIdleWarning(false);
-        setIdleCountdown(60);
-        setIsWorkspaceIdle(false);
-      }
-    };
-
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
-    events.forEach(event => window.addEventListener(event, handleActivity, { capture: true, passive: true }));
-
-    return () => {
-      events.forEach(event => window.removeEventListener(event, handleActivity, { capture: true, passive: true }));
-    };
-  }, [showIdleWarning]); 
-
-  useEffect(() => {
-    if (isReadingMode || isTimedOut) return;
-
-    const checkInterval = setInterval(() => {
-      const idleTimeMs = Date.now() - activityRef.current;
-
-      if (idleTimeMs >= 1740000 && !showIdleWarning) {
-        setShowIdleWarning(true);
-        setIsWorkspaceIdle(true);
-      }
-      else if (idleTimeMs >= 60000 && idleTimeMs < 1740000 && !showIdleWarning && !isWorkspaceIdle) {
-        setIsWorkspaceIdle(true);
-      }
-      else if (idleTimeMs < 60000 && isWorkspaceIdle && !showIdleWarning) {
-        setIsWorkspaceIdle(false);
-      }
-    }, 1000);
-
-    return () => clearInterval(checkInterval);
-  }, [isReadingMode, isTimedOut, showIdleWarning, isWorkspaceIdle]);
-
-  useEffect(() => {
-    if (isTimedOut || !showIdleWarning) return;
-
-    const countdownInterval = setInterval(() => {
-      setIdleCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdownInterval);
-          setShowIdleWarning(false);
-          setIsTimedOut(true); 
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(countdownInterval);
-  }, [showIdleWarning, isTimedOut]);
-
-  const handleForceLogout = async () => {
-    try {
-      await authFetch('/api/v1/auth/log-timeout', { method: 'POST' });
-    } catch (e) {}
-
-    localStorage.removeItem('kmp_authToken');
-    localStorage.removeItem('kmp_currentUser');
-    localStorage.removeItem('kmp_currentPage');
-    sessionStorage.clear();
-    window.location.replace('/');
-  };
-
-  if (!isWorkspaceIdle && !showIdleWarning && !isTimedOut) {
-    return (
-      <div className="fixed bottom-6 right-6 z-[99990]">
-        <div
-          onMouseEnter={() => setIsExpanded(true)}
-          onMouseLeave={() => setIsExpanded(false)}
-          onClick={() => {
-            setIsReadingMode(!isReadingMode);
-            setIsWorkspaceIdle(false);
-          }}
-          className={`flex items-center transition-all duration-300 ease-in-out cursor-pointer shadow-2xl rounded-full border ${
-            isExpanded ? 'px-4 py-2' : 'p-2'
-          } ${
-            isReadingMode 
-              ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.5)]' 
-              : 'bg-slate-900/90 text-slate-200 border-slate-700 hover:bg-slate-800'
-          }`}
-        >
-          <span className={`relative flex h-3 w-3 ${isExpanded ? 'mr-2.5' : ''}`}>
-            <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${isReadingMode ? 'bg-slate-950 animate-ping' : 'bg-green-400 animate-ping'}`}></span>
-            <span className={`relative inline-flex rounded-full h-3 w-3 ${isReadingMode ? 'bg-slate-950' : 'bg-green-500'}`}></span>
-          </span>
-          {isExpanded && (
-            <span className="font-bold text-xs uppercase tracking-wider whitespace-nowrap">
-              {isReadingMode ? 'Click to stop curtain' : '🛡️ Standard Idle Guard'}
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const orbitText = "KAMPALA METROPOLITAN POLICE • INFORMATION SYSTEM • ".split('');
-
-  return (
-    <div 
-      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
-      style={{
-        position: 'fixed',
-        top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 2147483646,
-        pointerEvents: 'auto',
-        isolation: 'isolate'
-      }}
-    >
-      <style>{`
-        @keyframes spin-orbit-y {
-          0% { transform: rotateY(0deg); }
-          100% { transform: rotateY(360deg); }
-        }
-        @keyframes continuous-globe-spin {
-          0% { background-position-x: 0px; }
-          100% { background-position-x: -800px; }
-        }
-      `}</style>
-
-      <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center pointer-events-none">
-        <div className="absolute inset-0 opacity-20 pointer-events-none flex flex-col justify-between z-0">
-          <div className="h-1/3 w-full bg-black"></div>
-          <div className="h-1/3 w-full bg-[#FCD116]"></div>
-          <div className="h-1/3 w-full bg-[#D91B23]"></div>
-        </div>
-
-        <div 
-          className="relative z-10 flex items-center justify-center w-72 h-72 rounded-full overflow-visible pointer-events-none"
-          style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}
-        >
-          <div 
-            className="w-56 h-56 rounded-full shadow-[inset_-25px_-20px_45px_rgba(0,0,0,0.95),0_0_50px_rgba(0,0,0,0.85)] border-2 border-slate-700/60 overflow-hidden flex items-center justify-center bg-slate-900"
-            style={{ 
-              backgroundImage: `url('/upf_kmp_map.png')`,
-              backgroundSize: '200px 100%',
-              backgroundRepeat: 'repeat-x',
-              animation: 'continuous-globe-spin 28s linear infinite'
-            }}
-          />
-          
-          <div 
-            className="absolute inset-0 flex items-center justify-center pointer-events-none"
-            style={{ 
-              transformStyle: 'preserve-3d', 
-              animation: 'spin-orbit-y 20s linear infinite' 
-            }}
-          >
-            {orbitText.map((char, i, arr) => (
-              <span 
-                key={i} 
-                className="absolute text-sky-400 font-extrabold text-[11px] uppercase tracking-widest drop-shadow-[0_0_6px_rgba(56,189,248,0.9)]"
-                style={{ 
-                  transform: `rotateY(${i * (360 / arr.length)}deg) translateZ(160px)` 
-                }}
-              >
-                {char === ' ' ? '\u00A0' : char}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {(showIdleWarning || isTimedOut) && (
-        <div 
-          onClick={(e) => e.stopPropagation()}
-          className="relative z-[2147483647] bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 shadow-2xl border border-slate-200 text-center animate-in zoom-in-95 duration-200 pointer-events-auto"
-        >
-          {isTimedOut ? (
-            <>
-              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-100 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-red-600" />
-              </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-                Session Expired Due to Inactivity
-              </h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your security session has expired because the system was left unattended. You have been securely logged out.
-              </p>
-              <button 
-                type="button"
-                onClick={handleForceLogout}
-                className="w-full py-3.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md cursor-pointer transition-colors"
-              >
-                Acknowledge & Return to Login
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-inner">
-                <AlertTriangle className="w-8 h-8 text-amber-600" />
-              </div>
-              <h4 className="text-xl font-extrabold text-slate-900 mb-2">
-                Session Timeout Warning
-              </h4>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium mb-6">
-                Your session will expire in <span className="font-bold text-red-600">{idleCountdown}s</span> due to inactivity. Click below to continue working.
-              </p>
-              <button 
-                type="button"
-                onClick={() => {
-                  activityRef.current = Date.now();
-                  setShowIdleWarning(false);
-                  setIdleCountdown(60);
-                  setIsWorkspaceIdle(false);
-                }}
-                className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer"
-              >
-                Continue Session
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-const DashboardLayout = ({ 
-  currentUser, 
-  currentPage, 
-  setCurrentPage, 
-  children, 
-  onLogout, 
-  onGenerateOpsReport, 
-  onViewOpsReport,     
-  onGenerateHRReport, 
-  onViewHRReport,
-  onViewConsolidated, 
-  users, 
-  onRevokeUser, 
-  onUpdateUserRole, 
-  adminCommsData
-}) => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showOnline, setShowOnline] = useState(false);
-  const [selectedUserDetail, setSelectedUserDetail] = useState(null);
-  const [viewingProfileImage, setViewingProfileImage] = useState(null);
-  const [newForcePassword, setNewForcePassword] = useState('');
-  const [isFullScreen, setIsFullScreen] = useState(false);
-  const [isAnimating, setIsAnimating] = useState(true);
-  const [isMotionExpanded, setIsMotionExpanded] = useState(false);
-
-  const [realOnlineUsers, setRealOnlineUsers] = useState([]);
-  const backoffUntilRef = useRef(0);
-
-  useEffect(() => {
-    if (!hasValidSession()) return;
-
-    const syncHeartbeat = async () => {
-      if (document.hidden || Date.now() < backoffUntilRef.current) return;
-      try {
-        const hb = await authFetch('/api/v1/users/heartbeat', { method: 'POST' });
-
-        if (hb.status === 401) {
-          window.dispatchEvent(new Event('auth-expired'));
-          return;
-        }
-
-        if (hb.status === 429 || hb.status === 503) {
-          backoffUntilRef.current = Date.now() + 60000;
-          return;
-        }
-
-        if (hb.ok) {
-          const hbData = await hb.json();
-          if (hbData.new_token && currentUser?.fnum) {
-            setAuthSession(hbData.new_token, currentUser.fnum);
-          }
-        }
-
-        const response = await authFetch('/api/v1/users/online');
-        if (response.status === 429 || response.status === 503) {
-          backoffUntilRef.current = Date.now() + 60000;
-          return;
-        }
+        const response = await authFetch('/api/v1/lockup-matrix');
         if (response.ok) {
-          setRealOnlineUsers(await response.json());
+          const data = await response.json();
+          setLockupData(data);
         }
       } catch (err) {
-        console.warn("Heartbeat sync paused...");
+        console.error("Failed to load lockup matrix:", err);
       }
     };
-
-    syncHeartbeat();
-    const heartbeatInterval = setInterval(syncHeartbeat, 15000);
-    return () => clearInterval(heartbeatInterval);
-  }, [currentUser?.fnum]);
-
-  const lastLoggedPage = useRef(null);
+    fetchLockupData();
+  }, []);
 
   useEffect(() => {
-    if (!currentUser?.fnum || !currentPage || !hasValidSession()) return;
-    if (lastLoggedPage.current === currentPage) return;
-    
-    lastLoggedPage.current = currentPage;
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
-    authFetch('/api/v1/activity-logs', {
-      method: 'POST',
-      body: JSON.stringify({ 
-        fnum: currentUser.fnum, 
-        action: 'PAGE_ACCESS', 
-        module: currentPage, 
-        details: `User accessed ${currentPage}` 
-      })
-    }).catch(err => console.error("Activity log error:", err));
-
-  }, [currentPage, currentUser?.fnum]);
-
-  const safeSidebarComms = Array.isArray(adminCommsData) ? adminCommsData : (adminCommsData?.data || adminCommsData?.items || []);
-  const relevantComms = safeSidebarComms.filter(c => {
-    if (currentUser?.role === 'SUPER_ADMIN') return true;
-    
-    const audience = c.target_audience || c.audience || 'ALL_USERS';
-    const region = c.target_region || c.region;
-    
-    if (audience === 'ALL_USERS' || audience === 'ALL') return true;
-    if (audience === 'ADMINS_ONLY' && ['ADMIN', 'SUPER_ADMIN'].includes(currentUser?.role)) return true;
-    if (audience === 'RPC_ONLY' && ['ADMIN', 'SUPER_ADMIN', 'RPC', 'DEPUTY COMMANDER'].includes(currentUser?.role)) return true;
-    
-    // 🟢 Dual-Equivalence Region match applied for Sidebar Alerts
-    if (audience === 'SPECIFIC_REGION' && isStationEquivalent(region, currentUser?.region)) return true;
-    
-    if (audience === 'SPECIFIC_USER' && c.target_fnum === currentUser?.fnum) return true;
-    
-    return false;
-  });
-
-  const hasUnreadComms = adminCommsData?.hasUnread === true;
-
-  const navItems = [
-    checkClearance(currentUser, 'acc_home', true) ? { 
-      name: 'Home Dashboard', 
-      id: 'home', 
-      icon: <Home size={20} />
-    } : null,
-    checkClearance(currentUser, 'acc_comms', true) ? { 
-      name: 'Command Communications', 
-      id: 'Admin_Communication', 
-      icon: (
-        <div className="relative flex items-center justify-center">
-          <Bell size={20} className={hasUnreadComms ? "text-green-400 animate-bounce" : ""} />
-          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full shadow-[0_0_8px_#22c55e] animate-ping" />}
-          {hasUnreadComms && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-500 rounded-full" />}
-        </div>
-      )
-    } : null,
-    checkClearance(currentUser, 'acc_crime', true) ? { name: 'Crime/Incident Registry', id: 'reports', icon: <LayoutDashboard size={20} /> } : null,
-    
-    // 🟢 Ensure the comma is present here right after the closing brace
-    checkClearance(currentUser, 'acc_lockup', true) ? { 
-      name: 'Daily Lock-up Matrix', 
-      id: 'lockup-matrix', 
-      icon: <Lock size={20} className="text-amber-400" /> 
-    } : null, 
-
-    checkClearance(currentUser, 'acc_ops', true) ? { name: 'Disruptive OPS Statistics', id: 'statistics', icon: <BarChart3 size={20} /> } : null,
-    checkClearance(currentUser, 'acc_stories', true) ? { name: 'Success Stories', id: 'success', icon: <Trophy size={20} /> } : null,
-    checkClearance(currentUser, 'acc_est', true) ? { name: 'Establishments', id: 'establishments', icon: <Building size={20} /> } : null,
-    checkClearance(currentUser, 'acc_exhibits', true) ? { name: 'Impounded Exhibits', id: 'exhibits', icon: <Truck size={20} className="text-emerald-400" /> } : null,
-    checkClearance(currentUser, 'acc_analytics', true) ? { name: 'Analytics & Reports', id: 'analytics', icon: <PieChart size={20} /> } : null,
-    checkClearance(currentUser, 'acc_hr', true) ? { name: 'Nominal Roll', id: 'nominal-roll', icon: <Users size={20} /> } : null,
-    checkClearance(currentUser, 'acc_documents', true) ? { name: 'Documents & Reports', id: 'reports_hub', icon: <FileText size={20} /> } : null,
-    checkClearance(currentUser, 'acc_ai', false) ? { 
-      name: 'AI Command Console', 
-      id: 'ai_console', 
-      icon: <Sparkles size={20} className="text-amber-400" /> 
-    } : null
-  ].filter(Boolean);
-
-const handleExportLogs = async () => {
+  const fetchUniqueOffences = useCallback(async () => {
+    if (!hasValidSession()) return;
     try {
-      const response = await authFetch('/api/v1/audit-logs/export', {
-        method: 'GET'
-      });
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') {
+        params.append('region', filterRegion);
+      }
+      if (filterStation && filterStation !== 'ALL STATIONS') {
+        params.append('station', filterStation);
+      }
+      const response = await authFetch(`/api/v1/reports/offences?${params.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setUniqueOffences(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch unique offences:", err);
+    }
+  }, [filterRegion, filterStation, canViewGlobalActive]);
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Security Clearance Denied or Export Failed");
+  useEffect(() => {
+    fetchUniqueOffences();
+  }, [fetchUniqueOffences]);
+
+  const fetchFilteredDatabaseReports = useCallback(async () => {
+    if (!hasValidSession() || reportsFetchInFlightRef.current) return;
+    reportsFetchInFlightRef.current = true;
+    setIsFetchingReports(true);
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') {
+        params.append('region', filterRegion);
+      }
+      if (filterStation && filterStation !== 'ALL STATIONS') {
+        params.append('station', filterStation);
+      }
+      if (filterOffence && filterOffence !== 'ALL OFFENCES') {
+        params.append('offence', filterOffence);
+      }
+      if (showAgriculturalOnly) {
+        params.append('agri_only', 'true');
+      }
+      if (showAccidentsOnly) {
+        params.append('accidents_only', 'true');
+      }
+      if (showFiresOnly) {
+        params.append('fires_only', 'true');
+      }
+      if (debouncedSearch) {
+        params.append('search', debouncedSearch);
+      }
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+      
+      params.append('limit', '300');
+
+      const response = await authFetch(`/api/v1/reports?${params.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setServerReports(data);
+        if (setReportsRef.current) setReportsRef.current(data);
+        
+        const activeCase = selectedCaseRef.current;
+        if (activeCase) {
+            const updatedCase = data.find(r => (r.id || r.sn) === (activeCase.id || activeCase.sn));
+            if (updatedCase && JSON.stringify(updatedCase) !== JSON.stringify(activeCase)) {
+                setSelectedCase(updatedCase);
+            }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to execute SQL fetch:", err);
+    } finally {
+      reportsFetchInFlightRef.current = false;
+      setIsFetchingReports(false);
+    }
+  }, [filterRegion, filterStation, filterOffence, showAgriculturalOnly, showAccidentsOnly, showFiresOnly, dateFilter, debouncedSearch, canViewGlobalActive]);
+
+  useEffect(() => {
+    fetchFilteredDatabaseReports();
+  }, [fetchFilteredDatabaseReports]);
+
+  const resetFormToBlank = () => {
+    setFormData({
+      sn: null, sd_ref: '', ref_type: 'SD Ref:', ref_number: '',
+      region: userRegClean, station: stripHtmlTags(currentUser?.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || ''),
+      date: getTodayString(), time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+      offence: '', customOffence: '', category: '', narrative: '', status: 'ACTIVE INVESTIGATION', suspectDetails: [], exhibitDetails: [], updateText: ''
+    });
+    setUpdateSearch('');
+  };
+
+  const handleOperationToggle = (mode) => {
+    setOperation(mode);
+    setNotification(null);
+    if (mode === 'new') resetFormToBlank();
+  };
+
+  const populateUpdateCrimeForm = (caseData) => {
+    setFormData({ 
+      ...caseData, 
+      sn: caseData.sn || caseData.id, 
+      sd_ref: stripHtmlTags(caseData.sdRef || caseData.sd_ref), 
+      offence: stripHtmlTags(caseData.offence || 'Other'),
+      category: caseData.category || '',
+      customOffence: '',
+      suspectDetails: caseData.suspectDetails || [], 
+      exhibitDetails: [],
+      updateText: '' 
+    });
+  };
+
+  const finalFilteredReports = useMemo(() => {
+    if (!Array.isArray(serverReports)) return [];
+    return serverReports.filter(report => {
+      const repStn = stripHtmlTags(report.station || '').trim().toUpperCase();
+      const repReg = getOfficialRegionForStation(repStn, report.region);
+
+      if (filterRegion && filterRegion !== 'ALL REGIONS') {
+        if (repReg !== filterRegion.toUpperCase()) return false;
       }
 
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.style.display = 'none';
-      link.href = downloadUrl;
-      
-      const today = new Date().toISOString().split('T')[0];
-      link.download = `SECURE_AUDIT_LOGS_${today}.zip`; 
-      
-      document.body.appendChild(link);
-      link.click();
-      
-      setTimeout(() => {
-         document.body.removeChild(link);
-         window.URL.revokeObjectURL(downloadUrl);
-      }, 2000);
-      
-    } catch (error) {
-      console.error("Export failed:", error);
-      alert(`Failed to export Audit Logs: ${error.message}`);
+      if (filterStation && filterStation !== 'ALL STATIONS') {
+        if (!isStationEquivalent(repStn, filterStation)) return false;
+      }
+
+      return true;
+    }).sort((a, b) => (b.sn || b.id || 0) - (a.sn || a.id || 0));
+  }, [serverReports, filterRegion, filterStation]);
+
+  const availableUpdateCases = useMemo(() => {
+    return finalFilteredReports.filter(r => {
+      const stn = stripHtmlTags(r.station || '').trim().toUpperCase();
+      const reg = getOfficialRegionForStation(stn, r.region);
+
+      if (!canViewGlobalActive) {
+        const belongsToRegion = reg === userRegClean ||  
+                            (REGIONAL_HIERARCHY[userRegClean] && REGIONAL_HIERARCHY[userRegClean].some(s => isStationEquivalent(s, stn)));
+        if (!belongsToRegion) return false;
+      }
+
+      if (updateSearch) {
+        const query = stripHtmlTags(updateSearch).toLowerCase();
+        return stripHtmlTags(r.sdRef || r.sd_ref || '').toLowerCase().includes(query) || (r.id || r.sn || '').toString().includes(query) || extractPlainText(r.narrative).toLowerCase().includes(query);
+      }
+      return true;
+    });
+  }, [finalFilteredReports, updateSearch, canViewGlobalActive, userRegClean]);
+
+  const metrics = useMemo(() => {
+    const todayStr = getTodayString(); 
+    const todaysLockupEntries = lockupData.filter(l => l.date === todayStr);
+
+    const masterLog = todaysLockupEntries.find(row => {
+        const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
+        return stn === 'HEADQUARTERS GENERAL TOTAL' || stn === 'KMP HEADQUARTERS';
+    });
+    const kmpGeneralTotal = masterLog ? Number(masterLog.suspects || 0) : 'Pending';
+
+    let localJurisdictionTotal = 0;
+    const computedEntries = todaysLockupEntries.filter(row => {
+        const stn = stripHtmlTags(row.station || '').trim().toUpperCase();
+        return stn !== 'HEADQUARTERS GENERAL TOTAL' && stn !== 'KMP HEADQUARTERS';
+    });
+
+    if (filterStation && filterStation !== 'ALL STATIONS') {
+      localJurisdictionTotal = computedEntries
+        .filter(stn => isStationEquivalent(stn.station, filterStation))
+        .reduce((sum, stn) => sum + Number(stn.suspects || 0), 0);
+    } else if (filterRegion && filterRegion !== 'ALL REGIONS') {
+      const regionStations = REGIONAL_HIERARCHY[filterRegion] || [];
+      localJurisdictionTotal = computedEntries
+        .filter(stn => regionStations.some(rs => isStationEquivalent(stn.station, rs)))
+        .reduce((sum, stat) => sum + Number(stat.suspects || 0), 0);
+    } else {
+      localJurisdictionTotal = computedEntries.reduce((sum, pop) => sum + Number(pop.suspects || 0), 0);
+    }
+
+    const totalCaseSuspects = finalFilteredReports.reduce((sum, r) => sum + (r.suspectDetails || r.suspect_details || []).length, 0);
+
+    return {
+      localLockup: localJurisdictionTotal > 0 ? localJurisdictionTotal : "0",
+      kmpGeneralLockup: kmpGeneralTotal,
+      newCases: finalFilteredReports.length,
+      active: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ACTIVE INVESTIGATION').length,
+      sanctioned: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'FORWARDED TO COURT').length,
+      closed: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'CLOSED / CONVICTED').length,
+      adr: finalFilteredReports.filter(r => stripHtmlTags(r.status) === 'ADR').length,
+      totalSuspects: totalCaseSuspects
+    };
+  }, [finalFilteredReports, lockupData, filterRegion, filterStation]);
+
+  const handleInputChange = (e) => {
+    const { name, value, type } = e.target;
+    const cleanValue = stripHtmlTags(value);
+    
+    if (name === 'region') {
+      setFormData(prev => ({ ...prev, region: cleanValue, station: REGIONAL_HIERARCHY[cleanValue]?.[0] || '' }));
+    } else if (name === 'category') {
+      const val = cleanValue.toUpperCase();
+      if (val === 'AGRIC_CRIME') {
+        setShowAgriculturalOnly(true);
+        setShowAccidentsOnly(false);
+        setShowFiresOnly(false);
+      } else if (val === 'ACCIDENT') {
+        setShowAccidentsOnly(true);
+        setShowAgriculturalOnly(false);
+        setShowFiresOnly(false);
+      } else if (val === 'FIRE INCIDENTS' || val === 'FIRE') {
+        setShowFiresOnly(true);
+        setShowAgriculturalOnly(false);
+        setShowAccidentsOnly(false);
+      } else {
+        setShowAgriculturalOnly(false);
+        setShowAccidentsOnly(false);
+        setShowFiresOnly(false);
+      }
+      setFormData(prev => ({ ...prev, category: val }));
+    } else if (['customOffence'].includes(name)) {
+      setFormData(prev => ({ ...prev, [name]: cleanValue.toUpperCase() }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseInt(cleanValue) || 0 : cleanValue }));
     }
   };
 
-  return (
-    <>
-      <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
-        
-        <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
-          isFullScreen 
-            ? 'hidden w-0' 
-            : (sidebarOpen ? 'w-72 md:w-80' : 'w-16')
-        }`}>
-          <div className={`p-5 flex items-center border-b border-slate-700 bg-slate-900 sticky top-0 z-50 transition-all ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
-            {sidebarOpen && (
-              <div className="flex items-center min-w-max">
-                <div className="rounded-full bg-cover bg-repeat-x shrink-0 mr-2 border border-slate-700/50" style={{ width: '20px', height: '20px', backgroundImage: "url('/UPF Flag Emblem.png')", animation: "spinFauxGlobe 28s linear infinite", boxShadow: "inset -3px -3px 5px rgba(0, 0, 0, 0.8), inset 1px 1px 2px rgba(255, 255, 255, 0.5), 0 0 3px rgba(255, 255, 255, 0.2)" }}></div>
-                <span className="font-bold text-[10px] tracking-wider text-white">KMP TRACKER SYSTEM</span>
-              </div>
-            )}
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 rounded-lg text-slate-100 transition-colors shrink-0 shadow-md border border-slate-600 cursor-pointer flex items-center justify-center" aria-label="Toggle Sidebar">
-              {sidebarOpen ? <X size={22} className="text-yellow-400 animate-in spin-in-90 duration-200" /> : <Menu size={22} className="text-yellow-400 animate-in spin-in-[-90deg] duration-200" />}
-            </button>
-          </div>
-              
-          <div className="flex-1 overflow-y-auto py-2 custom-scrollbar overflow-x-hidden">
-            {sidebarOpen && <div className="px-6 mb-2 text-xs font-bold text-orange-500 uppercase tracking-wider min-w-max">📋 Select Domain Category</div>}
-            
-            <nav className="space-y-1 mb-8">
-              {navItems.map((item) => (
-                <button 
-                  key={item.id} 
-                  onClick={() => setCurrentPage(item.id)}
-                  className={`w-full flex items-center py-3 transition-all duration-300 text-left ${sidebarOpen ? 'px-6' : 'px-0 justify-center'} ${
-                    item.id === 'Admin_Communication' && hasUnreadComms && currentPage !== item.id
-                      ? 'bg-blue-900/60 border-l-4 border-green-500 text-green-400 animate-pulse shadow-[inset_0_0_15px_rgba(34,197,94,0.15)]'
-                      : currentPage === item.id 
-                        ? 'bg-blue-600 border-l-4 border-yellow-400 text-white' 
-                        : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-4 border-transparent'
-                  }`}
-                >
-                  <div className="min-w-[24px] flex justify-center shrink-0">{item.icon}</div>
-                  {sidebarOpen && (
-                    <span className={`ml-3 font-medium text-sm flex items-center justify-between flex-1 min-w-max ${
-                      item.id === 'Admin_Communication' && hasUnreadComms ? 'text-green-300 font-extrabold tracking-wide' : ''
-                    }`}>
-                      {item.name}
-                      {item.id === 'Admin_Communication' && hasUnreadComms && (
-                        <span className="text-[9px] bg-green-500/20 text-green-300 border border-green-400/50 px-2 py-0.5 rounded uppercase tracking-wider ml-2 shadow-[0_0_8px_rgba(34,197,94,0.4)]">
-                          New Dispatch
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
+  const handleAddSuspect = () => {
+    if (!newSuspect.name.trim()) return alert("Suspect name is required.");
+    const sanitizedSuspect = {
+      ...newSuspect,
+      name: stripHtmlTags(newSuspect.name),
+      tribe: stripHtmlTags(newSuspect.tribe),
+      nationality: stripHtmlTags(newSuspect.nationality),
+      residence: stripHtmlTags(newSuspect.residence),
+      contact: stripHtmlTags(newSuspect.contact),
+      id: editingSuspectId || Date.now()
+    };
 
-            {sidebarOpen && checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser?.role) || currentUser?.permissions?.system_admin) && (
-              <div className="px-4 space-y-3 min-w-max">
-                <div className={`rounded-lg p-3 transition-colors ${currentPage === 'approvals' ? 'bg-slate-700 border border-slate-600' : 'bg-slate-800'}`}>
-                  <div className="text-sm font-bold mb-2 flex items-center"><UserPlus size={16} className="mr-2"/> Access & Approvals</div>
-                  <button onClick={() => setCurrentPage('approvals')} className={`w-full text-xs py-4 rounded transition font-medium cursor-pointer ${currentPage === 'approvals' ? 'bg-green-600 text-white' : 'bg-slate-300 hover:bg-slate-600 text-slate-900 hover:text-white'}`}>
-                    All Access Approvals & Logs
+    if (editingSuspectId !== null) {
+      setFormData({
+        ...formData,
+        suspectDetails: formData.suspectDetails.map(s => s.id === editingSuspectId ? sanitizedSuspect : s)
+      });
+      setEditingSuspectId(null);
+    } else {
+      setFormData({
+        ...formData,
+        suspectDetails: [...formData.suspectDetails, sanitizedSuspect]
+      });
+    }
+
+    setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); 
+  };
+
+  const handleRemoveSuspect = (id) => {
+    setFormData({ ...formData, suspectDetails: formData.suspectDetails.filter(s => s.id !== id) });
+    if (editingSuspectId === id) setEditingSuspectId(null);
+  };
+
+  const handleSuspectPhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setNotification("⏳ Uploading suspect mugshot...");
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("category", "suspect_mugshot");
+      uploadData.append("case_id", stripHtmlTags(formData.sd_ref || "NEW_CASE"));
+
+      try {
+        const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
+        const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+          
+        const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
+            method: "POST", 
+            headers: { "Authorization": `Bearer ${token}` }, 
+            body: uploadData 
+        });
+          
+        if (!response.ok) throw new Error("Upload failed");
+          
+        const data = await response.json();
+          
+        if (data.full_s3_url || data.cloud_storage_path || data.url) {
+          setNewSuspect({ 
+              ...newSuspect, 
+              photo_url: stripHtmlTags(data.url || data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) 
+          });
+          setNotification("✅ Mugshot uploaded securely!");
+        } else {
+            throw new Error("Invalid response");
+        }
+      } catch (error) {
+        console.error("Upload error:", error);
+        setNewSuspect({ ...newSuspect, photo_url: URL.createObjectURL(file) });
+        setNotification("⚠️ API unreachable. Using temporary local preview.");
+      }
+    }
+  };
+
+  const handleExhibitPhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setNotification("⏳ Uploading exhibit photo...");
+      const uploadData = new FormData();
+      uploadData.append("file", file);
+      uploadData.append("category", "exhibit_photo");
+      uploadData.append("case_id", stripHtmlTags(formData.ref_number || "NEW_EXHIBIT"));
+
+      try {
+        const token = localStorage.getItem('kmp_authToken') || sessionStorage.getItem('kmp_authToken');
+        const API_URL = import.meta.env?.VITE_API_URL || "https://kmp-tracker-system-centralised-security.onrender.com";
+        const response = await fetch(`${API_URL}/api/v1/investigation/upload`, { 
+            method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: uploadData 
+        });
+        if (!response.ok) throw new Error("Upload failed");
+        const data = await response.json();
+        
+        if (data.full_s3_url || data.cloud_storage_path || data.url) {
+          setNewExhibit({ ...newExhibit, photo_url: stripHtmlTags(data.url || data.full_s3_url || `https://kmp-tracker-system-tu-16-06-26.s3.eu-central-1.amazonaws.com/${data.cloud_storage_path}`) });
+          setNotification("✅ Exhibit photo securely uploaded!");
+        }
+      } catch (error) {
+        setNewExhibit({ ...newExhibit, photo_url: URL.createObjectURL(file) });
+        setNotification("⚠️ API unreachable. Using local preview.");
+      }
+    }
+  };
+
+  const handleAddExhibit = () => {
+    if (!newExhibit.type_make.trim() || !newExhibit.reason.trim()) return alert("Item Description and Reason are required.");
+    
+    setFormData(prev => ({
+      ...prev,
+      exhibitDetails: [...(prev.exhibitDetails || []), { ...newExhibit, linked_suspect_id: currentExhibitSuspectId, id: Date.now() }]
+    }));
+    
+    setNewExhibit({ category: 'GENERAL PROPERTY', type_make: '', colour: '', assorted_items: 'NIL', reason: '', status: 'UNDER INVESTIGATION', photo_url: '' });
+    setShowExhibitModal(false);
+  };
+
+  const handleRemoveExhibit = (id) => {
+    setFormData(prev => ({
+      ...prev,
+      exhibitDetails: prev.exhibitDetails.filter(e => e.id !== id)
+    }));
+  };
+
+  const handleHqGrandTotalSubmit = async (e) => {
+    e.preventDefault();
+    if (!hqGrandTotalInput && hqGrandTotalInput !== 0) return alert("Please enter a valid Grand Total.");
+          
+    setNotification("⏳ Submitting HQ General Grand Total to Independent Matrix...");
+    const hqRef = `HQ-GRAND-${Date.now().toString().slice(-6)}`;
+
+    const apiPayload = {
+      sd_ref: hqRef, 
+      region: "KMP HEADQUARTERS", 
+      station: "HEADQUARTERS GENERAL TOTAL",
+      date: getTodayString(),
+      time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }).replace(':', '') + 'Hrs',
+      suspects: parseInt(hqGrandTotalInput) || 0,
+      male_count: 0,
+      male_juvenile_count: 0,
+      female_count: 0,
+      female_juvenile_count: 0,
+      detention_1day: 0,
+      detention_2days: 0,
+      detention_3days_over: 0,
+      last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`
+    };
+
+    try {
+      const response = await authFetch(`/api/v1/lockup-matrix`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload)
+      });
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected HQ total.");
+
+      const newLockup = resData;
+      setLockupData([newLockup, ...lockupData]);
+      setNotification(`✅ HQ General Total (${hqGrandTotalInput}) successfully posted!`);
+      setShowHqGrandModal(false);
+      setHqGrandTotalInput('');
+      setTimeout(() => setNotification(null), 5000);
+    } catch (err) {
+      setNotification(`❌ Action Failed: ${stripHtmlTags(err.message)}`);
+    }
+  };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault();
+          
+    if (!formData.category || formData.category.trim() === "") {
+      return setNotification("⚠️ Error: Operation Category selection is mandatory. Please select a valid category.");
+    }
+
+    let formattedTime = stripHtmlTags(formData.time || '');
+    if (formattedTime && !/hrs$/i.test(formattedTime.trim())) formattedTime = `${formattedTime.trim()}Hrs`;
+
+    const plainNarrative = formData.narrative;
+    const plainTextForDuplicate = extractPlainText(formData.narrative);
+
+    if (operation === 'new') {
+      const cleanRefType = stripHtmlTags(formData.ref_type);
+      const cleanRefNumber = stripHtmlTags(formData.ref_number).toUpperCase().trim();
+      const final_reference = `${cleanRefType} ${cleanRefNumber}`.trim();
+          
+      if (cleanRefType === 'SD Ref:') {
+        const sdRegex = /^\d{1,3}\/\d{2}\/\d{2}\/\d{4}$/;
+        if (!sdRegex.test(cleanRefNumber)) {
+          return setNotification("⚠️ Invalid SD Ref format! Must follow the format 01/01/01/2026 (Serial Number / Day / Month / Year).");
+        }
+      } else if (['CRB:', 'DEF:', 'GEF:', 'CID:'].includes(cleanRefType)) {
+        const caseRegex = /^\d{1,4}\/\d{4}$/;
+        if (!caseRegex.test(cleanRefNumber)) {
+          return setNotification(`⚠️ Invalid ${cleanRefType} format! Must follow the format 001/2026 (Incident Number / Year).`);
+        }
+      } else if (cleanRefType === 'TAR:') {
+        const tarRegex = /^(\d{1,4}\/\d{4}|\d{1,3}\/\d{2}\/\d{2}\/\d{4})$/;
+        if (!tarRegex.test(cleanRefNumber)) {
+          return setNotification("⚠️ Invalid TAR format! Must follow either 001/2026 or 01/01/01/2026.");
+        }
+      }
+
+      const isDuplicate = serverReports.some(r => stripHtmlTags(r.station) === stripHtmlTags(formData.station) && ((stripHtmlTags(r.sdRef || r.sd_ref || '')).trim().toLowerCase() === final_reference.toLowerCase() || extractPlainText(r.narrative || '').trim().toLowerCase() === plainTextForDuplicate.toLowerCase()));
+      if (isDuplicate) return setNotification(`Error: This specific ${cleanRefType} entry or identical narrative already exists.`);
+
+      const activeSubmissionRegion = canViewGlobalActive
+        ? getOfficialRegionForStation(formData.station, filterRegion !== 'ALL REGIONS' ? filterRegion : formData.region)
+        : getOfficialRegionForStation(formData.station, formData.region);
+
+      const apiPayload = {
+        sd_ref: final_reference, 
+        region: activeSubmissionRegion, 
+        station: stripHtmlTags(formData.station),
+        date: stripHtmlTags(formData.date), 
+        time: formattedTime, 
+        offence: formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence), 
+        category: formData.category,
+        narrative: plainNarrative, 
+        status: stripHtmlTags(formData.status), 
+        suspects: formData.suspectDetails.length, 
+        last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`, 
+        suspectDetails: formData.suspectDetails,
+        exhibitDetails: formData.exhibitDetails, 
+        daily_lock_up: 0 
+      };
+              
+      try {
+        const response = await authFetch(`/api/v1/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiPayload) });
+        const resData = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Database rejected the entry.");
+              
+        fetchFilteredDatabaseReports();
+        setNotification(`✅ Case SN ${resData.sn} (Ref: ${apiPayload.sd_ref}) & Exhibits successfully registered!`);
+        resetFormToBlank();
+        setTimeout(() => setNotification(null), 5000);
+      } catch (err) { 
+        setNotification(`❌ Action Failed: ${stripHtmlTags(err.message || "Could not register the case.")}`); 
+      }
+
+    } else if (operation === 'update') {
+      if (!formData.sn) return setNotification("Error: Please select a case first.");
+          
+      const plainUpdateText = extractPlainText(formData.updateText || '').trim();
+      let updatedNarrative = formData.narrative;
+      if (plainUpdateText) {
+          updatedNarrative = `${formData.narrative}<p><br></p><p><strong style="color: #2563eb;">[UPDATE ${new Date().toLocaleString()}]:</strong></p>${formData.updateText}`;
+      }
+          
+      const finalOffenceValue = formData.offence === 'Other' ? stripHtmlTags(formData.customOffence).toUpperCase() : stripHtmlTags(formData.offence);
+
+      const updatedRecord = { 
+        ...formData, 
+        region: getOfficialRegionForStation(formData.station, formData.region),
+        time: formattedTime, 
+        narrative: updatedNarrative, 
+        offence: finalOffenceValue, 
+        category: formData.category,
+        status: formData.status,
+        suspects: formData.suspectDetails.length,
+        last_updated_by: `${stripHtmlTags(currentUser?.name)} (${stripHtmlTags(currentUser?.fnum)})`, 
+        daily_lock_up: 0
+      };
+       
+      delete updatedRecord.updateText; 
+      delete updatedRecord.ref_type; 
+      delete updatedRecord.ref_number;
+      delete updatedRecord.customOffence; 
+          
+      try {
+        const response = await authFetch(`/api/v1/reports/${formData.sn}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updatedRecord) });
+        const resData = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(stripHtmlTags(resData.detail) || "Failed to update record in database.");
+
+        fetchFilteredDatabaseReports();
+        setNotification(`✅ Case SN ${formData.sn} successfully updated!`);
+        handleOperationToggle('new');
+        setTimeout(() => setNotification(null), 5000);
+      } catch (err) { 
+        setNotification(`❌ Action Failed: ${stripHtmlTags(err.message || "Could not update the record.")}`); 
+      }
+    }
+  };
+
+  const handleExportFilteredData = async () => {
+    if (!serverReports.length) {
+      alert("No records available to export for the selected filters.");
+      return;
+    }
+    
+    setNotification("⏳ Generating AES-256 secure encrypted spreadsheet archive. Please wait...");
+    
+    try {
+      const params = new URLSearchParams();
+      if (!canViewGlobalActive && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      if (filterOffence && filterOffence !== 'ALL OFFENCES') params.append('offence', filterOffence);
+      if (showAgriculturalOnly) params.append('agri_only', 'true');
+      if (showAccidentsOnly) params.append('accidents_only', 'true');
+      if (showFiresOnly) params.append('fires_only', 'true');
+      if (debouncedSearch) params.append('search', debouncedSearch);
+      
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+
+      const response = await authFetch(`/api/v1/reports/export?${params.toString()}`);
+      if (!response.ok) throw new Error("Secure export failed on server.");
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = 'KMP_REGISTRY_SECURE_EXPORT.zip';
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+          filename = disposition.split('filename=')[1].replace(/["']/g, '');
+      } else {
+          const timestamp = new Date().toISOString().split('T')[0];
+          filename = `KMP_REGISTRY_SECURE_EXPORT_${timestamp}.zip`;
+      }
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setNotification("✅ Secure AES-256 archive downloaded successfully! Use your Force Number to unlock.");
+      setTimeout(() => setNotification(null), 6000);
+    } catch (err) {
+      console.error("Export error:", err);
+      setNotification("❌ Failed to generate secure export archive.");
+    }
+  };
+   
+  return (
+    <div className="p-4 max-w-[1600px] mx-auto space-y-4 relative z-10 font-sans">
+        
+      {/* ========================================== */}
+      {/* 🟢 MODAL REGISTRY */}
+      {/* ========================================== */}
+
+      {showHqGrandModal && (
+        <div className="fixed inset-0 bg-slate-950/80 z-[150] flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-md w-full overflow-hidden border border-amber-300 dark:border-amber-800 animate-in zoom-in-95">
+            <div className="bg-amber-600 dark:bg-amber-700 text-white px-4 py-3 flex justify-between items-center">
+              <h3 className="font-extrabold uppercase text-xs tracking-wider flex items-center"><Shield className="mr-1.5" size={16} /> Command Fallback: General Grand Total</h3>
+              <button onClick={() => setShowHqGrandModal(false)} className="hover:bg-amber-700 dark:hover:bg-amber-800 p-1 rounded transition"><X size={16}/></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium">Use this to log the combined national/regional general grand total if stations fail to submit their cell populations before the deadline.</p>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Enter Master Grand Total Suspects *</label>
+                <input type="number" min="0" value={hqGrandTotalInput} onChange={(e) => setHqGrandTotalInput(stripHtmlTags(e.target.value))} placeholder="e.g. 450" className="w-full text-base font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg p-2.5 outline-none focus:border-amber-600" />
+              </div>
+              <div className="flex justify-end space-x-2 pt-1">
+                <button type="button" onClick={() => setShowHqGrandModal(false)} className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-lg font-bold text-[11px]">Cancel</button>
+                <button type="button" onClick={handleHqGrandTotalSubmit} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] uppercase shadow">Post Grand Total</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showExhibitModal && (
+        <div className="fixed inset-0 bg-slate-900/90 z-[200] flex justify-center items-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-lg border border-amber-500 overflow-hidden">
+            <div className="bg-amber-600 dark:bg-amber-700 text-white px-5 py-3 flex justify-between items-center">
+              <h3 className="font-extrabold flex items-center text-xs tracking-wider uppercase"><Camera size={16} className="mr-2"/> Log Recovered Exhibit</h3>
+              <button onClick={() => setShowExhibitModal(false)} className="hover:bg-amber-800 p-1 rounded transition"><X size={16}/></button>
+            </div>
+            
+            <div className="p-5 space-y-3 bg-slate-50 dark:bg-slate-800">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Exhibit Category</label>
+                  <select value={newExhibit.category} onChange={e => setNewExhibit({...newExhibit, category: e.target.value})} className="w-full text-xs border rounded p-1.5 font-bold text-amber-700 bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-amber-400">
+                    {EXHIBIT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Description (Make/Type) *</label>
+                  <input type="text" value={newExhibit.type_make} onChange={e => setNewExhibit({...newExhibit, type_make: e.target.value.toUpperCase()})} placeholder="e.g. DELL LAPTOP / 50K NOTES" className="w-full text-xs border rounded p-1.5 uppercase font-bold bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Colour / Features</label>
+                  <input type="text" value={newExhibit.colour} onChange={e => setNewExhibit({...newExhibit, colour: e.target.value.toUpperCase()})} placeholder="e.g. SILVER / RED" className="w-full text-xs border rounded p-1.5 uppercase bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Assorted Items</label>
+                  <input type="text" value={newExhibit.assorted_items} onChange={e => setNewExhibit({...newExhibit, assorted_items: e.target.value.toUpperCase()})} placeholder="e.g. CHARGER" className="w-full text-xs border rounded p-1.5 uppercase bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-0.5">Reason / Offence Context *</label>
+                  <input type="text" value={newExhibit.reason} onChange={e => setNewExhibit({...newExhibit, reason: e.target.value.toUpperCase()})} placeholder="e.g. ROBBERY EVIDENCE" className="w-full text-xs border rounded p-1.5 uppercase font-bold bg-white dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100" />
+                </div>
+              </div>
+
+              <div className="bg-amber-50 dark:bg-slate-900/60 p-3 rounded-lg border border-amber-200 dark:border-amber-900/50 flex items-center space-x-3 mt-2">
+                {newExhibit.photo_url ? ( <img src={newExhibit.photo_url} alt="Exhibit" className="w-12 h-12 rounded object-cover border-2 border-amber-400 shadow-sm" /> ) : ( <div className="w-12 h-12 rounded bg-amber-100 dark:bg-amber-950 flex flex-col items-center justify-center text-amber-500 border border-dashed border-amber-300 text-center p-1 text-[8px] uppercase font-bold"><Camera size={14}/>No Photo</div> )}
+                <div className="flex-1">
+                  <label className="block text-[10px] font-bold text-amber-700 dark:text-amber-500 mb-1">Upload Photo (Optional)</label>
+                  <input type="file" accept="image/*" onChange={handleExhibitPhotoUpload} className="text-[10px] file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:font-bold file:bg-amber-600 file:text-white hover:file:bg-amber-700 w-full cursor-pointer dark:text-slate-300" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 p-3 border-t dark:border-slate-700 flex justify-end space-x-2">
+              <button onClick={() => setShowExhibitModal(false)} className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded font-bold text-xs cursor-pointer">Cancel</button>
+              <button onClick={handleAddExhibit} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded font-bold text-xs uppercase shadow cursor-pointer">Attach Exhibit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLockup && (
+        <div className="fixed inset-0 bg-slate-900/80 z-[100] flex justify-center items-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh] border border-red-200 dark:border-red-900">
+            <div className="bg-red-700 dark:bg-red-800 text-white px-5 py-3 flex justify-between items-center shrink-0">
+              <h3 className="font-extrabold flex items-center text-xs tracking-wider"><Users className="mr-2" size={16}/> SUSPECT LOCKUP REGISTER</h3>
+              <button onClick={() => setShowLockup(false)} className="hover:bg-red-600 dark:hover:bg-red-700 p-1 rounded transition"><X size={16}/></button>
+            </div>
+            <div className="p-5 overflow-y-auto bg-slate-50 dark:bg-slate-800 space-y-4 flex-1 custom-scrollbar">
+              <div className="bg-white dark:bg-slate-900 p-3.5 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700">
+                <div className="flex justify-between items-center mb-2">
+                  <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                    {editingSuspectId !== null ? '✏️ Editing Selected Suspect' : 'Add Suspect Details'}
+                  </h4>
+                  {editingSuspectId !== null && (
+                    <button type="button" onClick={() => { setEditingSuspectId(null); setNewSuspect({ name: '', sex: 'MALE', age: '', tribe: '', nationality: '', residence: '', contact: '', mental_health_status: 'NORMAL', photo_url: '' }); }} className="text-[10px] text-blue-600 font-bold hover:underline">Cancel Edit</button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2.5">
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Full Name *</label>
+                    <input type="text" value={newSuspect.name} onChange={e => setNewSuspect({...newSuspect, name: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. OPIO JOHN"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Sex</label>
+                    <select value={newSuspect.sex} onChange={e => setNewSuspect({...newSuspect, sex: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100">
+                      <option>MALE</option><option>FEMALE</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Age</label>
+                    <input type="number" value={newSuspect.age} onChange={e => setNewSuspect({...newSuspect, age: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. 24"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Tribe</label>
+                    <input type="text" value={newSuspect.tribe} onChange={e => setNewSuspect({...newSuspect, tribe: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. ACHOLI"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Nationality</label>
+                    <input type="text" value={newSuspect.nationality} onChange={e => setNewSuspect({...newSuspect, nationality: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 uppercase bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. UGANDAN"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Contact/Phone</label>
+                    <input type="text" value={newSuspect.contact} onChange={e => setNewSuspect({...newSuspect, contact: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100"/>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Residence/Location</label>
+                    <input type="text" value={newSuspect.residence} onChange={e => setNewSuspect({...newSuspect, residence: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100" placeholder="e.g. Bwaise Zone 2"/>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Mental Health Status</label>
+                    <select value={newSuspect.mental_health_status} onChange={e => setNewSuspect({...newSuspect, mental_health_status: stripHtmlTags(e.target.value)})} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded border p-1.5 bg-white dark:bg-slate-800 font-bold text-slate-800 dark:text-slate-100">
+                      <option value="NORMAL">NORMAL</option><option value="SUSPECTED PSYCHOLOGICAL CONDITION">SUSPECTED PSYCHOLOGICAL CONDITION</option><option value="UNSTABLE">UNSTABLE</option><option value="UNDER OBSERVATION">UNDER OBSERVATION</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="md:col-span-3 bg-red-50 dark:bg-red-950/40 p-2.5 rounded-lg border border-red-100 dark:border-red-900 mt-2">
+                  <label className="block text-[10px] font-bold text-red-800 dark:text-red-400 mb-1.5 flex items-center"><Camera size={12} className="mr-1"/> Suspect Mugshot (Optional)</label>
+                  <div className="flex items-center space-x-3">
+                    {newSuspect.photo_url ? ( <img src={newSuspect.photo_url} alt="Mugshot" className="w-10 h-10 rounded object-cover border-2 border-red-300 dark:border-red-800 shadow-sm" /> ) : ( <div className="w-10 h-10 rounded bg-red-100 dark:bg-red-950 flex items-center justify-center text-red-300 border border-dashed border-red-200 dark:border-red-900 text-center p-1 text-[9px]">No Photo</div> )}
+                    <input type="file" accept="image/*" onChange={handleSuspectPhotoUpload} className="text-[11px] file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-[11px] file:font-bold file:bg-red-600 file:text-white hover:file:bg-red-700 w-full cursor-pointer text-slate-700 dark:text-slate-300" />
+                  </div>
+                </div>
+                <div className="flex justify-end mt-3">
+                  <button type="button" onClick={handleAddSuspect} className={`font-bold py-1.5 px-3 rounded text-xs transition-colors flex items-center cursor-pointer ${editingSuspectId !== null ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}>
+                    <PlusCircle size={14} className="mr-1"/> {editingSuspectId !== null ? 'Update Suspect Details' : 'Add to Register'}
                   </button>
                 </div>
               </div>
-            )}
-
-            {sidebarOpen && checkClearance(currentUser, 'acc_online', true) && (
-              <div className="rounded-lg p-4 bg-slate-800 mx-4 mt-3">
-                <button type="button" onClick={() => setShowOnline(!showOnline)} className="w-full flex justify-between items-center text-sm font-bold text-green-400 cursor-pointer">
-                  <span className="flex items-center"><RadioReceiver size={16} className="mr-3"/> 🟢 Active Online ({realOnlineUsers?.length || 0})</span>
-                </button>
-                {showOnline && (
-                  <div className="mt-4 space-y-2 border-t border-slate-700 pt-4 max-h-40 overflow-y-auto custom-scrollbar pr-1">
-                    {realOnlineUsers.map((user) => (
-                      <div key={user.fnum} onClick={() => { setSelectedUserDetail({ ...user, isSystemUser: true, isReadOnly: true }); setNewForcePassword(''); }} className="text-xs bg-slate-800 p-2 rounded-lg hover:bg-slate-950 border border-transparent hover:border-green-500 cursor-pointer transition-all flex items-center justify-between group">
-                        <div className="flex items-center space-x-3">
-                          {user.profile_photo_path ? (
-                            <img src={user.profile_photo_path} alt="" className="w-7 h-7 rounded-full border border-green-400 object-cover shadow-sm group-hover:border-green-300 transition-colors" onError={(e) => { e.target.style.display='none'; }} />
-                          ) : (
-                            <div className="w-7 h-7 bg-green-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">{user.name?.charAt(0) || 'U'}</div>
-                          )}
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 border-b dark:border-slate-700 pb-1.5 flex justify-between items-center">
+                  <span>Currently Logged Suspects ({formData.suspectDetails.length})</span>
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-medium">💡 Click any entry to edit</span>
+                </h4>
+                {formData.suspectDetails.length === 0 ? (
+                  <div className="text-center p-4 bg-white dark:bg-slate-900 border border-dashed border-gray-300 dark:border-slate-700 rounded-lg text-gray-400 dark:text-slate-500 text-xs font-medium">No suspects added to this report yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {formData.suspectDetails.map((suspect, index) => (
+                      <div 
+                        key={suspect.id} 
+                        onClick={() => handleSelectSuspectToEdit(suspect)}
+                        className={`bg-white dark:bg-slate-900 border rounded-lg p-3 flex flex-col gap-2 shadow-sm cursor-pointer transition-all ${
+                          editingSuspectId === suspect.id ? 'border-blue-600 ring-2 ring-blue-500/20 bg-blue-50/50 dark:bg-slate-800' : 'border-red-100 dark:border-red-950 hover:border-blue-400'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
                           <div>
-                            <span className="font-bold text-white block truncate w-32">{user.name} {user.fnum === currentUser.fnum ? '(You)' : ''}</span>
-                            <span className="text-slate-400 text-[9px] uppercase tracking-wider">{user.role || 'USER'} • {user.station}</span>
+                            <div className="font-bold text-slate-800 dark:text-slate-100 text-xs uppercase flex items-center">
+                              {index + 1}. {stripHtmlTags(suspect.name)}
+                              {editingSuspectId === suspect.id && <span className="ml-2 text-[9px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-black">Editing</span>}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                              {stripHtmlTags(suspect.sex)} • {suspect.age ? `${stripHtmlTags(String(suspect.age))}yrs` : 'Age Unknown'} • Tribe: {stripHtmlTags(suspect.tribe || 'N/A')} • Nat: {stripHtmlTags(suspect.nationality || 'N/A')} | Res: {stripHtmlTags(suspect.residence || 'N/A')} | Tel: {stripHtmlTags(suspect.contact || 'N/A')}
+                            </div>
                           </div>
+                          <button 
+                            type="button" 
+                            onClick={(e) => { e.stopPropagation(); handleRemoveSuspect(suspect.id); }} 
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 p-1.5 rounded transition cursor-pointer"
+                          >
+                            <X size={16}/>
+                          </button>
                         </div>
-                        <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_#22c55e] animate-pulse"></div>
+
+                        {formData.exhibitDetails && formData.exhibitDetails.filter(e => e.linked_suspect_id === suspect.id).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1 pt-2 border-t dark:border-slate-800">
+                            {formData.exhibitDetails.filter(e => e.linked_suspect_id === suspect.id).map(ex => (
+                              <div key={ex.id} className="text-[9px] bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-900 inline-flex items-center font-bold">
+                                📦 {ex.category} - {ex.type_make}
+                                <button type="button" onClick={(e) => { e.stopPropagation(); handleRemoveExhibit(ex.id); }} className="ml-1 text-amber-500 hover:text-red-600">×</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="mt-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCurrentExhibitSuspectId(suspect.id);
+                              setShowExhibitModal(true);
+                            }}
+                            className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-1 px-2.5 rounded text-[9px] uppercase shadow-sm transition cursor-pointer"
+                          >
+                            <Camera size={10} className="mr-1" /> Add Exhibit
+                          </button>
+                        </div>
+
                       </div>
                     ))}
                   </div>
                 )}
               </div>
-            )}
-
-            {sidebarOpen && checkClearance(currentUser, 'acc_ledgers', true) && (
-              <div className="px-4 mt-4 space-y-3 min-w-max pb-4">
-                <div className="bg-slate-800 rounded-lg p-3 border border-yellow-600/30">
-                  <div className="text-sm font-bold text-yellow-500 mb-3 flex items-center"><Shield size={16} className="mr-2"/> ⚙️ Reports & Ledgers</div>
-                  <div className="space-y-4">
-                    <div>
-                      <span className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1 block">HR & Establishments</span>
-                      <div className="flex space-x-2">
-                        <button 
-                          type="button"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onViewHRReport(); }} 
-                          className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs py-2 rounded transition flex items-center justify-center cursor-pointer shadow"
-                        >
-                          <Eye size={14} className="mr-1"/> View
-                        </button>
-                        {checkClearance(currentUser, 'export_data', true) && (
-                          <button 
-                            type="button"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onGenerateHRReport(); }} 
-                            className="flex-1 flex items-center justify-center text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded px-3 py-1.5 transition-colors cursor-pointer shadow"
-                          >
-                            <Download className="w-3 h-3 mr-2" /> Export
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {checkClearance(currentUser, 'acc_consolidated', true) && (
-                      <button 
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onViewConsolidated(); }} 
-                        className="w-full text-xs py-2.5 rounded transition flex items-center justify-center font-bold mt-3 bg-slate-900 hover:bg-slate-950 text-blue-400 border border-blue-900 cursor-pointer shadow"
-                      >
-                        <Eye size={14} className="mr-2"/> Consolidated Entries
-                      </button>
-                    )}
-                    {checkClearance(currentUser, 'export_logs', ['SUPER_ADMIN'].includes(currentUser?.role)) && (
-                      <button 
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleExportLogs(); }} 
-                        className="w-full mt-2 text-xs py-2.5 rounded transition font-bold bg-slate-900 hover:bg-slate-950 text-slate-300 border border-slate-700 flex items-center justify-center cursor-pointer shadow"
-                      >
-                        <Download size={14} className="mr-2 text-blue-400"/> Export Audit Logs
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className={`p-4 border-t border-slate-700 bg-slate-950 shrink-0 flex flex-col transition-all ${sidebarOpen ? '' : 'items-center'}`}>
-            <div className={`flex items-center cursor-pointer hover:bg-slate-800 rounded transition-colors ${sidebarOpen ? 'mb-4 px-2 p-2' : 'justify-center p-2 mb-3'}`} onClick={() => setCurrentPage('profile')}>
-               <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow overflow-hidden shrink-0">
-                 {currentUser?.profile_photo_path ? (
-                   <img src={currentUser.profile_photo_path} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.style.display='none'; }} />
-                 ) : (currentUser?.name?.charAt(0) || 'A')}
-               </div>
-               {sidebarOpen && (
-                 <div className="ml-3 flex-1 overflow-hidden min-w-max">
-                   <div className="text-sm font-bold leading-tight truncate">{currentUser?.name || 'Guest'}</div>
-                   <div className="text-xs font-bold text-green-400 uppercase truncate">{currentUser?.role || 'N/A'} • {currentUser?.station || 'N/A'}</div>
-                 </div>
-               )}
             </div>
-            <button onClick={onLogout} className={`flex items-center w-full py-2 text-red-400 hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-red-900 cursor-pointer ${sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'}`}>
-               <LogOut size={18} />
-               {sidebarOpen && <span className="ml-3 font-medium text-sm min-w-max">Secure Logout</span>}
-            </button>
+            <div className="bg-white dark:bg-slate-900 p-3 border-t border-gray-200 dark:border-slate-800 flex justify-end shrink-0">
+              <button type="button" onClick={() => setShowLockup(false)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-1.5 px-4 rounded text-xs transition cursor-pointer">Confirm & Return to Report</button>
+            </div>
           </div>
         </div>
+      )}
 
-        <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 w-full relative flex flex-col transition-colors duration-500">
-          
-          <div className="absolute top-4 right-6 z-50 flex items-center space-x-2">
-            <button 
-              onMouseEnter={() => setIsMotionExpanded(true)}
-              onMouseLeave={() => setIsMotionExpanded(false)}
-              onClick={() => setIsAnimating(!isAnimating)}
-              className={`transition-all duration-300 ease-in-out rounded-full shadow-md flex items-center justify-center border font-bold text-xs cursor-pointer ${isMotionExpanded ? 'px-3.5 py-1.5 gap-2' : 'p-2'} ${isAnimating ? 'bg-amber-600 hover:bg-amber-700 text-white border-amber-500' : 'bg-slate-700 hover:bg-slate-800 text-slate-200 border-slate-600'}`}
-              title={isAnimating ? "Pause Background Motion" : "Play Background Motion"}
-            >
-              <span className="text-sm">{isAnimating ? '⏸' : '▶'}</span>
-              {isMotionExpanded && <span className="whitespace-nowrap animate-in fade-in duration-200 font-bold">{isAnimating ? 'Pause Motion' : 'Play Motion'}</span>}
-            </button>
+      {showLockupMatrixModal && (
+        <Suspense fallback={null}>
+          <LockupMatrixLedger 
+            lockupEntries={lockupData} 
+            allTimeLockupTotal={null} 
+            onClose={() => setShowLockupMatrixModal(false)} 
+            selectedRegion={filterRegion}
+            selectedStation={filterStation}
+          />
+        </Suspense>
+      )}
 
-            <button onClick={() => setIsFullScreen(!isFullScreen)} className="bg-blue-400 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-xs font-bold shadow-md transition-colors flex items-center gap-2 border border-blue-400 cursor-pointer">
-              {isFullScreen ? '🗗' : '⛶'}
-            </button>
-          </div>
-
-          <div className="absolute inset-0 pointer-events-none z-0 uganda-flag-wave-diagonal opacity-[0.10]" style={{ animationPlayState: isAnimating ? 'running' : 'paused' }}></div>
-          <div className="fixed inset-0 pointer-events-none z-0 flex items-center justify-center opacity-[0.08]">
-            <img src="/upf_badge.png" alt="watermark" className="w-1/2 max-w-2xl grayscale object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
-          </div>
-          
-          {children}
-        </main>
-      </div>
-
-      {selectedUserDetail && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-y-auto max-h-[95vh] custom-scrollbar flex flex-col">
-            <div className="bg-slate-900 text-white p-4 flex justify-between items-center shrink-0">
-              <h3 className="font-bold flex items-center text-sm uppercase tracking-wider"><Shield size={18} className="text-blue-400 mr-2" /> Access Clearance Matrix — Officer Profile</h3>
-              <button onClick={() => setSelectedUserDetail(null)} className="text-slate-400 hover:text-white transition-colors cursor-pointer"><X size={20} /></button>
+      {/* 🟢 MODAL: OFFICIAL CRIME DOSSIER */}
+      {selectedCase && (
+        <div className="fixed inset-0 bg-slate-950/80 z-[9999] flex items-center justify-center p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700">
+            <div className="bg-slate-900 dark:bg-slate-950 text-white px-5 py-3 flex justify-between items-center shrink-0 shadow-md z-10">
+              <h3 className="font-bold flex items-center text-xs uppercase tracking-wider"><Shield className="text-blue-400 mr-2" size={16} /> OFFICIAL CRIME DOSSIER — REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</h3>
+              <button onClick={() => setSelectedCase(null)} className="text-slate-400 hover:text-white hover:bg-slate-700 p-1 rounded transition-colors cursor-pointer"><X size={18} /></button>
             </div>
             
-            <div className="p-6 space-y-6">
-              {/* Officer Identity & Command Hierarchy Badge */}
-              <div className="flex items-center space-x-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div className="w-16 h-16 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-extrabold text-2xl overflow-hidden shadow-sm border-2 border-blue-500 shrink-0">
-                  {selectedUserDetail.profile_photo_path ? (
-                     <img src={selectedUserDetail.profile_photo_path} alt="Profile" className="w-full h-full object-cover cursor-pointer hover:scale-110 transition-transform" onClick={() => setViewingProfileImage(selectedUserDetail.profile_photo_path)} />
-                  ) : (selectedUserDetail.name?.charAt(0) || 'U')}
-                </div>
-                <div>
-                  <h4 className="text-base font-extrabold text-slate-900 uppercase">
-                    {selectedUserDetail.rank} {selectedUserDetail.name}
-                  </h4>
-                  <p className="text-xs font-mono text-blue-600 font-bold">FNUM: {selectedUserDetail.fnum}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Command Tier: <span className="font-semibold text-slate-700">
-                      {selectedUserDetail.role === 'SUPER_ADMIN' && selectedUserDetail.fnum !== currentUser?.fnum 
-                        ? 'Subordinate Super Admin (Authorized by Central Command)' 
-                        : selectedUserDetail.role === 'SUPER_ADMIN' 
-                        ? 'Principal System Super Admin' 
-                        : 'Authorized Operational Officer'}
-                    </span>
-                  </p>
-                </div>
-              </div>
-
-              {/* Comprehensive Profile Details */}
-              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Comprehensive Profile</h4>
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner text-xs">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block">IPPS Number</label>
-                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.ipps || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Official Title / Position</label>
-                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.position || 'N/A'}</div>
-                </div>
-                <div className="col-span-2">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Command Chain (Region / Division / Station)</label>
-                  <div className="font-bold text-slate-800 text-sm">
-                    {selectedUserDetail.region || 'N/A'} / {selectedUserDetail.division || 'HQ'} / {selectedUserDetail.station || 'N/A'}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Email Contact</label>
-                  <div className="font-bold text-slate-800 text-sm break-words">{selectedUserDetail.email || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Phone Number</label>
-                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.phone || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block">Gender / Sex</label>
-                  <div className="font-bold text-slate-800 text-sm">{selectedUserDetail.sex || 'N/A'}</div>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase block">System Role Tier</label>
-                  <div className="font-extrabold text-blue-700 text-sm">{selectedUserDetail.role || 'USER'}</div>
-                </div>
-              </div>
-
-              {selectedUserDetail.isSystemUser && !selectedUserDetail.isReadOnly && (
-                currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
-              ) && (
-                <>
-                  <h4 className="font-extrabold text-sm text-gray-900 border-b pb-2 flex items-center mb-4 mt-6"><Shield size={16} className="mr-2 text-red-600"/> Component Admin Clearances</h4>
-                  <div className="space-y-3 bg-white p-4 rounded-lg border border-red-100 shadow-sm text-xs">
-                     <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" defaultChecked={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newRole = e.target.checked ? 'ADMIN' : 'USER'; onUpdateUserRole(selectedUserDetail.fnum, newRole, selectedUserDetail.permissions || {}); }} />
-                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors">System Administrator</div><div className="text-[10px] text-slate-500 font-medium">Grants access to Approvals, User Roster, and Audit Logs.</div></div>
-                    </label>
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-blue-500 rounded border-gray-300 focus:ring-blue-500" checked={Boolean(selectedUserDetail.permissions?.view_nominal_roll) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_nominal_roll: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-blue-700 transition-colors">Nominal Roll Access</div><div className="text-[10px] text-slate-500 font-medium">Grants standard users clearance to view the personnel registry.</div></div>
-                    </label>
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500" checked={Boolean(selectedUserDetail.permissions?.consolidated) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), consolidated: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">Consolidated Ledger Access</div><div className="text-[10px] text-slate-500 font-medium">Allows viewing the cross-domain master Excel overlays.</div></div>
-                    </label>
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500" checked={Boolean(selectedUserDetail.permissions?.export_data) || ['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} disabled={['RPC', 'Deputy Commander'].includes(selectedUserDetail.role) || String(selectedUserDetail.role || '').includes('ADMIN')} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), export_data: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-purple-700 transition-colors">Database Export Privilege</div><div className="text-[10px] text-slate-500 font-medium">Allows downloading raw .xlsx database files to local device.</div></div>
-                    </label>
-                    <label className="flex items-center space-x-3 cursor-pointer group">
-                      <input type="checkbox" className="w-4 h-4 text-orange-600 rounded border-gray-300 focus:ring-orange-500" checked={Boolean(selectedUserDetail.permissions?.view_global_roster) || ['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} disabled={['SUPER_ADMIN'].includes(selectedUserDetail.role) || ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(selectedUserDetail.region)} onChange={(e) => { const newPerms = { ...(selectedUserDetail.permissions || {}), view_global_roster: e.target.checked }; setSelectedUserDetail({ ...selectedUserDetail, permissions: newPerms }); onUpdateUserRole(selectedUserDetail.fnum, selectedUserDetail.role, newPerms); }} />
-                      <div className="flex-1"><div className="font-bold text-slate-800 group-hover:text-orange-700 transition-colors">Global Roster Visibility</div><div className="text-[10px] text-slate-500 font-medium">Allows viewing personnel from ALL regions in the System Roster.</div></div>
-                    </label>
-                  </div>
-
-                  {currentUser?.role === 'SUPER_ADMIN' && (
-                    <div className="mt-6 bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm">
-                      <h4 className="font-extrabold text-xs text-red-800 border-b border-red-200 pb-2 mb-3 flex items-center">
-                        <Lock size={14} className="mr-2" /> Super Admin: Issue New Password
-                      </h4>
-                      <div className="flex space-x-2">
-                        <input type="text" placeholder="Type new password (min 6 chars)" value={newForcePassword} onChange={(e) => setNewForcePassword(e.target.value)} className="flex-1 text-xs border-red-300 rounded shadow-sm p-2 outline-none focus:ring-2 focus:ring-red-500 font-mono" />
-                        <button onClick={async () => {
-                            if (newForcePassword.length < 6) return alert('Password must be at least 6 characters.');
-                            try {
-                              const res = await authFetch(`/api/v1/admin/users/${selectedUserDetail.fnum}/force-password`, {
-                                method: 'PUT',
-                                body: JSON.stringify({ new_password: newForcePassword })
-                              });
-                              if (!res.ok) throw new Error(await res.text());
-                              alert(`Password successfully changed for ${selectedUserDetail.name}.`);
-                              setNewForcePassword('');
-                            } catch (err) { alert('Error: ' + err.message); }
-                          }}
-                          className="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded text-xs transition border border-red-800 shrink-0 cursor-pointer"
-                        >
-                          Set Password
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="bg-slate-100 p-4 border-t border-gray-200 flex justify-between items-center rounded-b-xl shrink-0">
-              <button onClick={() => setSelectedUserDetail(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs py-2 px-4 rounded-lg shadow-sm transition-colors flex items-center border border-gray-300 cursor-pointer">
-                <X size={14} className="mr-1"/> Close Profile
-              </button>
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar bg-slate-50 dark:bg-slate-900 text-xs" style={{ backgroundImage: 'radial-gradient(#e5e7eb 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+              <div className="flex flex-col items-center justify-center text-center border-b-2 border-slate-800 dark:border-slate-700 pb-4">
+                  <img src="/upf_badge.png" alt="UPF Logo" className="w-12 h-12 mb-1.5 object-contain grayscale contrast-200 brightness-50" onError={(e) => { e.target.style.display = 'none'; }} />
+                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 tracking-widest uppercase">Uganda Police Force</h2>
+                  <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase mt-0.5 tracking-wider">Crime Incident Matrix Profile</h3>
+                 </div>
               
-              {/* 🟢 HIDE REVOKE BUTTON ENTIRELY FOR PRINCIPAL SUPER ADMIN (A/2408) */}
-              {selectedUserDetail.isSystemUser && 
-               selectedUserDetail.fnum !== 'A/2408' && (
-                currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role?.includes('ADMIN') && selectedUserDetail.role !== 'SUPER_ADMIN' && currentUser?.region === selectedUserDetail.region)
-              ) && (
-                <button onClick={() => { if (window.confirm(`Are you absolutely sure you want to revoke all system access for ${selectedUserDetail.name}?`)) { onRevokeUser(selectedUserDetail.fnum); setSelectedUserDetail(null); } }} className="text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 py-2 px-4 rounded-lg transition-colors border border-red-200 shadow-sm cursor-pointer">
-                  Revoke Access
-                </button>
+              {/* 🟢 ACTION BAR: Statement Recorder & Escalation Tool */}
+              <div className="flex justify-end gap-2 mb-[-10px] flex-wrap">
+                  <button 
+                      onClick={() => { populateUpdateCrimeForm(selectedCase); setSelectedCase(null); setOperation('update'); setUpdateSearch(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref || '')); }} 
+                      className="inline-flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <Edit size={12} className="mr-1.5" /> Modify Ledger
+                  </button>
+                  <button 
+                      onClick={() => setShowStatementRecorder(true)} 
+                      className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <FileText size={12} className="mr-1.5" /> Record Statement
+                  </button>
+                  <button 
+                      onClick={() => setShowReferenceEscalator(true)} 
+                      className="inline-flex items-center justify-center bg-slate-700 hover:bg-slate-800 text-white font-bold py-1.5 px-3 rounded shadow text-[10px] uppercase transition cursor-pointer"
+                  >
+                      <ArrowUpRight size={12} className="mr-1.5" /> Escalate Reference
+                  </button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white dark:bg-slate-800 p-4 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
+                <div className="border-l-4 border-blue-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Database SN (ID)</div><div className="text-xs font-black text-slate-900 dark:text-slate-100">{selectedCase.id || selectedCase.sn}</div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Time & Date Logged</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.date)} <span className="text-slate-500 dark:text-slate-400 font-medium">@ {stripHtmlTags(selectedCase.time)}</span></div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Command Jurisdiction</div><div className="text-xs font-bold text-slate-900 dark:text-slate-100">{stripHtmlTags(selectedCase.station)}</div><div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">{getOfficialRegionForStation(selectedCase.station, selectedCase.region)}</div></div>
+                <div className="border-l-4 border-slate-600 pl-2.5"><div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Investigation Status</div><div className="text-xs font-extrabold text-blue-700 dark:text-blue-400 uppercase">{stripHtmlTags(selectedCase.status)}</div></div>
+              </div>
+              
+              <div className="bg-white dark:bg-slate-800 p-5 border border-slate-200 dark:border-slate-700 shadow-sm rounded-lg">
+                <div className="mb-4">
+                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Primary Offence Matrix</div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="text-sm font-black text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(selectedCase.offence || 'UNSPECIFIED OFFENCE')}</div>
+                    <div className="text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-2.5 py-1 rounded border border-slate-200 dark:border-slate-700 shadow-sm">REF: {stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref)}</div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-100 dark:border-slate-700 pb-1.5 mb-2">Official Incident Narrative</div>
+                  <div className="text-xs text-slate-800 dark:text-slate-200 leading-normal ql-editor whitespace-normal break-words overflow-wrap-anywhere w-full max-w-full p-0 min-h-[100px]" dangerouslySetInnerHTML={{ __html: selectedCase.narrative }} />
+                </div>
+              </div>
+
+              {/* 🟢 UI BLOCK: Rendering Chronological Case History (Statements & Escalations) */}
+              {selectedCase.caseHistory && selectedCase.caseHistory.length > 0 && (
+                <div className="bg-amber-50/50 dark:bg-slate-800/50 p-4 border border-amber-200 dark:border-slate-700 shadow-sm rounded-lg mt-4">
+                  <div className="text-[10px] font-extrabold text-amber-800 dark:text-amber-500 uppercase tracking-widest border-b border-amber-200 dark:border-slate-700 pb-2 mb-4 flex items-center">
+                    <FileText size={14} className="mr-1.5"/> Case Diary: Associated Statements & File Activity ({selectedCase.caseHistory.length})
+                  </div>
+                  
+                  <div className="space-y-4">
+                      {selectedCase.caseHistory.map((historyItem, idx) => {
+                          const isUpgrade = historyItem.statement_category === 'REFERENCE_UPGRADE';
+                          return (
+                              <div key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-lg shadow-sm">
+                                  <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2 mb-3">
+                                      <div>
+                                          <div className={`text-[10px] font-black tracking-widest ${isUpgrade ? 'text-blue-600' : 'text-slate-800 dark:text-slate-200'}`}>
+                                              {isUpgrade ? historyItem.content.split('\n')[0] : `STATEMENT OF ${historyItem.statement_category}: ${historyItem.person_name}`}
+                                          </div>
+                                          <div className="text-[9px] text-slate-500 font-bold mt-1">Logged on: {historyItem.date_recorded} @ {historyItem.time_recorded}</div>
+                                      </div>
+                                      {!isUpgrade && (
+    <button
+      type="button"
+      onClick={async (e) => {
+        e.stopPropagation();
+        try {
+          const response = await authFetch(`/api/v1/reports/statements/${historyItem.id}/export`);
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || "Failed to download statement.");
+          }
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const disposition = response.headers.get('Content-Disposition');
+          let filename = `SECURE_STATEMENT_${String(historyItem.sd_ref || historyItem.id).replace(/[^A-Za-z0-9]+/g, '_')}.zip`;
+          if (disposition && disposition.indexOf('filename=') !== -1) {
+            filename = disposition.split('filename=')[1].replace(/["']/g, '').trim();
+          }
+          const link = document.createElement('a');
+          link.href = url;
+          link.setAttribute('download', filename);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          alert(`Download Failed: ${err.message}`);
+        }
+      }}
+      className="bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 px-2 py-1 rounded text-[9px] font-bold uppercase transition flex items-center shadow-sm cursor-pointer"
+      title="Download Encrypted Statement Archive"
+    >
+        <Download size={12} className="mr-1"/> Fetch Sheet
+    </button>
+)}
+                                  </div>
+                                  <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
+                                      {isUpgrade ? historyItem.content.replace(historyItem.content.split('\n')[0] + '\n', '') : historyItem.content}
+                                  </div>
+                                  <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                                      <div className="text-[9px] text-slate-400 font-bold">Ref Locked: {historyItem.sd_ref}</div>
+                                      <div className="text-[9px] text-slate-500 uppercase tracking-widest font-black">Officer: {historyItem.recorded_by}</div>
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+                </div>
               )}
+
+              {selectedCase.suspectDetails && selectedCase.suspectDetails.length > 0 && (
+                <div className="bg-white dark:bg-slate-800 p-4 border border-red-200 dark:border-red-900 shadow-sm rounded-lg">
+                  <div className="text-[10px] font-extrabold text-red-800 dark:text-red-400 uppercase tracking-widest border-b border-red-100 dark:border-red-900 pb-2 mb-3 flex items-center">
+                    <Lock size={14} className="mr-1.5"/> Suspects Registered in Custody ({selectedCase.suspectDetails.length})
+                  </div>
+                    
+                  <div className="flex flex-col gap-4 w-full">
+                    {selectedCase.suspectDetails.map((s, idx) => {
+                      const isValidPhoto = s.photo_url && !s.photo_url.startsWith('blob:');
+
+                      return (
+                        <div key={idx} className="bg-red-50 dark:bg-red-950/40 p-4 rounded-xl border border-red-200 dark:border-red-900 flex flex-row items-start gap-5 shadow-sm w-full">
+                            
+                          <div className="shrink-0">
+                            {isValidPhoto ? ( 
+                              <img src={s.photo_url} alt={s.name} className="w-28 h-28 rounded-lg object-cover border-4 border-red-300 dark:border-red-800 shadow-md bg-white" onError={(e) => { e.target.style.display = 'none'; }} /> 
+                            ) : ( 
+                              <div className="w-28 h-28 rounded-lg bg-red-100 dark:bg-red-900 text-red-400 dark:text-red-300 flex flex-col items-center justify-center font-bold text-[10px] border-2 border-dashed border-red-300 dark:border-red-800 text-center p-2 uppercase leading-tight shadow-inner">
+                                <Camera size={24} className="mb-2 opacity-60"/>
+                                No Photo
+                              </div> 
+                            )}
+                          </div>
+                            
+                          <div className="flex-1 min-w-0 py-1">
+                            <div className="font-extrabold uppercase text-slate-900 dark:text-slate-100 text-sm mb-1">{idx + 1}. {stripHtmlTags(s.name)}</div>
+                            <div className="text-xs text-red-900 dark:text-red-300 font-bold mb-1.5">{stripHtmlTags(s.sex)} • {s.age ? `${stripHtmlTags(String(s.age))} Yrs` : 'Age Unk'} • Tribe: {stripHtmlTags(s.tribe || 'N/A')} • Nat: {stripHtmlTags(s.nationality || 'N/A')}</div>
+                            <div className="text-xs text-slate-700 dark:text-slate-300 mb-2"><span className="font-black text-slate-900 dark:text-slate-100">Res:</span> {stripHtmlTags(s.residence || 'N/A')} &nbsp;|&nbsp; <span className="font-black text-slate-900 dark:text-slate-100">Tel:</span> {stripHtmlTags(s.contact || 'N/A')}</div>
+                                
+                            {s.mental_health_status && s.mental_health_status !== 'NORMAL' && ( 
+                              <div className="inline-flex mt-1 text-[10px] bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-black px-2.5 py-1 rounded shadow-sm uppercase tracking-wider w-max">
+                                Status: {stripHtmlTags(s.mental_health_status)}
+                              </div> 
+                            )}
+                          </div>
+                          
+                          <div className="mt-3 w-full sm:w-auto shrink-0 self-end sm:self-center">
+                            <a 
+                              href={`/exhibits?incident_ref=${encodeURIComponent(stripHtmlTags(selectedCase.sdRef || selectedCase.sd_ref))}&suspect_id=${encodeURIComponent(s.id)}`}
+                              className="inline-flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-3 rounded-lg shadow border border-amber-500 text-[10px] uppercase transition cursor-pointer w-full"
+                            >
+                              <Camera size={14} className="mr-1.5" />
+                              Log Exhibit
+                            </a>
+                            </div>
+
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+              <div className="text-center pt-4 opacity-40"><p className="text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">End of Official Record Extract</p><p className="text-[8px] text-slate-400 dark:text-slate-500 mt-0.5">System Audit ID: {selectedCase.id || selectedCase.sn} • Printed: {new Date().toLocaleString()}</p></div>
             </div>
+            
+            <div className="bg-slate-100 dark:bg-slate-950 p-3 border-t border-slate-300 dark:border-slate-800 flex justify-end shrink-0 shadow-inner z-10">
+              <button onClick={() => setSelectedCase(null)} className="bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white font-bold py-2 px-4 rounded-lg text-xs transition-all shadow border border-slate-950 flex items-center cursor-pointer"><X size={14} className="mr-1.5"/> Close Dossier</button>
+            </div>
+            
           </div>
         </div>
       )}
 
-      {viewingProfileImage && (
-        <div className="fixed inset-0 bg-black/90 z-[300] flex justify-center items-center p-4 animate-in fade-in" onClick={() => setViewingProfileImage(null)}>
-          <button className="absolute top-6 right-6 text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full shadow-lg cursor-pointer"><X size={24}/></button>
-          <img src={viewingProfileImage} alt="Full Profile" className="max-w-full max-h-[90vh] object-contain rounded-xl shadow-2xl border-2 border-slate-700" onClick={(e) => e.stopPropagation()} />
-        </div>
+      {/* 🟢 MODAL: STATEMENT RECORDER */}
+      {showStatementRecorder && selectedCase && (
+         <StatementRecorder 
+             report={selectedCase} 
+             currentUser={currentUser} 
+             onClose={() => setShowStatementRecorder(false)} 
+             onStatementSaved={() => {
+                 fetchFilteredDatabaseReports();
+                 setShowStatementRecorder(false);
+             }}
+         />
       )}
-    </>
-  );
-};
 
-// ====================================================================
-// --- MAIN APP COMPONENT ---
-// ====================================================================
-const App = () => {
-  const [activeComponent, setActiveComponent] = useState('DASHBOARD');
-  const [targetCommTab, setTargetCommTab] = useState('INBOX');
-  const [commDefaultTab, setCommDefaultTab] = useState('INBOX');
-
-  const [currentUser, setCurrentUser] = usePersistentState('kmp_currentUser', null);
-  const [currentPage, setCurrentPage] = usePersistentState('kmp_currentPage', 'home');
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [targetRegion, setTargetRegion] = useState('KMP HEADQUARTERS');
-  const [targetStation, setTargetStation] = useState('KMP HEADQUARTERS');
-  const [overrideRegion, setOverrideRegion] = useState(currentUser?.region || 'KMP HEADQUARTERS');
-  const [overrideStation, setOverrideStation] = useState(currentUser?.station || 'KMP HEADQUARTERS');
-
-  const [reports, setReports] = useState([]);
-  const [generalDocs, setGeneralDocs] = useState([]);
-  const [stats, setStats] = useState([]);
-  const [stories, setStories] = useState([]);
-  const [establishments, setEstablishments] = useState([]);
-  const [Nominal_Rolls, setNominal_Rolls] = useState([]);
-  const [Nominal_Roll_archives, setNominal_Roll_archives] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [pendingUsers, setPendingUsers] = useState([]);
-
-  const [hrLedgerData, setHrLedgerData] = useState(null);
-  const [isViewingHR, setIsViewingHR] = useState(false);
-  const [isViewingConsolidated, setIsViewingConsolidated] = useState(false);
-  const [consolidatedData, setConsolidatedData] = useState(null);
-  const [adminCommsData, setAdminCommsData] = useState([]);  
-
-  const [filterRegion, setFilterRegion] = useState('ALL REGIONS');
-  const [filterStation, setFilterStation] = useState('ALL STATIONS');
-
-  const lastActivityRef = useRef(Date.now());
-
-  const grandTotals = useMemo(() => {
-    return calculateGrandTotals(reports, currentUser, filterRegion, filterStation);
-  }, [reports, currentUser, filterRegion, filterStation]);
-
-  const isReadOnlyObserver = useMemo(() => {
-    if (!currentUser) return false;
-    const role = String(currentUser.role || '').trim().toUpperCase();
-    let perms = currentUser.permissions || {};
-    if (typeof perms === 'string') {
-      try { perms = JSON.parse(perms); } catch { perms = {}; }
-    }
-    return perms.global_observer === true && perms.global_open !== true && role !== 'SUPER_ADMIN';
-  }, [currentUser]);
-
-  // 🟢 UNIVERSAL READ-ONLY GLOBAL OBSERVER LOCK (DOM + Event Level)
-  useEffect(() => {
-    if (!isReadOnlyObserver) {
-      document.body.classList.remove('readonly-observer-mode');
-      return;
-    }
-
-    document.body.classList.add('readonly-observer-mode');
-
-    const isSearchOrFilterControl = (el) => {
-      if (!el) return false;
-      const type = (el.getAttribute?.('type') || '').toLowerCase();
-      const placeholder = (el.getAttribute?.('placeholder') || '').toLowerCase();
-      const ariaLabel = (el.getAttribute?.('aria-label') || '').toLowerCase();
-      return (
-        type === 'search' ||
-        placeholder.includes('search') ||
-        placeholder.includes('filter') ||
-        ariaLabel.includes('search')
-      );
-    };
-
-    const enforceReadOnlyDOM = () => {
-      if (currentPage === 'ai_console') return;
-
-      const mainEl = document.querySelector('main');
-      if (!mainEl) return;
-
-      mainEl.querySelectorAll('.ql-editor').forEach((editor) => {
-        editor.setAttribute('contenteditable', 'false');
-        editor.setAttribute('data-ro-locked', 'true');
-      });
-      mainEl.querySelectorAll('.ql-toolbar button, .ql-toolbar select, .ql-toolbar .ql-picker').forEach((tb) => {
-        tb.setAttribute('disabled', 'true');
-        tb.setAttribute('data-ro-locked', 'true');
-      });
-
-      mainEl.querySelectorAll('textarea, input[type="file"]').forEach((el) => {
-        if (isSearchOrFilterControl(el)) return;
-        el.readOnly = true;
-        el.disabled = true;
-        el.setAttribute('data-ro-locked', 'true');
-      });
-
-      mainEl.querySelectorAll('form input, form select, form textarea, form button[type="submit"]').forEach((el) => {
-        if (isSearchOrFilterControl(el)) return;
-        if ('readOnly' in el) el.readOnly = true;
-        el.disabled = true;
-        el.setAttribute('data-ro-locked', 'true');
-      });
-    };
-
-    const blockMutationEvents = (e) => {
-      if (currentPage === 'ai_console') return;
-      const target = e.target;
-      if (!target || !target.closest?.('main')) return;
-      if (isSearchOrFilterControl(target)) return;
-
-      const isLockedTarget =
-        target.getAttribute?.('data-ro-locked') === 'true' ||
-        target.closest?.('[data-ro-locked="true"]') ||
-        target.closest?.('.ql-editor') ||
-        target.closest?.('.ql-toolbar') ||
-        target.closest?.('form') ||
-        target.tagName === 'TEXTAREA';
-
-      if (isLockedTarget) {
-        if (e.type === 'keydown' && ['Tab', 'Escape'].includes(e.key)) return;
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-
-    enforceReadOnlyDOM();
-    const observer = new MutationObserver(enforceReadOnlyDOM);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    document.addEventListener('keydown', blockMutationEvents, true);
-    document.addEventListener('beforeinput', blockMutationEvents, true);
-    document.addEventListener('paste', blockMutationEvents, true);
-    document.addEventListener('drop', blockMutationEvents, true);
-    document.addEventListener('submit', blockMutationEvents, true);
-
-    return () => {
-      observer.disconnect();
-      document.body.classList.remove('readonly-observer-mode');
-      document.removeEventListener('keydown', blockMutationEvents, true);
-      document.removeEventListener('beforeinput', blockMutationEvents, true);
-      document.removeEventListener('paste', blockMutationEvents, true);
-      document.removeEventListener('drop', blockMutationEvents, true);
-      document.removeEventListener('submit', blockMutationEvents, true);
-    };
-  }, [isReadOnlyObserver, currentPage]);
-
-  useEffect(() => {
-    const fixFormInputs = () => {
-      const inputs = document.querySelectorAll('input, select, textarea');
-      inputs.forEach((el, index) => {
-        if (!el.id) {
-          el.id = `auto-gen-field-${el.name || el.type || 'input'}-${index}`;
-        }
-        if (!el.name) {
-          el.name = el.id;
-        }
-        if (!el.hasAttribute('autocomplete')) {
-          if (el.type === 'password') {
-            el.setAttribute('autocomplete', 'current-password');
-          } else if (el.type === 'email') {
-            el.setAttribute('autocomplete', 'email');
-          } else if (el.type === 'tel') {
-            el.setAttribute('autocomplete', 'tel');
-          } else {
-            el.setAttribute('autocomplete', 'off');
-          }
-        }
-      });
-
-      const labels = document.querySelectorAll('label');
-      labels.forEach((label, index) => {
-        const hasFor = label.hasAttribute('for') || label.hasAttribute('htmlFor');
-        const hasNestedField = label.querySelector('input, select, textarea');
-        
-        if (!hasFor && !hasNestedField) {
-          let targetField = 
-            label.nextElementSibling?.querySelector('input, select, textarea') ||
-            label.nextElementSibling?.matches('input, select, textarea') && label.nextElementSibling ||
-            label.previousElementSibling?.querySelector('input, select, textarea') ||
-            label.previousElementSibling?.matches('input, select, textarea') && label.previousElementSibling;
-
-          if (!targetField) {
-            const parent = label.closest('div, form, section, span, tr, li') || document.body;
-            targetField = parent.querySelector('input, select, textarea');
-          }
-
-          if (targetField) {
-            if (!targetField.id) {
-              targetField.id = `auto-field-target-${index}-${Math.random().toString(36).substring(2, 7)}`;
-            }
-            label.setAttribute('for', targetField.id);
-          } else {
-            label.setAttribute('aria-hidden', 'true');
-          }
-        }
-      });
-    };
-
-    fixFormInputs();
-    const observer = new MutationObserver(() => {
-      fixFormInputs();
-    });
-
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const applyThemeBasedOnTime = () => {
-      const hour = new Date().getHours();
-      const isNightShift = hour >= 19 || hour < 7;
-      if (isNightShift) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    };
-    
-    applyThemeBasedOnTime();
-    const themeInterval = setInterval(applyThemeBasedOnTime, 60000);
-    return () => clearInterval(themeInterval);
-  }, []);
-
-  useEffect(() => {
-    const handleOnlineStatus = async () => {
-      if (navigator.onLine) {
-        const token = getAuthToken();
-        if (token) {
-          const currentQueueCount = getOfflineQueueCount();
-          if (currentQueueCount === 0) return; 
-
-          const remaining = await syncOfflineQueue(token);
-          if (remaining === 0 && getOfflineQueueCount() === 0) {
-            console.log('All offline queue records successfully synced with central database.');
-          }
-        }
-      }
-    };
-
-    window.addEventListener('online', handleOnlineStatus);
-    
-    const syncInterval = setInterval(() => {
-      if (navigator.onLine) {
-        handleOnlineStatus();
-      }
-    }, 30000); 
-
-    return () => {
-      window.removeEventListener('online', handleOnlineStatus);
-      clearInterval(syncInterval);
-    };
-  }, []);
-
-  useEffect(() => {
-    // 🟢 SYSTEM-WIDE MOBILE VIEWPORT & LANDSCAPE FIX
-    // Dynamically forces all mobile devices to allow landscape scaling
-    let viewportMeta = document.querySelector('meta[name="viewport"]');
-    if (!viewportMeta) {
-      viewportMeta = document.createElement('meta');
-      viewportMeta.name = "viewport";
-      document.head.appendChild(viewportMeta);
-    }
-    viewportMeta.content = "width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes";
-  }, []);
-
-  useEffect(() => {
-    const initApp = () => {
-      const token = getAuthToken();
-      const params = new URLSearchParams(window.location.search);
-
-      if (params.get('session_expired') === 'true' || !token || !currentUser) {
-        clearAuthSession();
-        setCurrentUser(null);
-        if (params.get('session_expired') === 'true') {
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-        setIsInitializing(false);
-        return;
-      }
-
-      setIsInitializing(false);
-    };
-
-    initApp();
-  }, [setCurrentUser]);
-
-  useEffect(() => {
-    const markActive = () => {
-      lastActivityRef.current = Date.now();
-    };
-
-    const events = ['mousedown', 'keydown', 'touchstart', 'scroll', 'mousemove'];
-    events.forEach(e => window.addEventListener(e, markActive, { passive: true }));
-
-    return () => {
-      events.forEach(e => window.removeEventListener(e, markActive));
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isInitializing || !currentUser?.fnum || !hasValidSession()) return;
-    const controller = new AbortController();
-
-    const fetchAllData = async () => {
-      if (document.hidden || !hasValidSession()) return;
-
-      const isUserIdle = (Date.now() - lastActivityRef.current) > 60000;
-      if (isUserIdle) return;
-
-      try {
-        const [resUsers, resStats, resStories, resEst, resNom, resArc, resCommsPing, resDocs] = await Promise.all([
-          authFetch('/api/v1/users', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/stats', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/stories', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/establishments', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/nominal-roll', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/nominal-roll-archive', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/communications/ping-unread', { signal: controller.signal }).catch(() => null),
-          authFetch('/api/v1/general-documents', { signal: controller.signal }).catch(() => null)
-        ]);
-
-        // 🟢 Halt cleanly and trigger session-expired flow on any 401
-        if ([resUsers, resStats, resStories, resEst, resNom, resArc, resCommsPing, resDocs].some(r => r && r.status === 401)) {
-          window.dispatchEvent(new Event('auth-expired'));
-          return;
-        }
-
-        if (resStats && resStats.ok) setStats(await resStats.json());
-        if (resStories && resStories.ok) setStories(await resStories.json());
-        if (resEst && resEst.ok) setEstablishments(await resEst.json());
-        if (resNom && resNom.ok) setNominal_Rolls(await resNom.json());
-        if (resArc && resArc.ok) setNominal_Roll_archives(await resArc.json());
-        if (resDocs && resDocs.ok) setGeneralDocs(await resDocs.json());
-
-        if (resCommsPing && resCommsPing.ok) setAdminCommsData(await resCommsPing.json());
-
-        if (resUsers && resUsers.ok) {
-          const allUsers = await resUsers.json();
-          setUsers(allUsers);
-
-          const myFnum = currentUser?.fnum;
-          const me = allUsers.find(u => u.fnum === myFnum);
-
-          if (me) {
-            let serverPerms = me.permissions;
-            if (typeof serverPerms === 'string') {
-              try { serverPerms = JSON.parse(serverPerms); } catch (e) { serverPerms = {}; }
-            }
-            serverPerms = serverPerms || {};
-
-            setCurrentUser(prev => {
-              if (!prev) return prev;
-
-              let prevPerms = prev.permissions;
-              if (typeof prevPerms === 'string') {
-                try { prevPerms = JSON.parse(prevPerms); } catch (e) { prevPerms = {}; }
-              }
-              prevPerms = prevPerms || {};
-
-              const isSuperAdmin = prev.role === 'SUPER_ADMIN' || me.role === 'SUPER_ADMIN';
-              const hasGlobalRoster = isSuperAdmin || serverPerms.view_global_roster === true || prevPerms.view_global_roster === true;
-              const hasGlobalObserver = isSuperAdmin || serverPerms.global_observer === true || prevPerms.global_observer === true;
-
-              const mergedPermissions = {
-                ...prevPerms,
-                ...serverPerms,
-                view_global_roster: hasGlobalRoster,
-                global_observer: hasGlobalObserver
-              };
-
-              const resolvedRole = isSuperAdmin ? 'SUPER_ADMIN' : (me.role || prev.role);
-
-              // 🟢 SYNC HR TRANSFERS AND ELEVATIONS SEAMLESSLY
-              // This guarantees the UI actively mirrors their latest database Nominal Roll station/region/title
-              const resolvedPosition = me.position || prev.position;
-              const resolvedRegion = me.region || prev.region;
-              const resolvedStation = me.station || prev.station;
-              const resolvedRank = me.rank || prev.rank;
-
-              const permissionsUnchanged = JSON.stringify(mergedPermissions) === JSON.stringify(prevPerms);
-              const roleUnchanged = resolvedRole === prev.role;
-              const positionUnchanged = resolvedPosition === prev.position;
-              const regionUnchanged = resolvedRegion === prev.region;
-              const stationUnchanged = resolvedStation === prev.station;
-              const rankUnchanged = resolvedRank === prev.rank;
-
-              // Abort update only if literally nothing changed
-              if (permissionsUnchanged && roleUnchanged && positionUnchanged && regionUnchanged && stationUnchanged && rankUnchanged) {
-                return prev;
-              }
-
-              return {
-                ...prev,
-                permissions: mergedPermissions,
-                role: resolvedRole,
-                position: resolvedPosition,
-                region: resolvedRegion,
-                station: resolvedStation,
-                rank: resolvedRank
-              };
-            });
-          }
-        }
-      } catch (error) {
-        if (error.name !== 'AbortError' && error.message !== 'UNAUTHORIZED') {
-          console.warn("Network congestion or temporary blip intercepted. Holding execution:", error.message);
-        }
-      }
-    };
-
-    fetchAllData();
-    const pollingInterval = setInterval(fetchAllData, 60000);
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden && hasValidSession()) {
-        lastActivityRef.current = Date.now();
-        fetchAllData();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      controller.abort();
-      clearInterval(pollingInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [currentUser?.fnum, isInitializing]);
-
-  const handleSecureLogout = async () => {
-    try {
-      await authFetch('/api/v1/auth/log-logout', { method: 'POST' });
-    } catch (e) {}
-
-    clearAuthSession();
-    setCurrentUser(null);
-    window.location.reload();
-  };
-
-  const downloadWithAuth = async (url, fallbackFilename) => {
-    try {
-      const response = await authFetch(url, { method: 'GET' });
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Export failed (HTTP ${response.status})`);
-      }
-
-      const disposition = response.headers.get('Content-Disposition') || '';
-      const match = disposition.match(/filename="?([^";]+)"?/i);
-      const filename = match?.[1]?.trim() || fallbackFilename;
-
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.style.display = 'none';
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-
-      setTimeout(() => {
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(downloadUrl);
-      }, 2000);
-    } catch (error) {
-      console.error("Master export failed:", error);
-      alert(`Master Export Failed: ${error.message}`);
-    }
-  };
-
-  const handleMasterExport = async (scope, value) => {
-    // 🟢 Points directly to the full multi-sheet encrypted master download endpoint
-    let url = `/api/v1/export-master`; 
-    if (scope && value && scope !== 'all') {
-      url = `/api/v1/reports/export?timeframe=all&scope=${scope}&value=${encodeURIComponent(value)}`;
-    }
-    
-    const todayStr = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-    downloadWithAuth(url, `SECURE_MASTER_DATABASE_${todayStr}.zip`);
-  };
-
-  const handleAcknowledgeComm = (commId) => {
-    setAdminCommsData(prevData => {
-      if (Array.isArray(prevData)) {
-        return prevData.map(c => c.id === commId ? { ...c, acknowledged: true } : c);
-      } else if (prevData && typeof prevData === 'object') {
-        const listKey = Array.isArray(prevData.data) ? 'data' : Array.isArray(prevData.items) ? 'items' : null;
-        if (listKey) {
-          return {
-            ...prevData,
-            [listKey]: prevData[listKey].map(c => c.id === commId ? { ...c, acknowledged: true } : c)
-          };
-        }
-      }
-      return prevData;
-    });
-  };
-
-  const handleClearAllPings = () => {
-    setAdminCommsData({ hasUnread: false });
-  };
-
-  const handlePageChange = (pageId) => { setCurrentPage(pageId); setIsViewingConsolidated(false); setIsViewingHR(false); };
-
-  const renderPage = () => {
-    const canViewGlobal = canViewGlobalJurisdiction(currentUser);
-   
-    switch (currentPage) {
-      case 'home':  
-        return checkClearance(currentUser, 'acc_home', true) ? (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        ) : null;
-
-      case 'reports':  
-        return checkClearance(currentUser, 'acc_crime', true) ? (
-          <ErrorBoundary>
-            <CrimeIncidentRegistry 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal}
-              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'statistics':  
-        return checkClearance(currentUser, 'acc_ops', true) ? (
-          <ErrorBoundary>
-            <Statistics 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal} 
-              stats={stats} 
-              setStats={setStats}
-              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'success': // 🟢 Matches id: 'success' in navItems and home dashboard card
-      case 'stories':  
-        return checkClearance(currentUser, 'acc_stories', true) ? (
-          <ErrorBoundary>
-            <SuccessStories 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal} 
-              stories={stories} 
-              setStories={setStories}
-              isReadOnlyObserver={isReadOnlyObserver}
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'establishments':  
-        return checkClearance(currentUser, 'acc_est', true) ? (
-          <ErrorBoundary>
-            <Establishments 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal} 
-              establishments={establishments} 
-              setEstablishments={setEstablishments}
-              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'analytics':  
-        return checkClearance(currentUser, 'acc_analytics', true) ? (
-          <ErrorBoundary>
-            <AnalyticsDashboard 
-              nominalRolls={Nominal_Rolls} 
-              crimeRegistry={reports} 
-              successStories={stories} 
-              operationalStats={stats} 
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'nominal-roll':  
-        return checkClearance(currentUser, 'acc_hr', true) ? (
-          <ErrorBoundary>
-            <Nominal_Roll 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal} 
-              Nominal_Rolls={Nominal_Rolls} 
-              setNominal_Rolls={setNominal_Rolls} 
-              Nominal_Roll_archives={Nominal_Roll_archives} 
-              setNominal_Roll_archives={setNominal_Roll_archives} 
-              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'reports_hub':  
-        return checkClearance(currentUser, 'acc_documents', true) ? (
-          <ErrorBoundary>
-            <WordReportUpload 
-              currentUser={currentUser} 
-              generalDocs={generalDocs}
-              setGeneralDocs={setGeneralDocs}
-              isReadOnlyObserver={isReadOnlyObserver} // 🟢 Enforces read-only lock
-              setCurrentPage={handlePageChange} // 🟢 ADD THIS LINE TO FIX THE BACK BUTTON
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        ); 
-
-      case 'lockup-matrix': 
-        return checkClearance(currentUser, 'acc_lockup', true) ? (
-          <ErrorBoundary>
-            <div className="p-4 md:p-6 max-w-[1600px] mx-auto">
-              <LockupMatrixLedger 
-                lockupEntries={reports}
-                allTimeLockupTotal={grandTotals.displayTotal}
-                onClose={() => handlePageChange('home')}
-                selectedRegion={currentUser?.region || 'ALL REGIONS'}
-                selectedStation={currentUser?.station || 'ALL STATIONS'}
-                currentUser={currentUser}
-                onRefreshData={() => window.location.reload()}
-              />
-            </div>
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} />
-        );
-
-      case 'ai_console':
-        return checkClearance(currentUser, 'acc_ai', false) ? (
-          <ErrorBoundary>
-            <AICommandConsole 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal}
-              onBack={() => handlePageChange('home')}
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard currentUser={currentUser} setCurrentPage={handlePageChange} />
-        );
-
-      case 'approvals':  
-        return checkClearance(currentUser, 'acc_approvals', ['ADMIN', 'SUPER_ADMIN', 'RPC', 'Deputy Commander', 'ASSISTANT_SUPER_ADMIN'].includes(currentUser.role)) ? (
-          <ErrorBoundary>
-            <AdminApprovals 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal}
-              canViewGlobalActive={canViewGlobal}
-              setCurrentPage={handlePageChange} // 🟢 Passes the dashboard navigation handler correctly
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        ); 
-
-      case 'profile':  
-        return checkClearance(currentUser, 'acc_profile', true) ? (
-          <ErrorBoundary>
-            <AdminProfile 
-              currentUser={currentUser} 
-              setCurrentUser={setCurrentUser} 
-              setCurrentPage={handlePageChange} 
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'Admin_Communication':  
-        return checkClearance(currentUser, 'acc_comms', true) ? (
-          <ErrorBoundary>
-            <Admin_Communication 
-              currentUser={currentUser} 
-              users={users} 
-              setCurrentPage={handlePageChange} 
-              onAcknowledgeComm={handleAcknowledgeComm}
-              onMarkAllRead={handleClearAllPings} 
-              initialTab={commDefaultTab} 
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      case 'exhibits':  
-        return checkClearance(currentUser, 'acc_exhibits', true) ? (
-          <ErrorBoundary>
-            <ExhibitsRegistry 
-              currentUser={currentUser} 
-              canViewGlobal={canViewGlobal}
-              isReadOnlyObserver={isReadOnlyObserver} 
-            />
-          </ErrorBoundary>
-        ) : (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-
-      default:  
-        return (
-          <HomeDashboard 
-            currentUser={currentUser} 
-            setCurrentPage={handlePageChange} 
-            onMasterExport={handleMasterExport} 
-            onViewConsolidated={handleViewConsolidated} 
-            adminCommsData={adminCommsData} 
-            onAcknowledgeComm={handleAcknowledgeComm} 
-            onOpenInbox={() => { setCommDefaultTab('INBOX'); handlePageChange('Admin_Communication'); }} 
-          />
-        );
-    }
-  };  
-
-  const handleViewHRReport = async () => {
-    try {
-      const res = await authFetch('/api/v1/reports/establishments-json');
-      if (!res.ok) throw new Error("Security clearance rejected or server error.");
-      const data = await res.json(); 
-      setHrLedgerData(data); 
-      setIsViewingHR(true);
-    } catch (err) { 
-      alert("Cannot load HR ledger data. Ensure your session is active and you have network connectivity."); 
-    }
-  };
-
-  const handleViewConsolidated = async () => {
-    setIsViewingHR(false);
-    const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
-    const lastWeek = new Date(); 
-    lastWeek.setDate(lastWeek.getDate() - 30);
-    const start = lastWeek.toISOString().split('T')[0];
-
-    try {
-      const response = await authFetch(`/api/v1/reports/consolidated-ledger?start_date=${start}&end_date=${today}`);
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `Server status ${response.status}`);
-      }
-      const result = await response.json(); 
-      
-      // Store the new aggregated data structure
-      setConsolidatedData(result.data || {});
-      setIsViewingConsolidated(true);
-    } catch (err) { 
-      console.error("Consolidated Ledger load error:", err);
-      alert(`Failed to load Consolidated Ledger: ${err.message}`); 
-    }
-  };
-
-  if (isInitializing) return <h2 style={{ textAlign: 'center', marginTop: '20vh' }}>Verifying Officer Clearance...</h2>;
-
-  if (currentUser && !currentUser.region) {
-    clearAuthSession();
-    setCurrentUser(null);
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <h2 className="text-2xl font-bold text-red-600 mb-2">Ghost Session Detected</h2>
-        <p className="text-slate-600 mb-6">Corrupted session state detected. Click below to restart safely.</p>
-        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-700 text-white font-bold rounded-lg shadow-md hover:bg-blue-800 cursor-pointer">Force Clear & Restart App</button>
+      {/* 🟢 MODAL: REFERENCE ESCALATOR */}
+      {showReferenceEscalator && selectedCase && (
+         <ReferenceEscalator 
+             report={selectedCase} 
+             onClose={() => setShowReferenceEscalator(false)} 
+             onEscalationComplete={() => {
+                 fetchFilteredDatabaseReports();
+                 setShowReferenceEscalator(false);
+             }}
+         />
+      )}
+
+      {/* --- MAIN UI SECTION --- */}
+      <div className="text-center mb-3 flex flex-col items-center">
+        <img src="/upf_badge.png" alt="UPF Logo" className="w-10 h-10 mb-1 object-contain contrast-200 brightness-75 drop-shadow-sm" onError={(e) => { e.target.style.display = 'none'; }} />
+        <h1 className="text-xl text-red-500 mt-0.5 font-bold">Crime/Incident Registry</h1>
+        <h2 className="text-[11px] text-red-300 mt-0.5 font-medium uppercase tracking-wider">Centralised Crime/Incident Compilation</h2>
+     </div>
+
+     <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
+          <h4 className="text-[11px] font-extrabold text-slate-400 dark:text-slate-400 uppercase tracking-wider">
+            📋 {filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? 'Global Command Metrics' : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Metrics`}
+          </h4>
+          <select 
+              value={dateFilter} 
+              onChange={(e) => setDateFilter(e.target.value)} 
+              className="border border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-bold rounded-lg px-2.5 py-1 text-xs shadow-sm bg-white dark:bg-slate-800 outline-none w-full sm:w-auto cursor-pointer"
+            >
+              <option value="ALL TIME">ALL TIME</option>
+              <option value="TODAY">TODAY ONLY</option>
+              <option value="LAST 7 DAYS">LAST 7 DAYS</option>
+              <option value="LAST 14 DAYS">LAST 14 DAYS</option>
+              <option value="LAST 21 DAYS">LAST 21 DAYS</option>
+              <option value="LAST 30 DAYS">LAST 30 DAYS</option>
+              <option value="LAST 60 DAYS">LAST 60 DAYS</option>
+              <option value="LAST 90 DAYS">LAST 90 DAYS</option>
+              <option value="LAST 120 DAYS">LAST 120 DAYS</option>
+              <option value="LAST 180 DAYS">LAST 180 DAYS</option>
+            </select>
+        </div>
+          
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+          <MetricCard title={filterRegion === 'ALL REGIONS' && filterStation === 'ALL STATIONS' ? "Computed Sum (All)" : filterStation === 'ALL STATIONS' ? `${filterRegion} Lock-up` : `${filterStation} Lock-up`} value={metrics.localLockup} colorClass="text-slate-800 dark:text-slate-100" />
+          <MetricCard title="KMP Master Lock-up" value={metrics.kmpGeneralLockup} colorClass="text-amber-600 dark:text-amber-400" />
+          <MetricCard title="Total Cases" value={metrics.newCases} colorClass="text-blue-700 dark:text-blue-400" />
+          <MetricCard title="Suspects (Arrested in Case)" value={metrics.totalSuspects} colorClass="text-red-600 dark:text-red-400" />
+          <MetricCard title="Active" value={metrics.active} colorClass="text-yellow-600 dark:text-yellow-400" />
+          <MetricCard title="Sanctioned" value={metrics.sanctioned} colorClass="text-purple-600 dark:text-purple-400" />
+          <MetricCard title="Closed" value={metrics.closed} colorClass="text-green-600 dark:text-green-400" />
+          <MetricCard title="ADR Cases" value={metrics.adr} colorClass="text-orange-600 dark:text-orange-400" />
+        </div>
       </div>
-    );
-  }
 
-  if (!currentUser || !hasValidSession()) {
-    return (
-      <LoginScreen 
-        onLogin={(user) => {
-          setCurrentPage('home'); 
-          setCurrentUser(user);
-          authFetch('/api/v1/system/log-session', { 
-            method: 'POST', 
-            body: JSON.stringify({ fnum: user.fnum }) 
-          }).catch(e => console.error(e));
-        }} 
-        onForgot={() => {}} 
-        onSignup={(u) => setPendingUsers([...pendingUsers, u])} 
-        pendingUsers={pendingUsers} 
-        activeUsers={users} 
-      />
-    );
-  }
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-5 space-y-4">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div className="bg-slate-900 dark:bg-slate-950 px-3.5 py-2.5 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center">
+              <h3 className="text-white font-semibold text-xs flex items-center"><Shield className="w-4 h-4 mr-1.5 text-blue-400" /> ⚙️ File Controls</h3>
+            </div>
+              
+            <div className="p-4 space-y-4">
+              <div className="flex space-x-1.5 bg-gray-100 dark:bg-slate-900 p-0.5 rounded-lg">
+                <button type="button" onClick={() => handleOperationToggle('new')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all cursor-pointer ${operation === 'new' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><PlusCircle className="w-3.5 h-3.5 inline mr-1" /> Register New</button>
+                <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-medium rounded transition-all cursor-pointer ${operation === 'update' ? 'bg-white dark:bg-slate-800 shadow text-blue-700 dark:text-blue-400 font-bold' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
+              </div>
 
-  const handleGenerateHRReport = async () => {
-    try {
-      const response = await authFetch('/api/v1/hr/export-ledger'); 
-      
-      if (!response.ok) {
-        throw new Error("Failed to securely generate the export.");
-      }
+              {notification && (
+                <div className={`border px-3 py-2 rounded-lg flex items-center mb-3 text-xs ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 border-red-200 text-red-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
+                  {notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-4 h-4 mr-2 text-red-500 shrink-0" /> : <CheckCircle className="w-4 h-4 mr-2 text-green-500 shrink-0" />}
+                  <span className="font-medium">{stripHtmlTags(notification)}</span>
+                </div>
+              )}
 
-      const blob = await response.blob();
-      
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'SECURE_HR_LEDGER.zip'); 
-      
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      alert("Export successful. Please use your exact Force Number to decrypt the ZIP file.");
-      
-    } catch (error) {
-      console.error("Export Error:", error);
-      alert("Command Error: Failed to download the HR Ledger.");
-    }
-  };
+              {operation === 'update' && (
+                <div className="bg-blue-50 dark:bg-slate-900 border border-blue-200 dark:border-slate-700 rounded-lg p-2.5">
+                  <label className="block text-[11px] font-bold text-blue-800 dark:text-blue-400 mb-1.5">🔍 Search & Select Case to Update</label>
+                  <input type="text" placeholder="Search by Reference, SN, or Narrative..." value={updateSearch} onChange={e => setUpdateSearch(stripHtmlTags(e.target.value))} className="w-full text-xs p-1.5 mb-2 border border-blue-200 dark:border-slate-700 rounded outline-none focus:ring-1 focus:ring-blue-400 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  <div className="max-h-36 overflow-y-auto bg-white dark:bg-slate-800 border border-blue-100 dark:border-slate-700 rounded custom-scrollbar">
+                    {availableUpdateCases.length === 0 ? (
+                      <div className="p-2.5 text-[11px] text-gray-500 dark:text-slate-400 text-center">No cases found matching your search.</div>
+                    ) : (
+                      availableUpdateCases.map(c => (
+                        <div key={c.id || c.sn} onClick={() => { populateUpdateCrimeForm(c); setUpdateSearch(stripHtmlTags(c.sdRef || c.sd_ref || '')); }} className={`p-1.5 text-[11px] border-b dark:border-slate-700 cursor-pointer transition-colors ${formData.sn === (c.id || c.sn) ? 'bg-blue-600 text-white font-bold' : 'hover:bg-blue-50 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200'}`}>
+                          <span className={formData.sn === (c.id || c.sn) ? 'text-blue-200' : 'text-gray-400 dark:text-slate-400'}>DB-ID: {c.id || c.sn}</span> | <span className={formData.sn === (c.id || c.sn) ? 'text-white' : 'font-bold text-blue-700 dark:text-blue-400'}>{stripHtmlTags(c.sdRef || c.sd_ref)}</span> | {stripHtmlTags(c.station)}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
 
-  const handleUpdateUserRole = async (fnum, newRole, newPermissions) => {
-    setUsers(users.map(u => u.fnum === fnum ? { ...u, role: newRole, permissions: newPermissions } : u));
-    try {
-      await authFetch(`/api/v1/users/${fnum}/access`, { 
-        method: "PUT", 
-        body: JSON.stringify({ role: newRole, permissions: newPermissions }) 
-      });
-    } catch (err) { 
-      console.error("Failed to save permissions to database:", err); 
-    }
-  };
+              <form onSubmit={handleFormSubmit} className="space-y-3 text-xs">
+                {operation === 'update' && formData.sn && <div className="bg-slate-800 text-white text-[11px] font-bold px-2.5 py-1.5 rounded">Currently Editing DB-ID: {formData.sn}</div>}
+                 
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">Operation Category / Focus *</label>
+                  <select name="category" value={formData.category} onChange={handleInputChange} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded-md shadow-sm bg-white dark:bg-slate-800 dark:text-slate-100 border p-2 cursor-pointer font-bold text-amber-600 dark:text-amber-400">
+                    <option value="" disabled>-- Select Mandatory Category --</option>
+                    <option value="GENERAL CRIMES">GENERAL CRIMES</option>
+                    <option value="AGRIC_CRIME">🌾 AGRICULTURAL CRIMES / LIVESTOCK & FARM SECURITY</option>
+                    <option value="ACCIDENT">🚗 TRAFFIC ACCIDENTS / CRASHES</option>
+                    <option value="FIRE INCIDENTS">🔥 FIRE & RESCUE INCIDENTS</option>
+                  </select>
+                </div>
 
-  const handleRevokeUser = async (fnum) => {
-    const reason = window.prompt(`Please state the official reason for revoking access for ${fnum}:`);
-    if (reason === null) return; 
-    if (reason.trim() === '') return alert("An official reason is mandatory to revoke a user's access.");
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">File Reference Prefix & Number *</label>
+                    {operation === 'update' ? (
+                      <input type="text" name="sd_ref" value={stripHtmlTags(formData.sd_ref)} disabled required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm border p-1.5 font-bold text-blue-700 dark:text-blue-400 bg-gray-100 dark:bg-slate-900 disabled:text-gray-500" />
+                    ) : (
+                      <div className="flex shadow-sm rounded w-full">
+                        <select name="ref_type" value={formData.ref_type || 'SD Ref:'} onChange={handleInputChange} className="bg-gray-100 dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-gray-800 dark:text-slate-200 text-xs rounded-l px-2.5 py-1.5 font-bold focus:ring-blue-500 outline-none cursor-pointer">
+                          <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="DEF:">DEF:</option>
+                          <option value="GEF:">GEF:</option><option value="TAR:">TAR:</option><option value="CID:">CID:</option>
+                        </select>
+                        <input type="text" name="ref_number" value={stripHtmlTags(formData.ref_number || '')} onChange={handleInputChange} required className="flex-1 text-xs border-gray-300 dark:border-slate-700 border-y border-r rounded-r p-1.5 focus:ring-blue-500 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" placeholder="e.g. 01/01/01/2026 or 001/2026" />
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-    try {
-      await authFetch(`/api/v1/users/${encodeURIComponent(fnum)}/revoke?reason=${encodeURIComponent(reason)}`, {
-        method: "DELETE"
-      });
-      setUsers(users.filter(u => u.fnum !== fnum));
-      alert(`Access revoked for ${fnum}. Reason logged in Audit Trail.`);
-    } catch (err) { 
-      console.error("Failed to revoke user:", err); 
-    }
-  };
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Select Region *</label>
+                    <select name="region" value={formData.region} onChange={handleInputChange} disabled={!canViewGlobalActive || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
+                      {canViewGlobalActive ? Object.keys(REGIONAL_HIERARCHY).map(reg => <option key={reg} value={reg}>{reg}</option>) : <option value={userRegClean}>{stripHtmlTags(userRegClean)}</option>}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Station *</label>
+                    <select name="station" value={formData.station} onChange={handleInputChange} disabled={!(canViewGlobalActive || isRegionalCommand) || operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
+                      {operation === 'update' ? <option value={formData.station}>{stripHtmlTags(formData.station)}</option> : (canViewGlobalActive || isRegionalCommand) ? (REGIONAL_HIERARCHY[formData.region] || []).map(stat => <option key={stat} value={stat}>{stat}</option>) : <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>}
+                    </select>
+                  </div>
+                </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Date Recorded</label>
+                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm border p-1.5 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Time of Record</label>
+                    <input type="text" name="time" value={formData.time} onChange={handleInputChange} disabled={operation === 'update'} placeholder="0830Hrs" className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm border p-1.5 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+                  </div>
+                </div>
 
-  return (
-    <>
-      <DashboardLayout 
-        currentUser={currentUser} 
-        currentPage={currentPage} 
-        setCurrentPage={handlePageChange} 
-        onLogout={handleSecureLogout} // 🟢 Points to the async function that logs out and records to Neon
-        onUpdateUserRole={handleUpdateUserRole} 
-        onRevokeUser={handleRevokeUser} 
-        users={users} 
-        adminCommsData={adminCommsData}
-        onViewConsolidated={handleViewConsolidated} 
-        onViewHRReport={handleViewHRReport} 
-        onGenerateHRReport={handleGenerateHRReport}
-      >
-        {isViewingConsolidated && (
-          <ConsolidatedLedger 
-            data={consolidatedData} 
-            reports={consolidatedData?.crimes || []} 
-            stats={stats} 
-            stories={stories} 
-            currentUser={currentUser}
-            onClose={() => setIsViewingConsolidated(false)} 
-          />
-        )}
-        
-        {isViewingHR && hrLedgerData && (
-          <HrEstablishmentsLedger 
-            data={hrLedgerData} 
-            onClose={() => setIsViewingHR(false)} 
-            currentUser={currentUser} 
-            onUploadSuccess={() => window.location.reload()} 
-          />
-        )}
-        
-        <div className={(isViewingConsolidated || isViewingHR) ? 'hidden' : 'block w-full h-full'}>
-          {renderPage()}
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Offence / Incident Type *</label>
+                  <select name="offence" value={formData.offence} onChange={handleInputChange} required disabled={operation === 'update'} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 focus:ring-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 cursor-pointer">
+                    <option value="" disabled>-- Select Official Offence Category --</option>
+                    {STANDARD_OFFENCES.map(off => (
+                      <option key={off} value={off}>{off}</option>
+                    ))}
+                      
+                    {formData.offence && formData.offence !== 'Other' && !STANDARD_OFFENCES.some(o => o.toUpperCase() === formData.offence.toUpperCase()) && (
+                      <option value={formData.offence}>{formData.offence}</option>
+                    )}
+                      
+                    <option value="Other">Other (Specify Below)</option>
+                  </select>
+                    
+                  {formData.offence === 'Other' && operation === 'new' && (
+                    <input type="text" name="customOffence" required value={stripHtmlTags(formData.customOffence || '')} onChange={handleInputChange} placeholder="Type the specific offence here..." className="mt-1.5 w-full text-xs border-blue-400 dark:border-slate-700 rounded shadow-sm border p-1.5 focus:ring-blue-500 bg-blue-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 uppercase" />
+                  )}
+                </div>
+
+                {operation === 'new' ? (
+                  <div className="pb-5"> 
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">
+                      Incident Narrative *
+                    </label>
+                    <ReactQuill 
+                      theme="snow" 
+                      value={formData.narrative} 
+                      onChange={(content) => setFormData(prev => ({ ...prev, narrative: content }))} 
+                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, narrative: autoCapitalize(editor.getHTML()) }))}
+                      className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px]"
+                      modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+                    />
+                  </div>
+                ) : (
+                  <div className="pb-5"> 
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">
+                      Original Incident Narrative (Read-Only)
+                    </label>
+                    <div 
+                      className="bg-gray-100 dark:bg-slate-900/50 text-slate-700 dark:text-slate-300 p-3 rounded border border-gray-300 dark:border-slate-700 ql-editor min-h-[80px] max-h-[150px] overflow-y-auto cursor-not-allowed text-xs"
+                      dangerouslySetInnerHTML={{ __html: formData.narrative }} 
+                    />
+                  </div>
+                )}
+
+                {operation === 'update' && (
+                  <div className="pb-5 mt-2"> 
+                    <label className="block text-[11px] font-bold text-blue-700 dark:text-blue-400 mb-0.5">Append New Update / Action Taken *</label>
+                    <ReactQuill 
+                      theme="snow" 
+                      value={formData.updateText || ''} 
+                      onChange={(content) => setFormData(prev => ({ ...prev, updateText: content }))} 
+                      onBlur={(prevSelection, source, editor) => setFormData(prev => ({ ...prev, updateText: autoCapitalize(editor.getHTML()) }))}
+                      className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded [&_.ql-editor]:min-h-[80px] ring-1 ring-blue-200 dark:ring-blue-900"
+                      modules={{ toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['clean']] }} 
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-0.5">Status</label>
+                    <select name="status" value={formData.status} onChange={handleInputChange} className="w-full text-xs border-gray-300 dark:border-slate-700 rounded shadow-sm bg-gray-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border p-1.5 cursor-pointer">
+                      <option>ACTIVE INVESTIGATION</option>
+                      <option>FORWARDED TO COURT</option>
+                      <option>BAIL</option>
+                      <option>ACQUITTED</option>
+                      <option>CLOSED / CONVICTED</option>
+                      <option>ADR</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div className="block text-[11px] font-bold text-red-600 dark:text-red-400 mb-0.5 flex items-center">
+                      <Lock size={10} className="mr-1"/> Suspects in Custody
+                    </div>
+                    <div className="flex space-x-1.5">
+                      <div className="w-10 bg-red-100 dark:bg-red-950 border border-red-200 dark:border-red-900 text-red-800 dark:text-red-200 font-extrabold rounded flex items-center justify-center text-xs shadow-inner">
+                        {operation === 'update' ? formData.suspects : formData.suspectDetails.length}
+                      </div>
+                      <button type="button" onClick={() => setShowLockup(true)} className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-1.5 px-2 rounded shadow text-[11px] transition flex items-center justify-center cursor-pointer">
+                        <Users size={12} className="mr-1"/> Add Suspects
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2.5 px-3 rounded-lg shadow transition-colors flex justify-center items-center mt-3 text-xs cursor-pointer">
+                  {operation === 'new' ? '🚨 Submit New Case / Report' : '💾 Save Case Updates'}
+                </button>
+              </form>
+            </div>
+          </div>
         </div>
 
-        <SystemAssistant 
-          currentUser={currentUser} 
-          canViewGlobal={canViewGlobalJurisdiction(currentUser)} 
-          onClose={() => {}} 
-        />
-      </DashboardLayout>
+        <div className="lg:col-span-7 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-2.5 items-center flex-wrap">
+             <div className="relative flex-1 w-full min-w-[250px]"> 
+               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
+               <input type="text" placeholder="Search Reference, narrative, station or offence..." value={searchQuery} onChange={(e) => setSearchQuery(stripHtmlTags(e.target.value))} className="w-full pl-8 pr-3 py-1.5 border dark:border-slate-700 rounded-lg text-xs shadow-sm outline-none focus:border-blue-500 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" />
+             </div>
 
-      <WorkspaceSecurityCurtain />
-    </>
+             <button
+               type="button"
+               onClick={handleToggleAgric}
+               className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+                 showAgriculturalOnly 
+                   ? 'bg-emerald-700 text-white border-emerald-800 ring-2 ring-emerald-500/20' 
+                   : 'bg-white dark:bg-slate-800 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-slate-700'
+               }`}
+             >
+               <Sprout className="w-3.5 h-3.5 mr-1" />
+               {showAgriculturalOnly ? 'Agri-Crimes: ON' : 'Filter Agri-Crimes'}
+             </button>
+
+             <button
+               type="button"
+               onClick={handleToggleAccidents}
+               className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+                 showAccidentsOnly 
+                   ? 'bg-red-700 text-white border-red-800 ring-2 ring-red-500/20' 
+                   : 'bg-white dark:bg-slate-800 text-red-800 dark:text-red-300 border-red-300 dark:border-slate-700 hover:bg-red-50 dark:hover:bg-slate-700'
+               }`}
+             >
+               <Car className="w-3.5 h-3.5 mr-1" />
+               {showAccidentsOnly ? 'Accidents: ON' : 'Filter Accidents'}
+             </button>
+
+             <button
+               type="button"
+               onClick={handleToggleFires}
+               className={`px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer ${
+                 showFiresOnly 
+                   ? 'bg-amber-600 text-white border-amber-700 ring-2 ring-amber-500/20' 
+                   : 'bg-white dark:bg-slate-800 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-slate-700'
+               }`}
+             >
+               <Flame className="w-3.5 h-3.5 mr-1" />
+               {showFiresOnly ? 'Fires: ON' : 'Filter Fires'}
+             </button>
+
+            <select 
+              value={filterRegion} 
+              onChange={(e) => { 
+                setFilterRegion(stripHtmlTags(e.target.value)); 
+                setFilterStation('ALL STATIONS'); 
+              }} 
+              disabled={!canViewGlobalActive} 
+              className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer"
+            >
+              {canViewGlobalActive ? (
+                <>
+                  <option value="ALL REGIONS">ALL REGIONS</option>
+                  {Object.keys(REGIONAL_HIERARCHY).map(reg => (
+                    <option key={reg} value={reg}>{reg}</option>
+                  ))}
+                </>
+              ) : (
+                <option value={userRegClean}>{stripHtmlTags(userRegClean)}</option>
+              )}
+            </select>
+              
+            <select 
+              value={filterStation} 
+              onChange={(e) => setFilterStation(stripHtmlTags(e.target.value))} 
+              disabled={!(canViewGlobalActive || isRegionalCommand)} 
+              className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold disabled:bg-gray-100 dark:disabled:bg-slate-900 disabled:text-gray-500 w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer"
+            >
+              {(canViewGlobalActive || isRegionalCommand) ? (
+                <>
+                  <option value="ALL STATIONS">ALL STATIONS</option>
+                  {filterRegion === 'ALL REGIONS' 
+                    ? Object.values(REGIONAL_HIERARCHY).flat().map(stat => (
+                        <option key={stat} value={stat}>{stat}</option>
+                      ))
+                    : (REGIONAL_HIERARCHY[filterRegion] || []).map(stat => (
+                        <option key={stat} value={stat}>{stat}</option>
+                      ))
+                  }
+                </>
+              ) : (
+                <option value={currentUser?.station}>{stripHtmlTags(currentUser?.station)}</option>
+              )}
+            </select>
+
+            <select value={filterOffence} onChange={(e) => setFilterOffence(e.target.value)} className="border dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs shadow-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-bold w-full sm:w-auto outline-none focus:border-blue-500 cursor-pointer max-w-[200px] truncate">
+              <option value="ALL OFFENCES">ALL OFFENCES</option>
+              {uniqueOffences.map((off, idx) => (
+                <option key={idx} value={off}>{off}</option>
+              ))}
+            </select>
+
+            <button type="button" onClick={handleExportFilteredData} className="px-3 py-1.5 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-emerald-700 text-white border-emerald-800 hover:bg-emerald-800 ring-2 ring-emerald-500/20">
+              <HardDrive className="w-3.5 h-3.5 mr-1" />
+              Export Secure Excel (.zip)
+            </button>
+          </div>
+
+          <ExpandableTableCard title="Crime/Incident Registry Ledger" onToggle={(expanded) => { if (typeof setSidebarOpen === 'function') setSidebarOpen(!expanded); }}>
+            <div className="overflow-x-auto overflow-y-auto w-full max-h-[65vh] custom-scrollbar">
+              <table className="min-w-[1100px] w-full divide-y divide-gray-200 dark:divide-slate-700">
+                <thead className="bg-gray-50 dark:bg-slate-900 sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-16">SN</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-40">REFERENCE</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-32">Date & Time</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-44">Region/Post</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider min-w-[320px]">Incident Narrative</th>
+                    <th className="px-3.5 py-2.5 text-center text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-24">Suspects</th>
+                    <th className="px-3.5 py-2.5 text-left text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider w-40">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700 text-xs">
+                  {isFetchingReports ? (
+                    <tr><td colSpan="7" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium text-xs border-b-0"><Loader2 className="w-5 h-5 mx-auto animate-spin mb-2" /> Syncing database records...</td></tr>
+                  ) : finalFilteredReports.map((report, index) => {
+                    const rRegion = getOfficialRegionForStation(report.station, report.region);
+                    const isAgriMatch = (report.category || '').toUpperCase() === 'AGRIC_CRIME';
+                    const isAccidentMatch = ['ACCIDENT', 'ACCIDENTS', 'ACCIDENT_REPORT'].includes((report.category || '').toUpperCase());
+                    const isFireMatch = ['FIRE_INCIDENT', 'FIRE INCIDENTS', 'FIRE'].includes((report.category || '').toUpperCase());
+                    const statusClean = stripHtmlTags(report.status || '');
+
+                    return (
+                      <tr key={report.id || report.sn || index} className="even:bg-slate-50 dark:even:bg-slate-900/50 hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors cursor-pointer group" onClick={() => { if (operation === 'update') { populateUpdateCrimeForm(report); } else { setSelectedCase(report); } }}>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-xs font-black text-gray-900 dark:text-slate-100 align-top group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">
+                          {finalFilteredReports.length - index}
+                        </td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-blue-700 dark:text-blue-400 align-top break-words">{stripHtmlTags(report.sdRef || report.sd_ref)}</td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-500 dark:text-slate-400 align-top">{stripHtmlTags(report.date)}<br/><span className="text-[9px] text-gray-400 dark:text-slate-500">{stripHtmlTags(report.time)}</span></td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] text-gray-700 dark:text-slate-300 align-top font-bold">{stripHtmlTags(report.station)} <br/><span className="text-[9px] text-gray-400 dark:text-slate-500 font-medium">{rRegion}</span></td>
+                        <td className="px-3.5 py-3 text-[11px] text-gray-700 dark:text-slate-300 align-top whitespace-normal break-words overflow-wrap-anywhere">
+                          <div className="flex items-center space-x-2 mb-0.5 flex-wrap gap-y-1">
+                            {report.offence && <div className="font-extrabold text-red-600 dark:text-red-400 uppercase">{stripHtmlTags(report.offence)}</div>}
+                            {isAgriMatch && (
+                              <span className="bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-800">🌾 AGRI-CRIME</span>
+                            )}
+                            {isAccidentMatch && (
+                              <span className="bg-red-100 dark:bg-red-950/80 text-red-800 dark:text-red-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-red-300 dark:border-red-800">🚗 ACCIDENT</span>
+                            )}
+                            {isFireMatch && (
+                              <span className="bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 font-black text-[9px] px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-800">🔥 FIRE INCIDENT</span>
+                            )}
+                          </div>
+                          <div className="ql-editor p-0 line-clamp-3 text-slate-600 dark:text-slate-300 [&_*]:!text-[11px] [&_*]:!bg-transparent whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: report.narrative }} />
+                        </td>
+                        <td className="px-3.5 py-3 whitespace-nowrap text-[11px] font-extrabold text-red-600 dark:text-red-400 text-center align-top">{(report.suspectDetails || report.suspect_details || []).length}</td>
+                        <td className="px-3.5 py-3 whitespace-normal break-words align-top">
+                          <span className={`px-2 py-0.5 inline-flex text-[9px] font-bold rounded-full ${
+                            statusClean.includes('ACTIVE') ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300 border border-yellow-200 dark:border-yellow-900' : ''
+                          } ${
+                            statusClean.includes('COURT') ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-900' : ''
+                          } ${
+                            statusClean.includes('BAIL') ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-900' : ''
+                          } ${
+                            statusClean.includes('ACQUITTED') ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : ''
+                          } ${
+                            statusClean.includes('CLOSED') ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300 border border-green-200 dark:border-green-900' : ''
+                          } ${
+                            statusClean.includes('ADR') ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300 border border-orange-200 dark:border-orange-900' : ''
+                          }`}>{statusClean}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {finalFilteredReports.length === 0 && !isFetchingReports && <tr><td colSpan="7" className="text-center py-6 text-gray-500 dark:text-slate-400 font-medium text-xs border-b-0">No records found for this jurisdiction.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </ExpandableTableCard>
+        </div>
+      </div>
+
+    </div>  
   );
-};
+}
 
-export default App;
+export default CrimeIncidentRegistry;

@@ -1442,7 +1442,7 @@ const handleExportLogs = async () => {
     <>
       <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
         
-        <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden ${
+        <div className={`transition-all duration-300 flex flex-col bg-slate-900 border-r border-slate-700 flex-shrink-0 overflow-hidden isolate ${
           isFullScreen 
             ? 'hidden w-0' 
             : (sidebarOpen ? 'w-72 md:w-80' : 'w-16')
@@ -1602,7 +1602,7 @@ const handleExportLogs = async () => {
           </div>
         </div>
 
-        <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 w-full relative flex flex-col transition-colors duration-500">
+        <main className="flex-1 min-w-0 overflow-y-auto bg-gray-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 relative flex flex-col isolate transition-colors duration-500">
           
           <div className="absolute top-4 right-6 z-50 flex items-center space-x-2">
             <button 

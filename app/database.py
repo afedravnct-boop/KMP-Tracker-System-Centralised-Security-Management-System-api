@@ -16,9 +16,9 @@ engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=240,       # Recycled every 4 minutes (safely ahead of Neon's 5-min idle drop)
-    pool_size=20,
-    max_overflow=30,
-    pool_timeout=30,
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=10,
     connect_args={
         "sslmode": "require",
         "keepalives": 1,
@@ -33,9 +33,9 @@ logs_engine = create_engine(
     LOGS_DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=240,
-    pool_size=10,
-    max_overflow=15,
-    pool_timeout=30,
+    pool_size=3,
+    max_overflow=5,
+    pool_timeout=10,
     connect_args={
         "sslmode": "require",
         "keepalives": 1,

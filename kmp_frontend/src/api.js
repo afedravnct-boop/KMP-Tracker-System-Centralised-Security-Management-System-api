@@ -7,6 +7,16 @@ let inMemoryUserFNum = typeof window !== 'undefined' ? sessionStorage.getItem('k
 // 🟢 Global Telemetry Buffer Store for Live Error Interception
 window.__kmp_global_telemetry = window.__kmp_global_telemetry || { console: [], network: [] };
 
+const crashReportGuard = { lastSent: 0, count: 0, inFlight: false };
+
+function shouldSendCrashReport() {
+  const now = Date.now();
+  if (crashReportGuard.inFlight) return false;
+  if (crashReportGuard.count >= 5) return false;
+  if (now - crashReportGuard.lastSent < 60000) return false;
+  return true;
+}
+
 export const setAuthSession = (token, fnum) => {
   inMemoryToken = token;
   inMemoryUserFNum = fnum;
@@ -96,7 +106,7 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       credentials: 'include'
     });
 
-    // 🟢 Automatically capture non-2xx API failures globally into telemetry buffer & backend database
+    // 🟢 Automatically capture non-2xx API failures globally into telemetry buffer (rate-limited)
     if (response && !response.ok) {
       const errorMsg = `[HTTP_${response.status}] Failed request to ${url}`;
       window.__kmp_global_telemetry.network.push(errorMsg);
@@ -104,8 +114,12 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
         window.__kmp_global_telemetry.network.shift();
       }
 
-      // Instantly push to backend database storage (skip if calling report-crash to prevent loops)
-      if (!url.includes('/report-crash')) {
+      // Rate-limited crash telemetry: skip on /report-crash, 401, or when cooling down
+      if (!url.includes('/report-crash') && response.status !== 401 && shouldSendCrashReport()) {
+        crashReportGuard.inFlight = true;
+        crashReportGuard.lastSent = Date.now();
+        crashReportGuard.count += 1;
+
         fetch(`${BASE_URL}/api/v1/ai/report-crash`, {
           method: 'POST',
           headers: {
@@ -120,7 +134,11 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
             console_logs: [errorMsg],
             network_errors: [errorMsg]
           })
-        }).catch(() => {}); // Silent catch safeguard
+        })
+          .catch(() => {})
+          .finally(() => {
+            crashReportGuard.inFlight = false;
+          });
       }
     }
   } catch (networkError) {
@@ -168,8 +186,6 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
 
   // 🛡️ BULLETPROOF 401 INTERCEPTOR WITH HARD REVOCATION CHECK
   if (response.status === 401 && !url.includes('/api/auth/login') && !url.includes('/heartbeat')) {
-    
-    // 1. If a token verification is already running, queue concurrent requests safely
     if (isRefreshing) {
       return new Promise((resolve, reject) => {
         failedQueue.push({ resolve, reject });
@@ -181,7 +197,6 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       });
     }
 
-    // 2. If we have retries left, verify if the user has been revoked at the database level
     if (retries > 0) {
       isRefreshing = true;
       try {
@@ -210,7 +225,6 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
       isRefreshing = false;
     }
 
-    // 3. Fallback: Force secure session expiration modal
     console.warn("🔒 Verified Session Expiration. Routing to secure lock.");
     clearAuthSession();
     window.dispatchEvent(new CustomEvent('industrial-auth-expired', { detail: { endpoint: url } }));
@@ -229,7 +243,6 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
         const officerFNum = getAuthUserFNum() || "CLASSIFIED";
         clearAuthSession();
 
-        // Create a professional emergency lockdown countdown modal overlay dynamically in the DOM
         const overlay = document.createElement('div');
         overlay.style.cssText = `
           position: fixed; inset: 0; background: rgba(2, 6, 23, 0.95); z-index: 9999999;
@@ -237,7 +250,7 @@ export async function authFetch(endpoint, options = {}, retries = 1) {
           font-family: ui-sans-serif, system-ui, sans-serif; animation: fadeIn 0.2s ease-out;
         `;
 
-        let secondsLeft = 60; // 60 seconds grace period to finish typing
+        let secondsLeft = 60;
 
         overlay.innerHTML = `
           <div style="background: #0f172a; border: 2px solid #ef4444; border-radius: 16px; max-width: 550px; width: 100%; padding: 28px; color: #f8fafc; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);">
