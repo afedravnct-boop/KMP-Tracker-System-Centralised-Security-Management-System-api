@@ -135,8 +135,7 @@ def log_independent_activity(logs_db: Session, fnum: str, action: str, module: s
 def get_current_user(
     request: Request, 
     token: Optional[str] = Depends(oauth2_scheme), 
-    db: Session = Depends(database.get_db),
-    logs_db: Session = Depends(get_logs_db)
+    db: Session = Depends(database.get_db)
 ):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -154,6 +153,14 @@ def get_current_user(
             token = request.cookies.get("access_token")
 
     if not token:
+        raise credentials_exception
+
+    try:
+        payload = jwt.decode(token, security.SECRET_KEY, algorithms=[security.ALGORITHM])
+        fnum: str = payload.get("sub")
+        if fnum is None:
+            raise credentials_exception
+    except JWTError:
         raise credentials_exception
 
     try:
