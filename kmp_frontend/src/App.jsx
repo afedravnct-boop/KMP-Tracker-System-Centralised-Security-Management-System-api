@@ -1322,24 +1322,25 @@ const DashboardLayout = ({
     return () => clearInterval(heartbeatInterval);
   }, [currentUser?.fnum]);
 
-  const lastLoggedPage = useRef(null);
+  const lastLoggedRef = useRef({ page: null, time: 0 });
 
   useEffect(() => {
     if (!currentUser?.fnum || !currentPage || !hasValidSession()) return;
-    if (lastLoggedPage.current === currentPage) return;
-    
-    lastLoggedPage.current = currentPage;
+    const now = Date.now();
+    if (lastLoggedRef.current.page === currentPage && (now - lastLoggedRef.current.time) < 30000) {
+      return;
+    }
+    lastLoggedRef.current = { page: currentPage, time: now };
 
     authFetch('/api/v1/activity-logs', {
       method: 'POST',
-      body: JSON.stringify({ 
-        fnum: currentUser.fnum, 
-        action: 'PAGE_ACCESS', 
-        module: currentPage, 
-        details: `User accessed ${currentPage}` 
+      body: JSON.stringify({
+        fnum: currentUser.fnum,
+        action: 'PAGE_ACCESS',
+        module: currentPage,
+        details: `User accessed ${currentPage}`
       })
     }).catch(err => console.error("Activity log error:", err));
-
   }, [currentPage, currentUser?.fnum]);
 
   const safeSidebarComms = Array.isArray(adminCommsData) ? adminCommsData : (adminCommsData?.data || adminCommsData?.items || []);

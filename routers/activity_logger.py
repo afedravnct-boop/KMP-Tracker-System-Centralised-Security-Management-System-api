@@ -4,11 +4,14 @@ import asyncio
 import base64
 import json
 import re
+import time
 import pytz
 from sqlalchemy.orm import Session
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from app import models, database
+
+_RECENT_ACCESS_CACHE = {}
 
 
 def record_neon_activity(
@@ -21,7 +24,6 @@ def record_neon_activity(
 ):
     """
     Directly commits a granular forensic event into the NeonDB ActivityLogs branch.
-    Guarantees precise auditing for human administrative actions and mutations.
     """
     if not logs_db:
         return
@@ -61,9 +63,9 @@ def record_neon_activity(
 
 def _resolve_module_label(path_lower: str):
     """Maps API paths to clean (MODULE_CODE, human_label) pairs."""
-    if "crime-reports" in path_lower or "crime" in path_lower:
+    if "crime-reports" in path_lower or "crime" in path_lower or path_lower.endswith("/reports"):
         return "CRIME_REGISTRY", "Crime Registry"
-    if "general-documents" in path_lower or "general-docs" in path_lower or "document" in path_lower:
+    if "general-documents" in path_lower or "general-docs" in path_lower or "document" in path_lower or "reports_hub" in path_lower:
         return "GENERAL_DOCUMENTS", "Documents & Reports"
     if "statistics" in path_lower or "stats" in path_lower or "agric" in path_lower:
         return "OPERATIONAL_STATISTICS", "Operational Statistics"
@@ -77,13 +79,13 @@ def _resolve_module_label(path_lower: str):
         return "ESTABLISHMENTS", "Establishments"
     if "stories" in path_lower or "success" in path_lower:
         return "SUCCESS_STORIES", "Success Stories"
-    if "communication" in path_lower or "comm" in path_lower:
+    if "communication" in path_lower or "comm" in path_lower or "admin_communication" in path_lower:
         return "COMMAND_COMMUNICATIONS", "Command Communications"
     if "audit" in path_lower:
         return "AUDIT_LOGS", "Audit Logs"
     if "export-master" in path_lower or "database/export" in path_lower:
         return "EXCEL_EXPORTS", "Master Database"
-    if "users" in path_lower or "approve" in path_lower or "request" in path_lower:
+    if "users" in path_lower or "approve" in path_lower or "request" in path_lower or "approvals" in path_lower:
         return "USER_ACCOUNTS", "User Accounts & Access"
 
     parts = [p for p in path_lower.strip("/").split("/") if p and p not in ("api", "v1")]
@@ -91,9 +93,28 @@ def _resolve_module_label(path_lower: str):
     return raw.upper().replace("-", "_"), raw.replace("-", " ").title()
 
 
-def _write_middleware_audit_sync(fnum: str, method: str, path: str, file_detail: str = None):
+def _write_middleware_audit_sync(
+    fnum: str,
+    method: str,
+    path: str,
+    file_detail: str = None,
+    page_access_payload: dict = None
+):
     """Runs synchronous DB lookup and audit insert in a worker thread so the async event loop never blocks."""
     path_lower = path.lower()
+
+    # Handle explicit PAGE_ACCESS logs from frontend with a 30s per-user/per-module guard
+    if page_access_payload:
+        raw_mod = str(page_access_payload.get("module") or "home").strip()
+        cache_key = f"{fnum.upper()}:{raw_mod.lower()}"
+        now_ts = time.monotonic()
+        last_ts = _RECENT_ACCESS_CACHE.get(cache_key, 0)
+        if now_ts - last_ts < 30.0:
+            return
+        _RECENT_ACCESS_CACHE[cache_key] = now_ts
+        if len(_RECENT_ACCESS_CACHE) > 2000:
+            _RECENT_ACCESS_CACHE.clear()
+        path_lower = f"/api/v1/{raw_mod.lower()}"
 
     # Lookup Officer Rank & Name from database for forensic accuracy
     officer_rank = "OFFICER"
@@ -121,8 +142,12 @@ def _write_middleware_audit_sync(fnum: str, method: str, path: str, file_detail:
     officer_signature = f"{fnum} {officer_rank} {officer_name}".strip()
     module_name, module_label = _resolve_module_label(path_lower)
 
-    # 1. Authentication & Session Events (matches api_backend.py Audit Logs filter)
-    if "log-logout" in path_lower or "logout" in path_lower:
+    if page_access_payload:
+        action_type = "ACCESS"
+        narrative = f"Officer [{officer_signature}] accessed {module_label} ({page_access_payload.get('module')})."
+
+    # 1. Authentication & Session Events
+    elif "log-logout" in path_lower or "logout" in path_lower:
         module_name = "USER_AUTHENTICATION"
         action_type = "LOGOUT"
         narrative = f"Officer [{officer_signature}] signed out of the system."
@@ -205,37 +230,57 @@ def _write_middleware_audit_sync(fnum: str, method: str, path: str, file_detail:
 
 class SystemActivityMiddleware(BaseHTTPMiddleware):
     """
-    Records only concrete operational actions (Login, Logout, Create, Upload, Update, Delete, Export/Download).
-    Ignores passive browsing, polling, and failed requests.
+    Records PAGE_ACCESS events and concrete operational actions (Login, Logout, Create, Upload, Update, Delete, Export/Download).
+    Ignores passive background polls and failed requests.
     """
     async def dispatch(self, request: Request, call_next):
+        is_activity_post = (
+            request.method == "POST"
+            and request.url.path.rstrip("/").lower().endswith("/api/v1/activity-logs")
+        )
+        page_access_payload = None
+        if is_activity_post:
+            try:
+                raw_body = await request.body()
+                parsed = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                if str(parsed.get("action", "")).upper() == "PAGE_ACCESS":
+                    page_access_payload = parsed
+            except Exception:
+                page_access_payload = None
+
         response = await call_next(request)
 
-        # Ignore failed requests (4xx/5xx) so blocked or failed attempts aren't logged as completed actions
         if response.status_code >= 400:
             return response
 
         path = request.url.path
         path_lower = path.lower()
 
-        # Skip static assets, docs, CORS preflight, and background polling noise
         if (
             request.method == "OPTIONS"
             or not path.startswith("/api/")
             or any(skip in path_lower for skip in [
                 "/static/", "/favicon.ico", "/docs", "/openapi.json",
-                "/heartbeat", "/ping", "/users/online", "/activity-logs"
+                "/heartbeat", "/ping", "/users/online"
             ])
         ):
             return response
 
-        # Ignore ALL passive GET requests unless it is an explicit export or download
-        if request.method == "GET":
+        # If it's /activity-logs, only proceed if it's a PAGE_ACCESS event
+        if "/activity-logs" in path_lower and not page_access_payload:
+            return response
+
+        # Ignore passive GET requests unless it is an explicit export or download
+        if request.method == "GET" and not page_access_payload:
             if not any(action in path_lower for action in ["export", "download"]):
                 return response
 
-        # Precision FNUM resolution from session state or Authorization Bearer token
-        fnum = getattr(request.state, "user_fnum", None) or request.headers.get("X-User-Fnum", None)
+        # Precision FNUM resolution
+        fnum = (
+            (page_access_payload or {}).get("fnum")
+            or getattr(request.state, "user_fnum", None)
+            or request.headers.get("X-User-Fnum", None)
+        )
 
         if not fnum:
             auth_header = request.headers.get("Authorization", "")
@@ -254,7 +299,6 @@ class SystemActivityMiddleware(BaseHTTPMiddleware):
 
         fnum = fnum or "SYSTEM_OFFICER"
 
-        # Extract downloaded filename from Content-Disposition header, or uploaded filename from request.state
         file_detail = getattr(request.state, "audit_detail", None)
         if not file_detail:
             disposition = response.headers.get("content-disposition", "")
@@ -262,7 +306,14 @@ class SystemActivityMiddleware(BaseHTTPMiddleware):
             if match:
                 file_detail = match.group(1).strip()
 
-        await asyncio.to_thread(_write_middleware_audit_sync, fnum, request.method, path, file_detail)
+        await asyncio.to_thread(
+            _write_middleware_audit_sync,
+            fnum,
+            request.method,
+            path,
+            file_detail,
+            page_access_payload
+        )
 
         return response
 
