@@ -76,7 +76,7 @@ from routers import (
     success_stories,
     admin_communication,
     ai_router,
-    analytics_export,
+    analytics,
     statistics,
     exhibits,
     hr_router,
@@ -97,7 +97,7 @@ app.include_router(crime_registry.router)
 app.include_router(lockup_matrix.router)
 app.include_router(establishments.router)
 app.include_router(success_stories.router)
-app.include_router(analytics_export.router)
+app.include_router(analytics.router)
 app.include_router(admin_communication.router)
 app.include_router(ai_router.router)
 app.include_router(auth_router)
