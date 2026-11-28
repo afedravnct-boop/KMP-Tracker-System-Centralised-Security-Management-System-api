@@ -50,7 +50,6 @@ class SuspectStatsPayload(BaseModel):
     remanded: int = 0
     convicted: int = 0
     last_updated_by: Optional[str] = None
-    entered_by: Optional[str] = None
 
 
 class AccidentStatsPayload(BaseModel):
@@ -64,7 +63,6 @@ class AccidentStatsPayload(BaseModel):
     victims: int = 0
     total: Optional[int] = None
     last_updated_by: Optional[str] = None
-    entered_by: Optional[str] = None
 
 
 class FireStatsPayload(BaseModel):
@@ -78,7 +76,6 @@ class FireStatsPayload(BaseModel):
     victims: int = 0
     total: Optional[int] = None
     last_updated_by: Optional[str] = None
-    entered_by: Optional[str] = None
 
 
 class AgricSummaryPayload(BaseModel):
@@ -93,6 +90,13 @@ class AgricSummaryPayload(BaseModel):
 
 def now_eat() -> datetime:
     return datetime.now(EAT_TZ).replace(tzinfo=None)
+
+
+def format_officer_sig(user) -> str:
+    fnum = str(getattr(user, "fnum", "") or "").strip().upper()
+    rank = str(getattr(user, "rank", "") or "").strip().upper()
+    name = str(getattr(user, "name", "") or "").strip().upper()
+    return " ".join(part for part in (fnum, rank, name) if part) or "UNKNOWN COMMANDER"
 
 
 def get_model_safe(*names):
@@ -328,7 +332,7 @@ def build_aes_zip_export(
     officer_role = str(getattr(current_user, "role", "") or "").strip().upper()
     timestamp_eat = eat_now.strftime("%Y-%m-%d %H:%M:%S EAT")
 
-    officer_sig = f"{officer_fnum} {officer_rank} {officer_name}".strip()
+    officer_sig = format_officer_sig(current_user)
     wb.properties.creator = officer_sig
     wb.properties.lastModifiedBy = f"KMP-CSDMS [{officer_station or 'HQ'}]"
     wb.properties.title = f"{sheet_title} — Restricted Export"
@@ -448,14 +452,13 @@ def _create_suspect_domain_record(
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit statistics for this station.")
 
-    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
     data["region"] = target_region
     data["station"] = target_station
     data["pending_court"] = (payload.pending_court_prev_ops or 0) + (payload.pending_court_today_ops or 0)
     data["taken_to_court"] = (payload.taken_to_court_prev_lockup or 0) + (payload.taken_to_court_today_ops or 0)
-    data["last_updated_by"] = payload.last_updated_by or sig
-    data["entered_by"] = payload.entered_by or sig
+    data["last_updated_by"] = payload.last_updated_by or actor_sig
 
     valid_cols = {c.key for c in ModelClass.__table__.columns}
     safe_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -513,11 +516,11 @@ def _update_suspect_domain_record(
     if not can_mutate_target(current_user, existing_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot update statistics for this station.")
 
-    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    actor_sig = format_officer_sig(current_user)
     data = payload.model_dump(exclude_unset=True)
     data["pending_court"] = (payload.pending_court_prev_ops or 0) + (payload.pending_court_today_ops or 0)
     data["taken_to_court"] = (payload.taken_to_court_prev_lockup or 0) + (payload.taken_to_court_today_ops or 0)
-    data["last_updated_by"] = sig
+    data["last_updated_by"] = actor_sig
 
     valid_cols = {c.key for c in ModelClass.__table__.columns}
     try:
@@ -714,9 +717,11 @@ def create_agric_summary(
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit produce entries for this station.")
 
+    actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
     data["region"] = target_region
     data["station"] = target_station
+    data["last_updated_by"] = actor_sig
     valid_cols = {c.key for c in AgricSummaryModel.__table__.columns}
     safe_data = {k: v for k, v in data.items() if k in valid_cols}
 
@@ -780,14 +785,14 @@ def create_accident_stats(
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit accident statistics for this station.")
 
-    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
     data["region"] = target_region
     data["station"] = target_station
     data["nature_of_accident"] = (payload.nature_of_accident or "UNSPECIFIED").strip().upper()
     data["total"] = (payload.minor or 0) + (payload.serious or 0) + (payload.fatal or 0)
-    data["last_updated_by"] = payload.last_updated_by or sig
-    data["entered_by"] = payload.entered_by or sig
+    data["last_updated_by"] = payload.last_updated_by or actor_sig
+    data["entered_by"] = actor_sig
 
     valid_cols = {c.key for c in AccidentModel.__table__.columns}
     safe_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -841,12 +846,12 @@ def update_accident_stats(
     if not can_mutate_target(current_user, existing_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot update accident statistics for this station.")
 
-    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    actor_sig = format_officer_sig(current_user)
     data = payload.model_dump(exclude_unset=True)
     if "nature_of_accident" in data and data["nature_of_accident"]:
         data["nature_of_accident"] = data["nature_of_accident"].strip().upper()
     data["total"] = (payload.minor or 0) + (payload.serious or 0) + (payload.fatal or 0)
-    data["last_updated_by"] = sig
+    data["last_updated_by"] = actor_sig
 
     valid_cols = {c.key for c in AccidentModel.__table__.columns}
     try:
@@ -926,14 +931,14 @@ def create_fire_stats(
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit fire statistics for this station.")
 
-    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
     data["region"] = target_region
     data["station"] = target_station
     data["nature_of_fire"] = (payload.nature_of_fire or "UNSPECIFIED").strip().upper()
     data["total"] = (payload.minor_outbreaks or 0) + (payload.major_disasters or 0) + (payload.fatal_fires or 0)
-    data["last_updated_by"] = payload.last_updated_by or sig
-    data["entered_by"] = payload.entered_by or sig
+    data["last_updated_by"] = payload.last_updated_by or actor_sig
+    data["entered_by"] = actor_sig
 
     valid_cols = {c.key for c in FireModel.__table__.columns}
     safe_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -987,12 +992,12 @@ def update_fire_stats(
     if not can_mutate_target(current_user, existing_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot update fire statistics for this station.")
 
-    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    actor_sig = format_officer_sig(current_user)
     data = payload.model_dump(exclude_unset=True)
     if "nature_of_fire" in data and data["nature_of_fire"]:
         data["nature_of_fire"] = data["nature_of_fire"].strip().upper()
     data["total"] = (payload.minor_outbreaks or 0) + (payload.major_disasters or 0) + (payload.fatal_fires or 0)
-    data["last_updated_by"] = sig
+    data["last_updated_by"] = actor_sig
 
     valid_cols = {c.key for c in FireModel.__table__.columns}
     try:
