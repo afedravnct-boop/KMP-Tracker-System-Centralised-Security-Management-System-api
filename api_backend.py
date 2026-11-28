@@ -478,54 +478,6 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/v1/audit-logs")
-def get_audit_logs(
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user: models.Users = Depends(require_admin_or_observer)
-):
-    log_independent_activity(
-        logs_db=logs_db,
-        fnum=current_user.fnum,
-        action="VIEW_AUDIT_LOGS",
-        module="AUDIT_LOGS",
-        details=f"Officer {current_user.name} ({current_user.fnum}) accessed the secure System Audit Logs tab."
-    )
-    try:
-        ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
-        if not ActivityModel:
-            return []
-            
-        admin_auth_modules = [
-            "USER_AUTHENTICATION", 
-            "SESSION", 
-            "SESSION_TELEMETRY",
-            "USER_ACCOUNTS", 
-            "PASSWORD_RESETS", 
-            "SECURITY_VAULT", 
-            "ACCESS_MATRIX"
-        ]
-        
-        logs = logs_db.query(ActivityModel).filter(
-            ActivityModel.module.in_(admin_auth_modules)
-        ).order_by(ActivityModel.id.desc()).limit(100).all()
-        
-        return [
-            {
-                "id": log.id,
-                "event_type": getattr(log, 'action', 'ACTION'),
-                "target_user": getattr(log, 'module', ''),
-                "status": "SUCCESS",
-                "details": getattr(log, 'details', ''),
-                "user_fnum": getattr(log, 'fnum', ''),
-                "user_name": "", 
-                "created_at": str(getattr(log, 'created_at', ''))
-            } for log in logs
-        ]
-    except Exception as e:
-        print(f"Audit log fetch error: {e}")
-        return []
-
 @app.get("/api/v1/audit-logs/export")
 def export_audit_logs_excel(
     db: Session = Depends(get_db), 
@@ -541,13 +493,24 @@ def export_audit_logs_excel(
             details=f"Officer {current_user.name} ({current_user.fnum}) downloaded the encrypted audit logs vault archive."
         )
 
-        AuditModel = getattr(models, 'Audit_Logs', getattr(models, 'AuditLogs', None))
-        logs = db.query(AuditModel).order_by(AuditModel.id.desc()).all()
+        ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
+        if not ActivityModel:
+            raise HTTPException(status_code=500, detail="Activity Logs model not configured.")
+
+        logs = logs_db.query(ActivityModel).order_by(ActivityModel.id.desc()).all()
+
+        # Map FNUM -> Officer Name from main db so the User Name column is populated
+        users_map = {}
+        try:
+            all_users = db.query(models.Users.fnum, models.Users.name).all()
+            users_map = {str(u[0]).strip().upper(): str(u[1]).strip().upper() for u in all_users if u[0]}
+        except Exception:
+            pass
 
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Command Audit Logs"
-        ws.append(["ID", "Event Type", "Target User", "Status", "Details", "Created At", "User FNUM", "User Name"])
+        ws.append(["ID", "Event Type", "Module / Target", "Status", "Details", "Created At", "User FNUM", "User Name"])
 
         header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
@@ -565,18 +528,18 @@ def export_audit_logs_excel(
             else:
                 formatted_time = str(raw_time).replace("+00:00", "").replace("T", " ")
 
-            user_fnum = str(getattr(log, 'user_fnum', '') or getattr(log, 'fnum', '')).strip()
-            user_name = str(getattr(log, 'user_name', '')).strip().upper()
+            user_fnum = str(getattr(log, 'fnum', '') or '').strip().upper()
+            user_name = users_map.get(user_fnum, "SYSTEM" if user_fnum in ("", "SYSTEM", "SYSTEM_CRON") else "N/A")
 
             ws.append([
                 getattr(log, 'id', ''), 
-                getattr(log, 'event_type', ''), 
-                getattr(log, 'target_user', ''), 
-                getattr(log, 'status', ''), 
+                getattr(log, 'action', 'ACTION'), 
+                getattr(log, 'module', 'SYSTEM'), 
+                "SUCCESS", 
                 details_clean, 
                 formatted_time, 
                 user_fnum or "SYSTEM",
-                user_name or "N/A"
+                user_name
             ])
 
         for col in ws.columns:
@@ -612,7 +575,6 @@ def export_audit_logs_excel(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export audit logs: {str(e)}")
-
 @app.get("/api/v1/requests")
 def get_global_hr_requests_fallback(
     db: Session = Depends(get_db),
