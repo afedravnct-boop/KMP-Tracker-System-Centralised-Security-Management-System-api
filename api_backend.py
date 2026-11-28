@@ -478,6 +478,54 @@ def get_all_active_users(db: Session = Depends(get_db), current_user: models.Use
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/v1/audit-logs")
+def get_audit_logs(
+    db: Session = Depends(get_db), 
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(require_admin_or_observer)
+):
+    log_independent_activity(
+        logs_db=logs_db,
+        fnum=current_user.fnum,
+        action="VIEW_AUDIT_LOGS",
+        module="AUDIT_LOGS",
+        details=f"Officer {current_user.name} ({current_user.fnum}) accessed the secure System Audit Logs tab."
+    )
+    try:
+        ActivityModel = getattr(models, 'Activity_Logs', getattr(models, 'ActivityLogs', None))
+        if not ActivityModel:
+            return []
+            
+        admin_auth_modules = [
+            "USER_AUTHENTICATION", 
+            "SESSION", 
+            "SESSION_TELEMETRY",
+            "USER_ACCOUNTS", 
+            "PASSWORD_RESETS", 
+            "SECURITY_VAULT", 
+            "ACCESS_MATRIX"
+        ]
+        
+        logs = logs_db.query(ActivityModel).filter(
+            ActivityModel.module.in_(admin_auth_modules)
+        ).order_by(ActivityModel.id.desc()).limit(100).all()
+        
+        return [
+            {
+                "id": log.id,
+                "event_type": getattr(log, 'action', 'ACTION'),
+                "target_user": getattr(log, 'module', ''),
+                "status": "SUCCESS",
+                "details": getattr(log, 'details', ''),
+                "user_fnum": getattr(log, 'fnum', ''),
+                "user_name": "", 
+                "created_at": str(getattr(log, 'created_at', ''))
+            } for log in logs
+        ]
+    except Exception as e:
+        print(f"Audit log fetch error: {e}")
+        return []
+
 @app.get("/api/v1/audit-logs/export")
 def export_audit_logs_excel(
     db: Session = Depends(get_db), 
