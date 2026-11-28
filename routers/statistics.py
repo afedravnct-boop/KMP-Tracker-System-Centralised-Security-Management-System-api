@@ -607,54 +607,77 @@ def list_disruptive_stats(
 def get_disruptive_regional_summation(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
-    period: Optional[str] = Query(default="WEEK"),
+    period: Optional[str] = Query(default="ALL"),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user),
 ):
+    """Fetches only columns required by the Regional Summation Table (REVISED REG TEMPLATE)
+    and sums taken_to_court_prev_lockup + taken_to_court_today_ops before grouping by station."""
     StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
     if not StatsModel:
         return {"rows": [], "by_region": {}, "grand_total": {}}
 
     eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
-    q = apply_scope_and_filters(db.query(StatsModel), StatsModel, current_user, region, station, eff_start, eff_end)
-    records = q.all()
+
+    selected_cols = [
+        col for col in (
+            getattr(StatsModel, "region", None),
+            getattr(StatsModel, "station", None),
+            getattr(StatsModel, "date", None),
+            getattr(StatsModel, "arrested", None),
+            getattr(StatsModel, "given_bond", None),
+            getattr(StatsModel, "cautioned", None),
+            getattr(StatsModel, "taken_to_court_prev_lockup", None),
+            getattr(StatsModel, "taken_to_court_today_ops", None),
+            getattr(StatsModel, "taken_to_court", None),
+            getattr(StatsModel, "released", None),
+            getattr(StatsModel, "remanded", None),
+            getattr(StatsModel, "convicted", None),
+        )
+        if col is not None
+    ]
+
+    q = db.query(*selected_cols)
+    q = apply_scope_and_filters(q, StatsModel, current_user, region, station, eff_start, eff_end)
+    tuples_rows = q.all()
 
     metric_keys = ("arrested", "given_bond", "cautioned", "taken_to_court", "released", "remanded", "convicted")
     agg_by_station: dict[str, dict] = {}
 
-    for r in records:
-        stn_key = _normalize_station_key(getattr(r, "station", ""))
+    for row_tuple in tuples_rows:
+        # Map available columns safely
+        col_names = [c.key for c in selected_cols]
+        rec = dict(zip(col_names, row_tuple))
+
+        stn_key = _normalize_station_key(rec.get("station"))
         if not stn_key:
             continue
-        reg_key = _resolve_region_for_station(stn_key, getattr(r, "region", ""))
+        reg_key = _resolve_region_for_station(stn_key, rec.get("region"))
 
         if stn_key not in agg_by_station:
             agg_by_station[stn_key] = {
                 "division": stn_key,
                 "station": stn_key,
                 "region": reg_key,
-                "entries_count": 0,
                 **{k: 0 for k in metric_keys},
             }
 
         bucket = agg_by_station[stn_key]
-        bucket["entries_count"] += 1
+        taken_prev = int(rec.get("taken_to_court_prev_lockup") or 0)
+        taken_today = int(rec.get("taken_to_court_today_ops") or 0)
+        taken_sum = taken_prev + taken_today
+        if taken_sum == 0 and rec.get("taken_to_court") is not None:
+            taken_sum = int(rec.get("taken_to_court") or 0)
 
-        taken_val = getattr(r, "taken_to_court", None)
-        if not taken_val:
-            taken_val = int(getattr(r, "taken_to_court_prev_lockup", 0) or 0) + int(
-                getattr(r, "taken_to_court_today_ops", 0) or 0
-            )
-
-        bucket["arrested"] += int(getattr(r, "arrested", 0) or 0)
-        bucket["given_bond"] += int(getattr(r, "given_bond", 0) or 0)
-        bucket["cautioned"] += int(getattr(r, "cautioned", 0) or 0)
-        bucket["taken_to_court"] += int(taken_val or 0)
-        bucket["released"] += int(getattr(r, "released", 0) or 0)
-        bucket["remanded"] += int(getattr(r, "remanded", 0) or 0)
-        bucket["convicted"] += int(getattr(r, "convicted", 0) or 0)
+        bucket["arrested"] += int(rec.get("arrested") or 0)
+        bucket["given_bond"] += int(rec.get("given_bond") or 0)
+        bucket["cautioned"] += int(rec.get("cautioned") or 0)
+        bucket["taken_to_court"] += taken_sum
+        bucket["released"] += int(rec.get("released") or 0)
+        bucket["remanded"] += int(rec.get("remanded") or 0)
+        bucket["convicted"] += int(rec.get("convicted") or 0)
 
     ordered_rows = []
     seen_stations = set()
@@ -674,7 +697,6 @@ def get_disruptive_regional_summation(
                     "division": stn_key,
                     "station": stn_key,
                     "region": reg_name,
-                    "entries_count": 0,
                     **{k: 0 for k in metric_keys},
                 })
 
@@ -698,7 +720,7 @@ def get_disruptive_regional_summation(
     grand_total = {k: sum(row[k] for row in ordered_rows) for k in metric_keys}
 
     return {
-        "period": (period or "WEEK").upper(),
+        "period": (period or "ALL").upper(),
         "start_date": eff_start,
         "end_date": eff_end,
         "rows": ordered_rows,
