@@ -1,4 +1,4 @@
-# routers/analytics.py
+# routers/analytics_export.py
 import gc
 import io
 import json
@@ -9,6 +9,7 @@ import pyzipper
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart.label import DataLabelList
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -459,6 +460,41 @@ def calculate_timeseries_aggregates(records, date_field, value_fields):
         "monthly": format_rows(sorted(monthly_map.keys()), monthly_map),
         "annual": format_rows(sorted(annual_map.keys()), annual_map)
     }
+
+def build_bar_chart(title, x_title, y_title, ws, data_min_col, data_max_col, cat_col, header_row, end_row, width=18, height=11, show_legend=True):
+    chart = BarChart()
+    chart.type = "col"
+    chart.grouping = "clustered"
+    chart.style = 10
+    chart.title = title
+    chart.x_axis.title = x_title
+    chart.y_axis.title = y_title
+    chart.x_axis.delete = False
+    chart.y_axis.delete = False
+    if not show_legend:
+        chart.legend = None
+    data_ref = Reference(ws, min_col=data_min_col, max_col=data_max_col, min_row=header_row, max_row=end_row)
+    cats_ref = Reference(ws, min_col=cat_col, min_row=header_row + 1, max_row=end_row)
+    chart.add_data(data_ref, titles_from_data=True)
+    chart.set_categories(cats_ref)
+    chart.width = width
+    chart.height = height
+    return chart
+
+def build_pie_chart(title, ws, data_col, cat_col, header_row, end_row, width=14, height=10):
+    pie = PieChart()
+    pie.title = title
+    pie.style = 10
+    data_ref = Reference(ws, min_col=data_col, min_row=header_row, max_row=end_row)
+    cats_ref = Reference(ws, min_col=cat_col, min_row=header_row + 1, max_row=end_row)
+    pie.add_data(data_ref, titles_from_data=True)
+    pie.set_categories(cats_ref)
+    pie.dataLabels = DataLabelList()
+    pie.dataLabels.showPercent = True
+    pie.dataLabels.showVal = True
+    pie.width = width
+    pie.height = height
+    return pie
 
 @router.get("/dashboard-intelligence", response_model=None)
 def get_dashboard_intelligence(
@@ -1092,22 +1128,59 @@ def export_analytics_report(
             for col in ws.columns:
                 max_len = max([len(str(cell.value or '')) for cell in col], default=0)
                 ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
+            return ws
 
         add_individual_sheet("Manpower Analysis", manpower_headers, manpower_table_rows)
-        add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
+
+        ws_agric = add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
+        if agric_cat_data:
+            ws_agric.add_chart(
+                build_bar_chart("Agricultural Crimes: Stolen vs Recovered", "Sub-Category", "Count", ws_agric, 3, 4, 2, 1, len(agric_cat_data) + 1),
+                "F2"
+            )
+
         add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
         add_individual_sheet("Exhibits Grouped", exhibit_headers, exhibit_summary_data)
         add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Taken to Court", "Released by Court", "Suspects Remanded", "Suspects Convicted"], disruptive_data)
         
-        add_individual_sheet("Detention Analysis (Weekly)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
-        add_individual_sheet("Detention Analysis (Monthly)", ["Time Period", "Entries Logged", "Total Suspects", "Monthly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["monthly"])
-        add_individual_sheet("Detention Analysis (Annual)", ["Time Period", "Entries Logged", "Total Suspects", "Annual Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["annual"])
+        for period_label, period_key in [("Weekly", "weekly"), ("Monthly", "monthly"), ("Annual", "annual")]:
+            det_rows = detention_timeseries[period_key]
+            ws_det = add_individual_sheet(
+                f"Detention Analysis ({period_label})",
+                ["Time Period", "Entries Logged", "Total Suspects", f"{period_label} Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"],
+                det_rows
+            )
+            if det_rows:
+                ws_det.add_chart(
+                    build_bar_chart(f"Cell Detentions ({period_label}) - Total Suspects", "Time Period", "Suspects", ws_det, 4, 4, 2, 1, len(det_rows) + 1, show_legend=False),
+                    "M2"
+                )
 
-        add_individual_sheet("Accidents Analysis (Weekly)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
-        add_individual_sheet("Accidents Analysis (Monthly)", ["Time Period", "Entries Logged", "Minor Crashes", "Monthly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["monthly"])
-        add_individual_sheet("Accidents Analysis (Annual)", ["Time Period", "Entries Logged", "Minor Crashes", "Annual Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["annual"])
+        for period_label, period_key in [("Weekly", "weekly"), ("Monthly", "monthly"), ("Annual", "annual")]:
+            acc_rows = accidents_timeseries[period_key]
+            ws_acc = add_individual_sheet(
+                f"Accidents Analysis ({period_label})",
+                ["Time Period", "Entries Logged", "Minor Crashes", f"{period_label} Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"],
+                acc_rows
+            )
+            if acc_rows:
+                ws_acc.add_chart(
+                    build_bar_chart(f"Traffic Accidents ({period_label}) - Total Instances", "Time Period", "Total Instances", ws_acc, 12, 12, 2, 1, len(acc_rows) + 1, show_legend=False),
+                    "O2"
+                )
 
-        add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
+        ws_comp = add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
+        if comp_data:
+            chart_end_row = min(len(comp_data), 15) + 1
+            ws_comp.add_chart(
+                build_bar_chart("Top Crime Categories (Vertical Graph)", "Category / Offence", "Total Volume", ws_comp, 3, 3, 2, 1, chart_end_row, width=18, height=11, show_legend=False),
+                "E2"
+            )
+            ws_comp.add_chart(
+                build_pie_chart("Top Crime Categories (Pie Share)", ws_comp, 3, 2, 1, chart_end_row, width=14, height=11),
+                "E22"
+            )
+
         add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
 
         ws_gen = wb.create_sheet(title="General Analytics", index=0)
@@ -1182,20 +1255,16 @@ def export_analytics_report(
             for cell in ws_crime_comp[ws_crime_comp.max_row]:
                 cell.fill = section_fill; cell.font = section_font
 
-            crime_chart = BarChart()
-            crime_chart.type = "col"
-            crime_chart.grouping = "clustered"
-            crime_chart.title = "Comparative Crime Breakdown (KMP North vs East vs South)"
-            crime_chart.x_axis.title = "Crime / Offence"
-            crime_chart.y_axis.title = "Number of Cases Reported"
-            crime_chart.width = 22
-            crime_chart.height = 13
-
-            data_ref = Reference(ws_crime_comp, min_col=3, max_col=5, min_row=1, max_row=len(crime_comp_rows) + 1)
-            cats_ref = Reference(ws_crime_comp, min_col=2, min_row=2, max_row=len(crime_comp_rows) + 1)
-            crime_chart.add_data(data_ref, titles_from_data=True)
-            crime_chart.set_categories(cats_ref)
-            ws_crime_comp.add_chart(crime_chart, "H2")
+            ws_crime_comp.add_chart(
+                build_bar_chart(
+                    "Comparative Crime Breakdown (KMP North vs East vs South)",
+                    "Crime / Offence",
+                    "Number of Cases Reported",
+                    ws_crime_comp, 3, 5, 2, 1, len(crime_comp_rows) + 1,
+                    width=22, height=13
+                ),
+                "H2"
+            )
 
         for col in ws_crime_comp.columns:
             max_len = max([len(str(cell.value or '')) for cell in col], default=0)
@@ -1256,7 +1325,6 @@ def export_analytics_report(
             curr_mp_row += 1
 
             dim_total = sum(general_counts.values())
-            sum_start_row = curr_mp_row
             for cat in sorted_cats:
                 val = general_counts[cat]
                 pct = f"{(val / dim_total * 100):.1f}%" if dim_total > 0 else "0.0%"
@@ -1270,25 +1338,14 @@ def export_analytics_report(
             ws_mp.cell(row=curr_mp_row, column=2, value=dim_total).font = Font(bold=True)
             ws_mp.cell(row=curr_mp_row, column=3, value="100.0%").font = Font(bold=True)
 
-            pie = PieChart()
-            pie.title = f"{dim_title} (Pie)"
-            pie_data = Reference(ws_mp, min_col=2, min_row=sum_header_row, max_row=sum_end_row)
-            pie_cats = Reference(ws_mp, min_col=1, min_row=sum_start_row, max_row=sum_end_row)
-            pie.add_data(pie_data, titles_from_data=True)
-            pie.set_categories(pie_cats)
-            pie.width = 13; pie.height = 9
-            ws_mp.add_chart(pie, f"E{sum_header_row}")
-
-            vbar = BarChart()
-            vbar.type = "col"
-            vbar.title = f"{dim_title} (Vertical Graph)"
-            vbar.x_axis.title = "Category"
-            vbar.y_axis.title = "Number of Personnel"
-            vbar.legend = None
-            vbar.add_data(pie_data, titles_from_data=True)
-            vbar.set_categories(pie_cats)
-            vbar.width = 15; vbar.height = 9
-            ws_mp.add_chart(vbar, f"M{sum_header_row}")
+            ws_mp.add_chart(
+                build_pie_chart(f"{dim_title} (Pie)", ws_mp, 2, 1, sum_header_row, sum_end_row, width=13, height=9),
+                f"E{sum_header_row}"
+            )
+            ws_mp.add_chart(
+                build_bar_chart(f"{dim_title} (Vertical Graph)", "Category", "Number of Personnel", ws_mp, 2, 2, 1, sum_header_row, sum_end_row, width=15, height=9, show_legend=False),
+                f"M{sum_header_row}"
+            )
 
             curr_mp_row = max(curr_mp_row + 2, sum_header_row + 20)
 
@@ -1350,7 +1407,12 @@ def export_analytics_report(
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            zf.writestr(f"{fnum_clean}_Analytics_Report_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
+            zinfo = pyzipper.ZipInfo(
+                filename=f"{fnum_clean}_Analytics_Report_{eat_time.strftime('%Y%m%d')}.xlsx",
+                date_time=eat_time.timetuple()[:6]
+            )
+            zinfo.compress_type = pyzipper.ZIP_DEFLATED
+            zf.writestr(zinfo, excel_stream.getvalue())
 
         excel_stream.close()
         zip_stream.seek(0)
