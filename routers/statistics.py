@@ -4,7 +4,7 @@ import os
 import json
 import re
 import traceback
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional
 import pytz
@@ -169,6 +169,38 @@ def is_station_eq(a: Optional[str], b: Optional[str]) -> bool:
     ca = re.sub(r"(\s+HEADQUARTERS|\s+HQ)$", "", sa)
     cb = re.sub(r"(\s+HEADQUARTERS|\s+HQ)$", "", sb)
     return ca == cb and len(ca) > 0
+
+
+def _normalize_station_key(name: Optional[str]) -> str:
+    raw = re.sub(r"\s+", " ", str(name or "").strip().upper())
+    if not raw:
+        return ""
+    if raw in ("KIRA", "KIRA DIV", "KIRA DIVISION"):
+        return "KIRA DIV"
+    return raw
+
+
+def _resolve_region_for_station(station_key: str, db_region: Optional[str]) -> str:
+    reg_clean = str(db_region or "").strip().upper()
+    for reg_name, stations in REGIONAL_HIERARCHY.items():
+        if station_key in {_normalize_station_key(s) for s in stations}:
+            return reg_name
+    return reg_clean or "UNASSIGNED"
+
+
+def _resolve_period_bounds_eat(period: Optional[str], start_date: Optional[str], end_date: Optional[str]):
+    today_eat = now_eat().date()
+    if start_date or end_date:
+        return start_date, end_date
+    p = str(period or "").strip().upper()
+    if p in ("TODAY", "DAY"):
+        d_str = today_eat.isoformat()
+        return d_str, d_str
+    if p in ("WEEK", "LAST_7_DAYS", "7D", "7DAYS"):
+        return (today_eat - timedelta(days=6)).isoformat(), today_eat.isoformat()
+    if p in ("MONTH", "LAST_30_DAYS", "30D", "30DAYS"):
+        return (today_eat - timedelta(days=29)).isoformat(), today_eat.isoformat()
+    return None, None
 
 
 def get_user_perms(user) -> dict:
@@ -448,13 +480,13 @@ def _create_suspect_domain_record(
     validate_suspect_balance(payload)
 
     target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
-    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    target_station = _normalize_station_key(payload.station or getattr(current_user, "station", "") or "HQ")
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit statistics for this station.")
 
     actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
-    data["region"] = target_region
+    data["region"] = _resolve_region_for_station(target_station, target_region)
     data["station"] = target_station
     data["pending_court"] = (payload.pending_court_prev_ops or 0) + (payload.pending_court_today_ops or 0)
     data["taken_to_court"] = (payload.taken_to_court_prev_lockup or 0) + (payload.taken_to_court_today_ops or 0)
@@ -559,13 +591,120 @@ def _update_suspect_domain_record(
 def list_disruptive_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user),
 ):
     StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
-    return _list_suspect_domain_records(db, StatsModel, current_user, region, station, start_date, end_date)
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    return _list_suspect_domain_records(db, StatsModel, current_user, region, station, eff_start, eff_end)
+
+
+@router.get("/stats/regional-summation")
+@router.get("/stats/regional-summary")
+def get_disruptive_regional_summation(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default="WEEK"),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
+    if not StatsModel:
+        return {"rows": [], "by_region": {}, "grand_total": {}}
+
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    q = apply_scope_and_filters(db.query(StatsModel), StatsModel, current_user, region, station, eff_start, eff_end)
+    records = q.all()
+
+    metric_keys = ("arrested", "given_bond", "cautioned", "taken_to_court", "released", "remanded", "convicted")
+    agg_by_station: dict[str, dict] = {}
+
+    for r in records:
+        stn_key = _normalize_station_key(getattr(r, "station", ""))
+        if not stn_key:
+            continue
+        reg_key = _resolve_region_for_station(stn_key, getattr(r, "region", ""))
+
+        if stn_key not in agg_by_station:
+            agg_by_station[stn_key] = {
+                "division": stn_key,
+                "station": stn_key,
+                "region": reg_key,
+                "entries_count": 0,
+                **{k: 0 for k in metric_keys},
+            }
+
+        bucket = agg_by_station[stn_key]
+        bucket["entries_count"] += 1
+
+        taken_val = getattr(r, "taken_to_court", None)
+        if not taken_val:
+            taken_val = int(getattr(r, "taken_to_court_prev_lockup", 0) or 0) + int(
+                getattr(r, "taken_to_court_today_ops", 0) or 0
+            )
+
+        bucket["arrested"] += int(getattr(r, "arrested", 0) or 0)
+        bucket["given_bond"] += int(getattr(r, "given_bond", 0) or 0)
+        bucket["cautioned"] += int(getattr(r, "cautioned", 0) or 0)
+        bucket["taken_to_court"] += int(taken_val or 0)
+        bucket["released"] += int(getattr(r, "released", 0) or 0)
+        bucket["remanded"] += int(getattr(r, "remanded", 0) or 0)
+        bucket["convicted"] += int(getattr(r, "convicted", 0) or 0)
+
+    ordered_rows = []
+    seen_stations = set()
+    reg_filter = (region or "").strip().upper()
+    target_regions = [reg_filter] if reg_filter and reg_filter not in ("", "ALL", "ALL REGIONS") else list(REGIONAL_HIERARCHY.keys())
+
+    for reg_name in target_regions:
+        for stn_raw in REGIONAL_HIERARCHY.get(reg_name, []):
+            stn_key = _normalize_station_key(stn_raw)
+            if stn_key in seen_stations:
+                continue
+            seen_stations.add(stn_key)
+            if stn_key in agg_by_station:
+                ordered_rows.append(agg_by_station[stn_key])
+            else:
+                ordered_rows.append({
+                    "division": stn_key,
+                    "station": stn_key,
+                    "region": reg_name,
+                    "entries_count": 0,
+                    **{k: 0 for k in metric_keys},
+                })
+
+    for stn_key, bucket in agg_by_station.items():
+        if stn_key not in seen_stations:
+            ordered_rows.append(bucket)
+
+    stn_filter_raw = (station or "").strip().upper()
+    if stn_filter_raw and stn_filter_raw not in ("", "ALL", "ALL STATIONS"):
+        stn_filter = _normalize_station_key(stn_filter_raw)
+        ordered_rows = [row for row in ordered_rows if _normalize_station_key(row["station"]) == stn_filter]
+
+    by_region = {}
+    for row in ordered_rows:
+        r_name = row["region"]
+        if r_name not in by_region:
+            by_region[r_name] = {k: 0 for k in metric_keys}
+        for k in metric_keys:
+            by_region[r_name][k] += row[k]
+
+    grand_total = {k: sum(row[k] for row in ordered_rows) for k in metric_keys}
+
+    return {
+        "period": (period or "WEEK").upper(),
+        "start_date": eff_start,
+        "end_date": eff_end,
+        "rows": ordered_rows,
+        "by_region": by_region,
+        "grand_total": grand_total,
+    }
 
 
 @router.post("/stats")
@@ -595,6 +734,7 @@ def update_disruptive_stats(
 def export_disruptive_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
@@ -602,7 +742,8 @@ def export_disruptive_stats(
     current_user: models.Users = Depends(get_current_user),
 ):
     StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
-    rows = apply_scope_and_filters(db.query(StatsModel), StatsModel, current_user, region, station, start_date, end_date).all() if StatsModel else []
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    rows = apply_scope_and_filters(db.query(StatsModel), StatsModel, current_user, region, station, eff_start, eff_end).all() if StatsModel else []
     safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="OPERATIONAL_STATISTICS", target_id="STATS_EXPORT", changes_summary=f"Exported {len(rows)} disruptive ops records.")
     return build_aes_zip_export(rows, "Disruptive OPS Stats", "KMP_DISRUPTIVE_OPS", current_user)
 
@@ -614,13 +755,15 @@ def export_disruptive_stats(
 def list_agric_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
-    return _list_suspect_domain_records(db, AgricStatsModel, current_user, region, station, start_date, end_date)
+    AgricStatsModel = get_model_safe("AgricCrimeStatistics", "Agric_Crimes_Statistics", "agric_crimes_statistics", "Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats")
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    return _list_suspect_domain_records(db, AgricStatsModel, current_user, region, station, eff_start, eff_end)
 
 
 @router.post("/agric-stats")
@@ -630,7 +773,7 @@ def create_agric_stats(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
+    AgricStatsModel = get_model_safe("AgricCrimeStatistics", "Agric_Crimes_Statistics", "agric_crimes_statistics", "Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats")
     return _create_suspect_domain_record(db, logs_db, AgricStatsModel, payload, current_user, "AGRICULTURAL_STATISTICS")
 
 
@@ -642,7 +785,7 @@ def update_agric_stats(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
+    AgricStatsModel = get_model_safe("AgricCrimeStatistics", "Agric_Crimes_Statistics", "agric_crimes_statistics", "Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats")
     return _update_suspect_domain_record(db, logs_db, AgricStatsModel, record_id, payload, current_user, "AGRICULTURAL_STATISTICS")
 
 
@@ -650,14 +793,16 @@ def update_agric_stats(
 def export_agric_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
-    rows = apply_scope_and_filters(db.query(AgricStatsModel), AgricStatsModel, current_user, region, station, start_date, end_date).all() if AgricStatsModel else []
+    AgricStatsModel = get_model_safe("AgricCrimeStatistics", "Agric_Crimes_Statistics", "agric_crimes_statistics", "Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats")
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    rows = apply_scope_and_filters(db.query(AgricStatsModel), AgricStatsModel, current_user, region, station, eff_start, eff_end).all() if AgricStatsModel else []
     safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="AGRICULTURAL_STATISTICS", target_id="AGRIC_STATS_EXPORT", changes_summary=f"Exported {len(rows)} agricultural stats records.")
     return build_aes_zip_export(rows, "Agric Crimes Stats", "KMP_AGRIC_STATS", current_user)
 
@@ -669,15 +814,17 @@ def export_agric_stats(
 def list_agric_summary(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AgricSummaryModel = get_model_safe("Agricultural_Summary", "AgriculturalSummary", "Agric_Summary", "AgricSummary", "agric_summary")
+    AgricSummaryModel = get_model_safe("Agricultural_Crime_Summary", "AgriculturalCrimeSummary", "agricultural_crime_summary", "Agricultural_Summary", "Agric_Summary")
     if not AgricSummaryModel:
         return []
-    q = apply_scope_and_filters(db.query(AgricSummaryModel), AgricSummaryModel, current_user, region, station, start_date, end_date)
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    q = apply_scope_and_filters(db.query(AgricSummaryModel), AgricSummaryModel, current_user, region, station, eff_start, eff_end)
     order_col = getattr(AgricSummaryModel, "date", getattr(AgricSummaryModel, "id", getattr(AgricSummaryModel, "sn", None)))
     if order_col is not None:
         q = q.order_by(order_col.desc())
@@ -708,18 +855,18 @@ def create_agric_summary(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AgricSummaryModel = get_model_safe("Agricultural_Summary", "AgriculturalSummary", "Agric_Summary", "AgricSummary", "agric_summary")
+    AgricSummaryModel = get_model_safe("Agricultural_Crime_Summary", "AgriculturalCrimeSummary", "agricultural_crime_summary", "Agricultural_Summary", "Agric_Summary")
     if not AgricSummaryModel:
         raise HTTPException(status_code=500, detail="Agricultural summary model not configured.")
 
     target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
-    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    target_station = _normalize_station_key(payload.station or getattr(current_user, "station", "") or "HQ")
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit produce entries for this station.")
 
     actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
-    data["region"] = target_region
+    data["region"] = _resolve_region_for_station(target_station, target_region)
     data["station"] = target_station
     data["last_updated_by"] = actor_sig
     valid_cols = {c.key for c in AgricSummaryModel.__table__.columns}
@@ -760,13 +907,15 @@ def create_agric_summary(
 def list_accident_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
-    return _list_suspect_domain_records(db, AccidentModel, current_user, region, station, start_date, end_date)
+    AccidentModel = get_model_safe("Accidents_Statistics", "AccidentsStatistics", "accidents_statistics", "Accident_Statistics", "Accidents")
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    return _list_suspect_domain_records(db, AccidentModel, current_user, region, station, eff_start, eff_end)
 
 
 @router.post("/accidents")
@@ -776,23 +925,22 @@ def create_accident_stats(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
+    AccidentModel = get_model_safe("Accidents_Statistics", "AccidentsStatistics", "accidents_statistics", "Accident_Statistics", "Accidents")
     if not AccidentModel:
         raise HTTPException(status_code=500, detail="Accident statistics model not configured.")
 
     target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
-    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    target_station = _normalize_station_key(payload.station or getattr(current_user, "station", "") or "HQ")
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit accident statistics for this station.")
 
     actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
-    data["region"] = target_region
+    data["region"] = _resolve_region_for_station(target_station, target_region)
     data["station"] = target_station
     data["nature_of_accident"] = (payload.nature_of_accident or "UNSPECIFIED").strip().upper()
     data["total"] = (payload.minor or 0) + (payload.serious or 0) + (payload.fatal or 0)
     data["last_updated_by"] = payload.last_updated_by or actor_sig
-    data["entered_by"] = actor_sig
 
     valid_cols = {c.key for c in AccidentModel.__table__.columns}
     safe_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -833,7 +981,7 @@ def update_accident_stats(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
+    AccidentModel = get_model_safe("Accidents_Statistics", "AccidentsStatistics", "accidents_statistics", "Accident_Statistics", "Accidents")
     if not AccidentModel:
         raise HTTPException(status_code=500, detail="Accident statistics model not configured.")
 
@@ -887,14 +1035,16 @@ def update_accident_stats(
 def export_accident_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
-    rows = apply_scope_and_filters(db.query(AccidentModel), AccidentModel, current_user, region, station, start_date, end_date).all() if AccidentModel else []
+    AccidentModel = get_model_safe("Accidents_Statistics", "AccidentsStatistics", "accidents_statistics", "Accident_Statistics", "Accidents")
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    rows = apply_scope_and_filters(db.query(AccidentModel), AccidentModel, current_user, region, station, eff_start, eff_end).all() if AccidentModel else []
     safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="ACCIDENT_STATISTICS", target_id="ACCIDENTS_EXPORT", changes_summary=f"Exported {len(rows)} accident records.")
     return build_aes_zip_export(rows, "Traffic Accidents Stats", "KMP_ACCIDENTS_STATS", current_user)
 
@@ -906,13 +1056,15 @@ def export_accident_stats(
 def list_fire_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
-    return _list_suspect_domain_records(db, FireModel, current_user, region, station, start_date, end_date)
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "fire_statistics", "FiresStats", "Fires")
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    return _list_suspect_domain_records(db, FireModel, current_user, region, station, eff_start, eff_end)
 
 
 @router.post("/fires")
@@ -922,23 +1074,22 @@ def create_fire_stats(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "fire_statistics", "FiresStats", "Fires")
     if not FireModel:
         raise HTTPException(status_code=500, detail="Fire statistics model not configured.")
 
     target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
-    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    target_station = _normalize_station_key(payload.station or getattr(current_user, "station", "") or "HQ")
     if not can_mutate_target(current_user, target_station):
         raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit fire statistics for this station.")
 
     actor_sig = format_officer_sig(current_user)
     data = payload.model_dump()
-    data["region"] = target_region
+    data["region"] = _resolve_region_for_station(target_station, target_region)
     data["station"] = target_station
     data["nature_of_fire"] = (payload.nature_of_fire or "UNSPECIFIED").strip().upper()
     data["total"] = (payload.minor_outbreaks or 0) + (payload.major_disasters or 0) + (payload.fatal_fires or 0)
     data["last_updated_by"] = payload.last_updated_by or actor_sig
-    data["entered_by"] = actor_sig
 
     valid_cols = {c.key for c in FireModel.__table__.columns}
     safe_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -979,7 +1130,7 @@ def update_fire_stats(
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "fire_statistics", "FiresStats", "Fires")
     if not FireModel:
         raise HTTPException(status_code=500, detail="Fire statistics model not configured.")
 
@@ -1033,13 +1184,15 @@ def update_fire_stats(
 def export_fire_stats(
     region: Optional[str] = Query(default=None),
     station: Optional[str] = Query(default=None),
+    period: Optional[str] = Query(default=None),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
     logs_db: Session = Depends(get_logs_db),
     current_user: models.Users = Depends(get_current_user),
 ):
-    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
-    rows = apply_scope_and_filters(db.query(FireModel), FireModel, current_user, region, station, start_date, end_date).all() if FireModel else []
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "fire_statistics", "FiresStats", "Fires")
+    eff_start, eff_end = _resolve_period_bounds_eat(period, start_date, end_date)
+    rows = apply_scope_and_filters(db.query(FireModel), FireModel, current_user, region, station, eff_start, eff_end).all() if FireModel else []
     safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="FIRE_STATISTICS", target_id="FIRES_EXPORT", changes_summary=f"Exported {len(rows)} fire records.")
     return build_aes_zip_export(rows, "Fire & Rescue Stats", "KMP_FIRES_STATS", current_user)
