@@ -26,13 +26,14 @@ from routers.activity_logger import record_neon_activity
 router = APIRouter(prefix="/api/v1/hr", tags=["HR & Establishments"])
 
 REGIONAL_HIERARCHY = {
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KMP NORTH", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "KMP EAST", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
     "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "KMP SOUTH", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE"],
     "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
+# Used for UI & Word Ledger (matches UI order)
 REGION_ORDER = [
     "KMP NORTH",
     "KMP EAST",
@@ -40,6 +41,20 @@ REGION_ORDER = [
     "KMP HEADQUARTERS",
     "POLICE HEADQUARTERS"
 ]
+
+# Used for Excel Command & Responsibility Hierarchy (Commander KMP first)
+EXCEL_REGION_ORDER = [
+    "KMP HEADQUARTERS",
+    "KMP NORTH",
+    "KMP EAST",
+    "KMP SOUTH",
+    "POLICE HEADQUARTERS"
+]
+
+OFFICER_RANKS = {
+    "IGP", "DIGP", "AIGP", "SCP", "CP", "ACP", "SSP", "SP", "ASP",
+    "IP", "AIP", "INSPECTOR", "SUPERINTENDENT", "COMMISSIONER"
+}
 
 RANK_PRIORITY = [
     "IGP", "DIGP", "AIGP", "SCP", "CP", "ACP", "SSP", "SP", "ASP",
@@ -52,6 +67,64 @@ NON_RESPONSIBILITY_POSITIONS = {
     "BODY GUARD", "DRIVER", "ORDERLY", "SENTRY", "PATROL", "BEAT",
     "ESCORT", "CONSTABLE", "PC", "COURSE", "STUDY LEAVE", "LEAVE"
 }
+
+# Ordered from highest command responsibility to lowest
+POSITION_HIERARCHY = [
+    # 1. KMP Command
+    (1, ["KMP COMMANDER", "COMMANDER KMP", "COMD KMP", "CMD KMP"]),
+    (2, ["DEPUTY KMP COMMANDER", "D/KMP COMMANDER", "DEP KMP COMMANDER", "D/COMMANDER KMP"]),
+    (3, ["KMP ADMIN", "KMP ADMINISTRATION", "STAFF OFFICER KMP"]),
+    (4, ["KMP OPS", "KMP OPERATIONS", "OC OPS KMP"]),
+    (5, ["KMP CID", "R/CID KMP", "OC CID KMP"]),
+    (6, ["KMP CI", "KMP CRIME INT"]),
+    (7, ["KMP TRAFFIC", "KMP TO", "RTO KMP"]),
+    (8, ["KMP CLO", "KMP COMMUNITY"]),
+    (9, ["KMP CFPU"]),
+    (10, ["KMP HRO", "KMP HR"]),
+    (11, ["KMP LOG", "KMP LOGISTICS"]),
+    (12, ["KMP ICT"]),
+    (13, ["KMP LEGAL"]),
+    (14, ["KMP PRO", "SPOKESPERSON", "PUBLIC RELATIONS"]),
+
+    # 2. Regional Command
+    (20, ["RPC", "REGIONAL POLICE COMMANDER"]),
+    (21, ["D/RPC", "DRPC", "DEPUTY RPC"]),
+    (22, ["R/ADMIN", "REGIONAL ADMIN"]),
+    (23, ["R/OPS", "REGIONAL OPS"]),
+    (24, ["R/CID", "RCID", "R/CID/O"]),
+    (25, ["D/R/CID", "DRCID", "D/R/CID/O"]),
+    (26, ["R/CI", "RCI"]),
+    (27, ["R/TO", "RTO", "R/TRAFFIC"]),
+    (28, ["R/CLO", "RCLO"]),
+    (29, ["R/CFPU", "RCFPU"]),
+    (30, ["R/HRO", "RHRO"]),
+    (31, ["R/LOG", "RLOG"]),
+    (32, ["R/ICT", "RICT"]),
+    (33, ["R/LEGAL", "RLEGAL"]),
+    (34, ["R/SURGEON"]),
+    (35, ["R/SOC", "RSOC"]),
+    (36, ["R/FFU", "FFU COMM"]),
+    (37, ["R/FIRE", "RFIRE"]),
+    (38, ["R/CANINE"]),
+    (39, ["R/SIGNALS"]),
+    (40, ["R/MTO", "MTO"]),
+    (41, ["R/MAINT", "MAINTENANCE", "MAINTAINANCE"]),
+    (42, ["ZONAL", "WOMEN AFFAIRS", "FSU", "PSU"]),
+
+    # 3. Division / Station Command
+    (50, ["DPC", "DIVISIONAL POLICE COMMANDER"]),
+    (51, ["D/DPC", "DDPC", "DEPUTY DPC"]),
+    (52, ["O/C STN", "OC STN", "O/C STATION", "OC STATION", "OC MAIN"]),
+    (53, ["OC OPS", "O/C OPS", "OPS", "OPERATIONS"]),
+    (54, ["OC CID", "O/C CID", "D/CID"]),
+    (55, ["D/OC CID", "D/O/C CID"]),
+    (56, ["DIV. CI", "DIV CI", "OC CI", "O/C CI"]),
+    (57, ["OC TRAF", "O/C TRAF", "OC TRAFFIC", "O/C TRAFFIC", "TRAFFIC"]),
+    (58, ["DIV. CLO", "DIV CLO", "OC CLO", "CLO"]),
+    (59, ["CFPU", "OC CFPU"]),
+    (60, ["OC POST", "O/C POST", "O/C P/P", "OC P/P"]),
+    (61, ["INCHARGE", "IN-CHARGE", "I/C", "OC ", "O/C "]),
+]
 
 
 def normalize_education_level(educ_str):
@@ -95,11 +168,12 @@ def normalize_region(reg_str, station_str=""):
 
 
 def is_officer(rank_str):
+    """Strictly checks officer ranks (avoids matching CPL as CP or SPC as SP)."""
     if not rank_str:
         return False
-    clean = str(rank_str).upper().replace('.', '').replace('/', '').strip()
-    keywords = ['IGP', 'DIGP', 'AIGP', 'SCP', 'CP', 'ACP', 'SSP', 'SP', 'ASP', 'IP', 'AIP', 'INSPECTOR', 'SUPERINTENDENT', 'COMMISSIONER']
-    return any(kw in clean for kw in keywords)
+    clean = str(rank_str).upper().replace('.', '').strip()
+    tokens = [t.strip() for part in clean.split('/') for t in part.split() if t.strip()]
+    return any(tok in OFFICER_RANKS for tok in tokens)
 
 
 def has_position_of_responsibility(pos_str):
@@ -112,27 +186,53 @@ def has_position_of_responsibility(pos_str):
     return True
 
 
+def get_position_sort_key(pos_str):
+    """Maps a position of responsibility to its command-chain priority."""
+    cleaned = str(pos_str or '').strip().upper()
+    if not cleaned:
+        return (999, cleaned)
+
+    # Exact matches first (prevents 'RPC' matching 'D/RPC' before D/RPC is checked)
+    for priority, keywords in POSITION_HIERARCHY:
+        for kw in keywords:
+            if cleaned == kw:
+                return (priority, cleaned)
+
+    # Check Deputy/Assistant prefixes before base command titles
+    is_deputy = cleaned.startswith("D/") or cleaned.startswith("DEP") or "DEPUTY" in cleaned
+    for priority, keywords in POSITION_HIERARCHY:
+        for kw in keywords:
+            if kw in cleaned:
+                # If it's a deputy role matching a non-deputy keyword, bump it slightly below the substantive head
+                if is_deputy and not (kw.startswith("D/") or "DEPUTY" in kw):
+                    return (priority + 0.5, cleaned)
+                return (priority, cleaned)
+
+    return (100, cleaned)
+
+
 def get_rank_sort_key(rank_str):
     clean = str(rank_str or '').upper().replace('.', '').strip()
-    # Handle detective prefixes like D/SP, D/ASP, D/IP, D/AIP, D/SGT
-    parts = [p.strip() for p in clean.split('/') if p.strip()]
-    base_rank = parts[-1] if parts else clean
+    tokens = [t.strip() for part in clean.split('/') for t in part.split() if t.strip()]
     for idx, r in enumerate(RANK_PRIORITY):
-        if base_rank == r:
-            return idx
-    for idx, r in enumerate(RANK_PRIORITY):
-        if r in base_rank:
+        if r in tokens:
             return idx
     return len(RANK_PRIORITY)
 
 
-def get_station_sort_key(reg_name, station_str):
+def get_station_sort_key(reg_name, station_str, merge_hq=False):
     stn = str(station_str or '').strip().upper()
     hierarchy_list = REGIONAL_HIERARCHY.get(reg_name, [])
+
+    if merge_hq:
+        hq_aliases = {reg_name, f"{reg_name} HEADQUARTERS", f"{reg_name} HQ"}
+        if stn in hq_aliases:
+            return (0, reg_name)
+
     for idx, h_stn in enumerate(hierarchy_list):
         if stn == h_stn or h_stn in stn:
-            return (idx, stn)
-    return (len(hierarchy_list), stn)
+            return (idx + (1 if merge_hq else 0), stn)
+    return (len(hierarchy_list) + 1, stn)
 
 
 def calc_stats(lst):
@@ -574,7 +674,7 @@ def export_hr_establishments_zip(
 
         # =====================================================================
         # 1. EXCEL WORKBOOK: ONLY OFFICERS WITH POSITIONS OF RESPONSIBILITY
-        #    SORTED IN EXISTING HIERARCHICAL ORDER (REGION -> STATION -> RANK)
+        #    FLOW: COMMANDER KMP -> KMP HQ -> REGIONAL HQs -> DIVISIONS -> POSTS
         # =====================================================================
         responsibility_officers = [
             r for r in nr_records
@@ -583,11 +683,12 @@ def export_hr_establishments_zip(
 
         def hierarchical_sort_key(row):
             reg = normalize_region(row[4], row[5])
-            reg_idx = REGION_ORDER.index(reg) if reg in REGION_ORDER else len(REGION_ORDER)
-            stn_key = get_station_sort_key(reg, row[5])
+            reg_idx = EXCEL_REGION_ORDER.index(reg) if reg in EXCEL_REGION_ORDER else len(EXCEL_REGION_ORDER)
+            stn_key = get_station_sort_key(reg, row[5], merge_hq=True)
+            pos_key = get_position_sort_key(row[6])
             rank_idx = get_rank_sort_key(row[2])
             name_str = str(row[1] or '').strip().upper()
-            return (reg_idx, stn_key, rank_idx, name_str)
+            return (reg_idx, stn_key, pos_key, rank_idx, name_str)
 
         responsibility_officers.sort(key=hierarchical_sort_key)
 
@@ -625,7 +726,6 @@ def export_hr_establishments_zip(
                 str(row[8] or 'ACTIVE')
             ])
 
-        # Auto-fit column widths
         for col in ws_nr.columns:
             max_len = 0
             col_letter = col[0].column_letter
@@ -688,7 +788,6 @@ def export_hr_establishments_zip(
         agg_table.alignment = WD_TABLE_ALIGNMENT.CENTER
         agg_table.style = 'Table Grid'
 
-        # Top header row (merged group headers)
         r0 = agg_table.rows[0].cells
         r1 = agg_table.rows[1].cells
 
@@ -713,7 +812,6 @@ def export_hr_establishments_zip(
         r0[10].merge(r0[12])
         style_cell(r0[10], "SUB-TOTALS", font_size=7.5, bold=True, color_rgb=(255, 255, 255), bg_hex="1E3A8A")
 
-        # Sub-header row
         sub_headers = [
             (2, "OFFICERS", (30, 41, 59), "F8FAFC"),
             (3, "NCOS", (30, 41, 59), "F8FAFC"),
@@ -730,7 +828,6 @@ def export_hr_establishments_zip(
         for col_idx, label, rgb, bg in sub_headers:
             style_cell(r1[col_idx], label, font_size=7, bold=True, color_rgb=rgb, bg_hex=bg)
 
-        # Accumulators for Master & Grand Totals
         m_off_total = 0
         m_nco_total = 0
         m_off_age = {"twenties": 0, "thirties": 0, "forties": 0, "fifties": 0, "unknown": 0}
@@ -847,7 +944,6 @@ def export_hr_establishments_zip(
             style_cell(hdr_cells[idx], label, font_size=7.5, bold=True, color_rgb=(255, 255, 255), align=align, bg_hex=bg)
 
         for reg_idx, reg_obj in enumerate(hierarchical_establishments, start=1):
-            # Region Header Row
             r_cells = est_table.add_row().cells
             reg_label = reg_obj["regionName"]
             if "HEADQUARTERS" not in reg_label:
@@ -862,7 +958,6 @@ def export_hr_establishments_zip(
             style_cell(r_cells[6], "-", font_size=7.5, color_rgb=(148, 163, 184), bg_hex="F8FAFC")
             style_cell(r_cells[7], str(reg_obj["total"]), font_size=8.5, bold=True, color_rgb=(255, 255, 255), bg_hex="047857")
 
-            # Stations under Region
             stations_sorted = sorted(
                 reg_obj["stations"].values(),
                 key=lambda s: get_station_sort_key(reg_obj["regionName"], s["stationName"])
@@ -878,7 +973,6 @@ def export_hr_establishments_zip(
                 style_cell(s_cells[6], "-", font_size=7, color_rgb=(148, 163, 184))
                 style_cell(s_cells[7], str(stn_obj["total"]), font_size=7.5, bold=True, color_rgb=(4, 120, 87))
 
-                # Posts under Station
                 for post_name, post_count in sorted(stn_obj["posts"].items()):
                     p_cells = est_table.add_row().cells
                     style_cell(p_cells[0], "-", font_size=7, color_rgb=(203, 213, 225))
