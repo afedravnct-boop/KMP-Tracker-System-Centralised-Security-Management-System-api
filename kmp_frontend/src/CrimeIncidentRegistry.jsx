@@ -135,7 +135,7 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
     }, []);
 
     const dynamicTitle = `STATEMENT OF ${category}`;
-    const formattedRefHeader = /^(SD|CRB|DEF|GEF|CID|TAR)/i.test(meta.sdRef.trim())
+    const formattedRefHeader = /^(SD|CRB|CRR|DEF|GEF|CID|TAR)/i.test(meta.sdRef.trim())
         ? meta.sdRef.trim().toUpperCase()
         : `SD REF: ${meta.sdRef.trim().toUpperCase()}`;
 
@@ -503,7 +503,7 @@ const StatementRecorder = ({ report, currentUser, onClose, onStatementSaved }) =
                                     <input type="text" value={meta.place} onChange={e => setMeta({ ...meta, place: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 text-xs font-bold uppercase rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500" />
                                 </div>
                                 <div>
-                                    <label className="block text-[10px] font-black text-slate-500 uppercase">SD Ref / CRB No</label>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase">SD Ref / CRB / CRR No</label>
                                     <input type="text" value={meta.sdRef} onChange={e => setMeta({ ...meta, sdRef: e.target.value.toUpperCase() })} className="w-full mt-0.5 px-2 py-1 text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 outline-none focus:border-amber-500" />
                                 </div>
                             </div>
@@ -781,7 +781,7 @@ const ReferenceEscalator = ({ report, onClose, onEscalationComplete }) => {
                         <label className="block text-[11px] font-bold text-gray-700 dark:text-slate-300 mb-1">New Upgraded Reference Prefix & Number *</label>
                         <div className="flex shadow-sm rounded w-full">
                             <select value={refType} onChange={e => setRefType(e.target.value)} className="bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-200 text-xs rounded-l px-3 py-2 font-bold focus:ring-blue-500 outline-none cursor-pointer">
-                                <option value="CRB:">CRB:</option><option value="DEF:">DEF:</option><option value="GEF:">GEF:</option><option value="CID:">CID:</option>
+                                <option value="CRB:">CRB:</option><option value="CRR:">CRR:</option><option value="DEF:">DEF:</option><option value="GEF:">GEF:</option><option value="CID:">CID:</option>
                             </select>
                             <input type="text" value={refNumber} onChange={e => setRefNumber(e.target.value)} required className="flex-1 text-xs border-blue-300 dark:border-blue-700 border-y border-r rounded-r p-2 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100" placeholder="e.g. 001/2026" />
                         </div>
@@ -1396,7 +1396,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
         if (!sdRegex.test(cleanRefNumber)) {
           return setNotification("⚠️ Invalid SD Ref format! Must follow the format 01/01/01/2026 (Serial Number / Day / Month / Year).");
         }
-      } else if (['CRB:', 'DEF:', 'GEF:', 'CID:'].includes(cleanRefType)) {
+      } else if (['CRB:', 'CRR:', 'DEF:', 'GEF:', 'CID:'].includes(cleanRefType)) {
         const caseRegex = /^\d{1,4}\/\d{4}$/;
         if (!caseRegex.test(cleanRefNumber)) {
           return setNotification(`⚠️ Invalid ${cleanRefType} format! Must follow the format 001/2026 (Incident Number / Year).`);
@@ -2093,7 +2093,7 @@ export function CrimeIncidentRegistry({ currentUser, canViewGlobal = false, setR
                     ) : (
                       <div className="flex shadow-sm rounded w-full">
                         <select name="ref_type" value={formData.ref_type || 'SD Ref:'} onChange={handleInputChange} className="bg-gray-100 dark:bg-slate-900 border border-gray-300 dark:border-slate-700 text-gray-800 dark:text-slate-200 text-xs rounded-l px-2.5 py-1.5 font-bold focus:ring-blue-500 outline-none cursor-pointer">
-                          <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="DEF:">DEF:</option>
+                          <option value="SD Ref:">SD Ref:</option><option value="CRB:">CRB:</option><option value="CRR:">CRR:</option><option value="DEF:">DEF:</option>
                           <option value="GEF:">GEF:</option><option value="TAR:">TAR:</option><option value="CID:">CID:</option>
                         </select>
                         <input type="text" name="ref_number" value={stripHtmlTags(formData.ref_number || '')} onChange={handleInputChange} required className="flex-1 text-xs border-gray-300 dark:border-slate-700 border-y border-r rounded-r p-1.5 focus:ring-blue-500 font-bold text-blue-700 dark:text-blue-400 uppercase outline-none bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100" placeholder="e.g. 01/01/01/2026 or 001/2026" />

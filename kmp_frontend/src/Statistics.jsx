@@ -89,8 +89,8 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
             <h3 className="font-extrabold text-white text-[13px] uppercase tracking-wider">
               {title} (FULL SCREEN)
             </h3>
-            <button 
-              onClick={closeFullScreen} 
+            <button
+              onClick={closeFullScreen}
               className="text-xs text-blue-400 hover:text-white font-bold cursor-pointer transition-colors bg-slate-800 dark:bg-slate-900 px-4 py-2 rounded-lg border border-slate-700"
             >
               Collapse ↙
@@ -104,8 +104,8 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col h-full relative z-10 mt-3">
           <div className="bg-slate-900 dark:bg-slate-950 px-4 py-2.5 flex justify-between items-center shrink-0 relative z-30">
             <h3 className="font-extrabold text-white text-[11px] uppercase tracking-wider">{title}</h3>
-            <button 
-              onClick={openFullScreen} 
+            <button
+              onClick={openFullScreen}
               className="text-[10px] text-blue-400 hover:text-white font-bold cursor-pointer transition-colors bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded border border-slate-700 shadow-inner"
             >
               Expand ↗
@@ -120,7 +120,6 @@ const ExpandableTableCard = ({ title, children, onToggle }) => {
   );
 };
 
-// 🟢 ACCOUNTABILITY LOGIC GUIDE
 const AccountabilityGuide = () => (
   <div className="bg-slate-100 dark:bg-slate-800/80 p-4 rounded-lg border border-slate-300 dark:border-slate-700 text-[10px] text-slate-700 dark:text-slate-300 space-y-2.5 mt-5 leading-relaxed font-medium shadow-inner">
     <h5 className="font-black uppercase text-blue-900 dark:text-blue-400 flex items-center mb-1">
@@ -144,8 +143,8 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const userPosClean = cleanStr(currentUser?.position);
   const userRegClean = cleanStr(currentUser?.region);
 
-  const isGlobalTier = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) || 
-    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) || 
+  const isGlobalTier = ['SUPER_ADMIN', 'ASSISTANT_SUPER_ADMIN'].includes(userRoleClean) ||
+    ['KMP COMMANDER', 'DEPUTY KMP COMMANDER', 'KMP ADMIN OFFICER'].includes(userPosClean) ||
     currentUser?.permissions?.view_global_roster === true;
 
   const isKmpSystemManager = userRoleClean === 'SYSTEM_MANAGER' && ['KMP HEADQUARTERS', 'POLICE HEADQUARTERS'].includes(userRegClean) && userPosClean.includes('KMP');
@@ -165,14 +164,15 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const [accidentStats, setAccidentStats] = useState([]);
   const [fireStats, setFireStats] = useState([]);
   const [agricSummaryRecords, setAgricSummaryRecords] = useState([]);
+  const [backendRegionalRows, setBackendRegionalRows] = useState(null);
   const [expandedAgricRegions, setExpandedAgricRegions] = useState({
     "KMP NORTH": true, "KMP SOUTH": false, "KMP EAST": false,
     "KMP HEADQUARTERS": false, "POLICE HEADQUARTERS": false
   });
-  
+
   const [filterRegion, setFilterRegion] = useState(canViewGlobalLevel ? 'ALL REGIONS' : userRegClean);
   const [filterStation, setFilterStation] = useState((canViewGlobalLevel || isRegionalCommand) ? 'ALL STATIONS' : cleanStr(currentUser?.station));
-  
+
   const [updateSearch, setUpdateSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('ALL TIME');
   const isFilterInitialized = useRef(false);
@@ -180,16 +180,16 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   const getTodayString = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).split(',')[0].replace(/\//g, '-');
 
   const getInitialFormData = useCallback(() => {
-      const targetRegion = (canViewGlobalLevel && filterRegion !== 'ALL REGIONS') ? filterRegion : userRegClean;
-      const targetStation = (canViewGlobalLevel || isRegionalCommand) && filterStation !== 'ALL STATIONS' ? filterStation : currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '';
-      
-      if (statsDomain === 'ACCIDENTS') {
-          return { sn: null, id: null, region: targetRegion, station: targetStation, date: getTodayString(), nature_of_accident: '', custom_nature_of_accident: '', minor: 0, serious: 0, fatal: 0, victims: 0 };
-      }
-      if (statsDomain === 'FIRES') {
-          return { sn: null, id: null, region: targetRegion, station: targetStation, date: getTodayString(), nature_of_fire: '', custom_nature_of_fire: '', minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0 };
-      }
-      return { sn: null, id: null, region: targetRegion, station: targetStation, date: getTodayString(), arrested: 0, given_bond: 0, cautioned: 0, pending_court_prev_ops: 0, pending_court_today_ops: 0, taken_to_court_prev_lockup: 0, taken_to_court_today_ops: 0, released: 0, remanded: 0, convicted: 0 };
+    const targetRegion = (canViewGlobalLevel && filterRegion !== 'ALL REGIONS') ? filterRegion : userRegClean;
+    const targetStation = (canViewGlobalLevel || isRegionalCommand) && filterStation !== 'ALL STATIONS' ? filterStation : currentUser.station || REGIONAL_HIERARCHY[currentUser?.region]?.[0] || '';
+
+    if (statsDomain === 'ACCIDENTS') {
+      return { sn: null, id: null, region: targetRegion, station: targetStation, date: getTodayString(), nature_of_accident: '', custom_nature_of_accident: '', minor: 0, serious: 0, fatal: 0, victims: 0 };
+    }
+    if (statsDomain === 'FIRES') {
+      return { sn: null, id: null, region: targetRegion, station: targetStation, date: getTodayString(), nature_of_fire: '', custom_nature_of_fire: '', minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0 };
+    }
+    return { sn: null, id: null, region: targetRegion, station: targetStation, date: getTodayString(), arrested: 0, given_bond: 0, cautioned: 0, pending_court_prev_ops: 0, pending_court_today_ops: 0, taken_to_court_prev_lockup: 0, taken_to_court_today_ops: 0, released: 0, remanded: 0, convicted: 0 };
   }, [statsDomain, userRegClean, currentUser.station, currentUser.region, filterRegion, filterStation, canViewGlobalLevel, isRegionalCommand]);
 
   const [formData, setFormData] = useState(getInitialFormData());
@@ -206,7 +206,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     setFilterRegion(cleanRegion);
     setFilterStation('ALL STATIONS');
     if (operation === 'new') {
-        setFormData(prev => ({ ...prev, region: cleanRegion, station: REGIONAL_HIERARCHY[cleanRegion]?.[0] || '' }));
+      setFormData(prev => ({ ...prev, region: cleanRegion, station: REGIONAL_HIERARCHY[cleanRegion]?.[0] || '' }));
     }
   };
 
@@ -214,7 +214,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     const cleanStation = cleanStr(newStation);
     setFilterStation(cleanStation);
     if (operation === 'new') {
-        setFormData(prev => ({ ...prev, station: cleanStation }));
+      setFormData(prev => ({ ...prev, station: cleanStation }));
     }
   };
 
@@ -232,10 +232,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     else if (filterOption === 'LAST 90 DAYS') { start.setDate(start.getDate() - 90); }
     else if (filterOption === 'LAST 120 DAYS') { start.setDate(start.getDate() - 120); }
     else if (filterOption === 'LAST 180 DAYS') { start.setDate(start.getDate() - 180); }
-    
+
     const pad = (n) => n.toString().padStart(2, '0');
     const format = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    
+
     if (filterOption === 'TODAY') return { start: format(end), end: format(end) };
     return { start: format(start), end: format(end) };
   };
@@ -272,18 +272,45 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
       const finalUrl = qs ? `${targetEndpoint}?${qs}` : targetEndpoint;
       const res = await authFetch(finalUrl);
-      
+
       if (res.ok) {
-          const data = await res.json();
-          if (statsDomain === 'DISRUPTIVE') setDisruptiveStats(data);
-          else if (statsDomain === 'AGRICULTURAL') setAgricStats(data);
-          else if (statsDomain === 'ACCIDENTS') setAccidentStats(data);
-          else if (statsDomain === 'FIRES') setFireStats(data);
+        const data = await res.json();
+        if (statsDomain === 'DISRUPTIVE') setDisruptiveStats(data);
+        else if (statsDomain === 'AGRICULTURAL') setAgricStats(data);
+        else if (statsDomain === 'ACCIDENTS') setAccidentStats(data);
+        else if (statsDomain === 'FIRES') setFireStats(data);
       }
     } catch (err) {
       console.error(`Failed to load ${statsDomain} ledger:`, err);
     }
   }, [statsDomain, filterRegion, filterStation, canViewGlobalLevel]);
+
+  const fetchRegionalSummation = useCallback(async () => {
+    if (!hasValidSession() || statsDomain !== 'DISRUPTIVE' || viewMode !== 'REGIONAL') {
+      setBackendRegionalRows(null);
+      return;
+    }
+    try {
+      const params = new URLSearchParams();
+      if (filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
+      if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
+      const { start, end } = getDateRangeParams(dateFilter);
+      if (start) params.append('start_date', start);
+      if (end) params.append('end_date', end);
+      params.append('period', dateFilter === 'ALL TIME' ? 'ALL' : dateFilter.replace(/\s+/g, '_'));
+
+      const res = await authFetch(`/api/v1/stats/regional-summation?${params.toString()}`);
+      if (res.ok) {
+        const payload = await res.json();
+        if (Array.isArray(payload?.rows)) {
+          setBackendRegionalRows(payload.rows);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load regional summation:", err);
+      setBackendRegionalRows(null);
+    }
+  }, [statsDomain, viewMode, filterRegion, filterStation, dateFilter]);
 
   const fetchAgricSummaries = useCallback(async () => {
     if (!hasValidSession() || statsDomain !== 'AGRICULTURAL') return;
@@ -306,43 +333,73 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   useEffect(() => {
     fetchDomainStats();
+    fetchRegionalSummation();
     fetchAgricSummaries();
-  }, [fetchDomainStats, fetchAgricSummaries]);
+  }, [fetchDomainStats, fetchRegionalSummation, fetchAgricSummaries]);
 
   const currentDomainStats = useMemo(() => {
-      let raw = [];
-      if (statsDomain === 'DISRUPTIVE') raw = disruptiveStats;
-      else if (statsDomain === 'AGRICULTURAL') raw = agricStats;
-      else if (statsDomain === 'ACCIDENTS') raw = accidentStats;
-      else if (statsDomain === 'FIRES') raw = fireStats;
+    let raw = [];
+    if (statsDomain === 'DISRUPTIVE') raw = disruptiveStats;
+    else if (statsDomain === 'AGRICULTURAL') raw = agricStats;
+    else if (statsDomain === 'ACCIDENTS') raw = accidentStats;
+    else if (statsDomain === 'FIRES') raw = fireStats;
 
-      const { start, end } = getDateRangeParams(dateFilter);
-      const activeReg = cleanStr(filterRegion);
-      const activeStat = cleanStr(filterStation);
+    const { start, end } = getDateRangeParams(dateFilter);
+    const activeReg = cleanStr(filterRegion);
+    const activeStat = cleanStr(filterStation);
 
-      return raw.filter(item => {
-          const itemDateStr = String(item.date || item.created_at || '').split('T')[0];
-          const itemRegion = cleanStr(item.region);
-          const itemStation = cleanStr(item.station);
+    return raw.filter(item => {
+      const itemDateStr = String(item.date || item.created_at || '').split('T')[0];
+      const itemRegion = cleanStr(item.region);
+      const itemStation = cleanStr(item.station);
 
-          if (start && end && (itemDateStr < start || itemDateStr > end)) return false;
-          if (canViewGlobalLevel && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
+      if (start && end && (itemDateStr < start || itemDateStr > end)) return false;
+      if (canViewGlobalLevel && activeReg === 'ALL REGIONS' && activeStat === 'ALL STATIONS') return true;
 
-          const belongsToRegion = activeReg === 'ALL REGIONS' || itemRegion === activeReg || 
-                                  (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, itemStation)));
-          
-          if (!belongsToRegion) return false;
-          if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(itemStation, activeStat)) return false;
+      const belongsToRegion = activeReg === 'ALL REGIONS' || itemRegion === activeReg ||
+        (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, itemStation)));
 
-          return true;
-      });
+      if (!belongsToRegion) return false;
+      if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(itemStation, activeStat)) return false;
+
+      return true;
+    });
   }, [statsDomain, disruptiveStats, agricStats, accidentStats, fireStats, dateFilter, filterRegion, filterStation, canViewGlobalLevel]);
+
+  const availableUpdateStats = useMemo(() => {
+    const q = cleanStr(updateSearch);
+    if (!q) return currentDomainStats;
+    return currentDomainStats.filter((s, idx) =>
+      String(idx + 1).includes(q) ||
+      String(s.id || '').toUpperCase().includes(q) ||
+      String(s.sn || '').toUpperCase().includes(q) ||
+      cleanStr(s.station).includes(q) ||
+      String(s.date || '').toUpperCase().includes(q)
+    );
+  }, [currentDomainStats, updateSearch]);
 
   const regionalSummationData = useMemo(() => {
     if (statsDomain !== 'DISRUPTIVE') return [];
-    
-    const stationsList = filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion] 
-      ? REGIONAL_HIERARCHY[filterRegion] 
+
+    const hasActivePeriod = dateFilter !== 'ALL TIME';
+    const hasActivity = (s) =>
+      (parseInt(s.arrested) || 0) > 0 ||
+      (parseInt(s.given_bond) || 0) > 0 ||
+      (parseInt(s.cautioned) || 0) > 0 ||
+      (parseInt(s.taken_to_court) || 0) > 0 ||
+      (parseInt(s.released) || 0) > 0 ||
+      (parseInt(s.remanded) || 0) > 0 ||
+      (parseInt(s.convicted) || 0) > 0;
+
+    if (Array.isArray(backendRegionalRows) && backendRegionalRows.length > 0) {
+      return backendRegionalRows.filter((row) => {
+        if (hasActivePeriod || filterRegion === 'ALL REGIONS') return hasActivity(row);
+        return true;
+      });
+    }
+
+    const stationsList = filterRegion !== 'ALL REGIONS' && REGIONAL_HIERARCHY[filterRegion]
+      ? REGIONAL_HIERARCHY[filterRegion]
       : Object.values(REGIONAL_HIERARCHY).flat();
 
     const stationMap = {};
@@ -371,17 +428,22 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       stationMap[matchedKey].convicted += (parseInt(stat.convicted) || 0);
     });
 
-    return Object.values(stationMap).filter(s => s.arrested > 0 || s.given_bond > 0 || s.cautioned > 0 || s.taken_to_court > 0 || s.released > 0 || s.remanded > 0 || s.convicted > 0 || stationsList.includes(s.station));
-  }, [currentDomainStats, filterRegion, statsDomain]);
+    return Object.values(stationMap).filter((s) => {
+      if (hasActivePeriod || filterRegion === 'ALL REGIONS') {
+        return hasActivity(s);
+      }
+      return hasActivity(s) || stationsList.includes(s.station);
+    });
+  }, [backendRegionalRows, currentDomainStats, filterRegion, statsDomain, dateFilter]);
 
   const handleExportDomainStats = async () => {
     if (!currentDomainStats.length) {
       alert("No records available to export for the selected filters.");
       return;
     }
-    
+
     setNotification("⏳ Generating AES-256 secure encrypted spreadsheet archive. Please wait...");
-    
+
     try {
       let targetEndpoint = '/api/v1/stats/export';
       if (statsDomain === 'AGRICULTURAL') targetEndpoint = '/api/v1/agric-stats/export';
@@ -391,7 +453,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       const params = new URLSearchParams();
       if (!canViewGlobalLevel && filterRegion && filterRegion !== 'ALL REGIONS') params.append('region', filterRegion);
       if (filterStation && filterStation !== 'ALL STATIONS') params.append('station', filterStation);
-      
+
       const { start, end } = getDateRangeParams(dateFilter);
       if (start) params.append('start_date', start);
       if (end) params.append('end_date', end);
@@ -399,23 +461,23 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       const qs = params.toString();
       const finalUrl = qs ? `${targetEndpoint}?${qs}` : targetEndpoint;
 
-      const response = await authFetch(finalUrl, { 
-          method: "POST",
-          headers: { "Content-Type": "application/json" }
+      const response = await authFetch(finalUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
       });
-      
+
       if (!response.ok) throw new Error("Secure export failed on server.");
-      
+
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      
+
       const disposition = response.headers.get('Content-Disposition');
       let filename = `KMP_${statsDomain}_SECURE_EXPORT.zip`;
       if (disposition && disposition.indexOf('filename=') !== -1) {
-          filename = disposition.split('filename=')[1].replace(/["']/g, '');
+        filename = disposition.split('filename=')[1].replace(/["']/g, '');
       } else {
-          const timestamp = new Date().toISOString().split('T')[0];
-          filename = `KMP_${statsDomain}_SECURE_EXPORT_${timestamp}.zip`;
+        const timestamp = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
+        filename = `KMP_${statsDomain}_SECURE_EXPORT_${timestamp}.zip`;
       }
 
       const link = document.createElement('a');
@@ -425,7 +487,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      
+
       setNotification("✅ Secure AES-256 archive downloaded successfully! Use your Force Number to unlock.");
       setTimeout(() => setNotification(null), 6000);
     } catch (err) {
@@ -448,14 +510,14 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
       const stn = (record.station || 'UNKNOWN').toUpperCase();
 
       if (!canViewGlobalLevel) {
-          const belongsToRegion = activeReg === 'ALL REGIONS' || reg === activeReg || (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, stn)));
-          if (!belongsToRegion) return;
-          if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(stn, activeStat)) return;
+        const belongsToRegion = activeReg === 'ALL REGIONS' || reg === activeReg || (REGIONAL_HIERARCHY[activeReg] && REGIONAL_HIERARCHY[activeReg].some(s => isStationEquivalent(s, stn)));
+        if (!belongsToRegion) return;
+        if (activeStat && activeStat !== 'ALL STATIONS' && !isStationEquivalent(stn, activeStat)) return;
       }
-      
+
       if (!groups[reg]) groups[reg] = { stations: {} };
       if (!groups[reg].stations[stn]) groups[reg].stations[stn] = [];
-      
+
       groups[reg].stations[stn].push(record);
     });
     return groups;
@@ -486,55 +548,54 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const populateUpdateForm = (statData) => {
     const recordIdentifier = statData.id !== undefined && statData.id !== null ? statData.id : statData.sn;
-    
+
     let updatedState = { ...statData, sn: recordIdentifier, id: recordIdentifier };
     if (statsDomain === 'ACCIDENTS') {
-        if (!COMMON_ACCIDENTS.includes(statData.nature_of_accident)) {
-            updatedState.nature_of_accident = 'OTHER';
-            updatedState.custom_nature_of_accident = statData.nature_of_accident;
-        }
+      if (!COMMON_ACCIDENTS.includes(statData.nature_of_accident)) {
+        updatedState.nature_of_accident = 'OTHER';
+        updatedState.custom_nature_of_accident = statData.nature_of_accident;
+      }
     }
     if (statsDomain === 'FIRES') {
-        if (!COMMON_FIRES.includes(statData.nature_of_fire)) {
-            updatedState.nature_of_fire = 'OTHER';
-            updatedState.custom_nature_of_fire = statData.nature_of_fire;
-        }
+      if (!COMMON_FIRES.includes(statData.nature_of_fire)) {
+        updatedState.nature_of_fire = 'OTHER';
+        updatedState.custom_nature_of_fire = statData.nature_of_fire;
+      }
     }
     if (statsDomain === 'DISRUPTIVE' || statsDomain === 'AGRICULTURAL') {
-        updatedState.pending_court_prev_ops = statData.pending_court_prev_ops || 0;
-        updatedState.pending_court_today_ops = statData.pending_court_today_ops || 0;
-        updatedState.taken_to_court_prev_lockup = statData.taken_to_court_prev_lockup || 0;
-        updatedState.taken_to_court_today_ops = statData.taken_to_court_today_ops || 0;
+      updatedState.pending_court_prev_ops = statData.pending_court_prev_ops || 0;
+      updatedState.pending_court_today_ops = statData.pending_court_today_ops || 0;
+      updatedState.taken_to_court_prev_lockup = statData.taken_to_court_prev_lockup || 0;
+      updatedState.taken_to_court_today_ops = statData.taken_to_court_today_ops || 0;
     }
     setFormData(updatedState);
   };
 
-  const handleFormSubmit = async (e) => {  
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!canEditRecords) return setNotification("Security Restriction: You do not have clearance to modify analytical records.");
 
-    // 🟢 MASS BALANCE MATHEMATICAL VALIDATOR TO PREVENT FORGERY
     if (statsDomain === 'DISRUPTIVE' || statsDomain === 'AGRICULTURAL') {
-        const arrested = parseInt(formData.arrested) || 0;
-        const bond = parseInt(formData.given_bond) || 0;
-        const cautioned = parseInt(formData.cautioned) || 0;
-        const pending_prev = parseInt(formData.pending_court_prev_ops) || 0;
-        const pending_today = parseInt(formData.pending_court_today_ops) || 0;
-        const taken_prev = parseInt(formData.taken_to_court_prev_lockup) || 0;
-        const taken_today = parseInt(formData.taken_to_court_today_ops) || 0;
+      const arrested = parseInt(formData.arrested) || 0;
+      const bond = parseInt(formData.given_bond) || 0;
+      const cautioned = parseInt(formData.cautioned) || 0;
+      const pending_prev = parseInt(formData.pending_court_prev_ops) || 0;
+      const pending_today = parseInt(formData.pending_court_today_ops) || 0;
+      const taken_prev = parseInt(formData.taken_to_court_prev_lockup) || 0;
+      const taken_today = parseInt(formData.taken_to_court_today_ops) || 0;
 
-        const totalIn = arrested + pending_prev;
-        const totalOut = bond + cautioned + taken_today + taken_prev + pending_today;
+      const totalIn = arrested + pending_prev;
+      const totalOut = bond + cautioned + taken_today + taken_prev + pending_today;
 
-        if (totalIn !== totalOut) {
-            return setNotification(`❌ INCONSISTENT DATA: Suspects distribution does not balance. Arrested (${arrested}) + Pending Prev (${pending_prev}) MUST EQUAL Bond (${bond}) + Cautioned (${cautioned}) + Taken Today (${taken_today}) + Taken Prev (${taken_prev}) + Pending Today (${pending_today}).`);
-        }
-        
-        if (taken_prev > pending_prev) {
-            return setNotification(`❌ INCONSISTENT DATA: Taken to Court from Previous Lockup (${taken_prev}) cannot exceed the number Pending Court from Previous Day (${pending_prev}).`);
-        }
+      if (totalIn !== totalOut) {
+        return setNotification(`❌ INCONSISTENT DATA: Suspects distribution does not balance. Arrested (${arrested}) + Pending Prev (${pending_prev}) MUST EQUAL Bond (${bond}) + Cautioned (${cautioned}) + Taken Today (${taken_today}) + Taken Prev (${taken_prev}) + Pending Today (${pending_today}).`);
+      }
+
+      if (taken_prev > pending_prev) {
+        return setNotification(`❌ INCONSISTENT DATA: Taken to Court from Previous Lockup (${taken_prev}) cannot exceed the number Pending Court from Previous Day (${pending_prev}).`);
+      }
     }
-    
+
     let targetEndpoint = '/api/v1/stats';
     if (statsDomain === 'AGRICULTURAL') targetEndpoint = '/api/v1/agric-stats';
     if (statsDomain === 'ACCIDENTS') targetEndpoint = '/api/v1/accidents';
@@ -546,106 +607,106 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     if (operation === 'new') {
       let isDuplicate = false;
       if (statsDomain !== 'ACCIDENTS' && statsDomain !== 'FIRES') {
-          isDuplicate = currentDomainStats.some(s =>  
-            String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&  
-            String(s.date) === String(formData.date)
-          );
+        isDuplicate = currentDomainStats.some(s =>
+          String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&
+          String(s.date) === String(formData.date)
+        );
       }
-      
+
       if (isDuplicate) {
         return setNotification(`❌ Error: Statistics for station '${activeStation}' on date '${formData.date}' have already been logged.`);
       }
 
       const exactNextSN = currentDomainStats.length > 0 ? Math.max(...currentDomainStats.map(s => s.sn || s.id || 0)) + 1 : 1;
-      
-      let newStat = {  
-        ...formData,  
-        region: activeRegion,  
-        station: activeStation,  
-        sn: exactNextSN,  
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`,
-        entered_by: `${currentUser.name} (${currentUser.fnum})`
+
+      let newStat = {
+        ...formData,
+        region: activeRegion,
+        station: activeStation,
+        sn: exactNextSN,
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`
       };
 
       if (statsDomain === 'ACCIDENTS') {
-          newStat.total = (parseInt(formData.minor) || 0) + (parseInt(formData.serious) || 0) + (parseInt(formData.fatal) || 0);
-          if (newStat.nature_of_accident === 'OTHER') {
-              newStat.nature_of_accident = formData.custom_nature_of_accident;
-          }
+        newStat.total = (parseInt(formData.minor) || 0) + (parseInt(formData.serious) || 0) + (parseInt(formData.fatal) || 0);
+        if (newStat.nature_of_accident === 'OTHER') {
+          newStat.nature_of_accident = formData.custom_nature_of_accident;
+        }
       } else if (statsDomain === 'FIRES') {
-          newStat.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
-          if (newStat.nature_of_fire === 'OTHER') {
-              newStat.nature_of_fire = formData.custom_nature_of_fire;
-          }
+        newStat.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
+        if (newStat.nature_of_fire === 'OTHER') {
+          newStat.nature_of_fire = formData.custom_nature_of_fire;
+        }
       } else if (statsDomain === 'DISRUPTIVE' || statsDomain === 'AGRICULTURAL') {
-          newStat.pending_court_prev_ops = parseInt(formData.pending_court_prev_ops) || 0;
-          newStat.pending_court_today_ops = parseInt(formData.pending_court_today_ops) || 0;
-          newStat.taken_to_court_prev_lockup = parseInt(formData.taken_to_court_prev_lockup) || 0;
-          newStat.taken_to_court_today_ops = parseInt(formData.taken_to_court_today_ops) || 0;
+        newStat.pending_court_prev_ops = parseInt(formData.pending_court_prev_ops) || 0;
+        newStat.pending_court_today_ops = parseInt(formData.pending_court_today_ops) || 0;
+        newStat.taken_to_court_prev_lockup = parseInt(formData.taken_to_court_prev_lockup) || 0;
+        newStat.taken_to_court_today_ops = parseInt(formData.taken_to_court_today_ops) || 0;
 
-          newStat.pending_court = newStat.pending_court_prev_ops + newStat.pending_court_today_ops;
-          newStat.taken_to_court = newStat.taken_to_court_prev_lockup + newStat.taken_to_court_today_ops;
+        newStat.pending_court = newStat.pending_court_prev_ops + newStat.pending_court_today_ops;
+        newStat.taken_to_court = newStat.taken_to_court_prev_lockup + newStat.taken_to_court_today_ops;
       }
-      
+
       try {
         const response = await authFetch(targetEndpoint, {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newStat)
         });
 
         if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.detail || "Database rejected the entry.");
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || "Database rejected the entry.");
         }
-        
-        fetchDomainStats();  
+
+        fetchDomainStats();
+        fetchRegionalSummation();
         setNotification(`✅ Suspects statistics recorded successfully for ${activeStation}!`);
         setFormData(getInitialFormData());
-      } catch (err) {  
-        setNotification(`❌ Error: ${err.message}`);  
+      } catch (err) {
+        setNotification(`❌ Error: ${err.message}`);
       }
-      
+
     } else if (operation === 'update') {
       const recordKey = formData.id || formData.sn;
       if (!recordKey) return setNotification("Error: Please select a record from the list to update first.");
 
       let isDuplicateConflict = false;
       if (statsDomain !== 'ACCIDENTS' && statsDomain !== 'FIRES') {
-          isDuplicateConflict = currentDomainStats.some(s =>  
-            (String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&  
-             String(s.date) === String(formData.date)) &&  
-            (s.id !== recordKey && s.sn !== recordKey)
-          );
+        isDuplicateConflict = currentDomainStats.some(s =>
+          (String(s.station || '').trim().toUpperCase() === String(activeStation || '').trim().toUpperCase() &&
+           String(s.date) === String(formData.date)) &&
+          (s.id !== recordKey && s.sn !== recordKey)
+        );
       }
-      
+
       if (isDuplicateConflict) {
         return setNotification(`❌ Error: Another record for station '${activeStation}' on date '${formData.date}' already exists.`);
       }
 
-      let updatedRecord = {  
-        ...formData,  
-        region: activeRegion,  
-        station: activeStation,  
-        last_updated_by: `${currentUser.name} (${currentUser.fnum})`  
+      let updatedRecord = {
+        ...formData,
+        region: activeRegion,
+        station: activeStation,
+        last_updated_by: `${currentUser.name} (${currentUser.fnum})`
       };
 
       if (statsDomain === 'ACCIDENTS') {
-          updatedRecord.total = (parseInt(formData.minor) || 0) + (parseInt(formData.serious) || 0) + (parseInt(formData.fatal) || 0);
-          if (updatedRecord.nature_of_accident === 'OTHER') {
-              updatedRecord.nature_of_accident = formData.custom_nature_of_accident;
-          }
+        updatedRecord.total = (parseInt(formData.minor) || 0) + (parseInt(formData.serious) || 0) + (parseInt(formData.fatal) || 0);
+        if (updatedRecord.nature_of_accident === 'OTHER') {
+          updatedRecord.nature_of_accident = formData.custom_nature_of_accident;
+        }
       } else if (statsDomain === 'FIRES') {
-          updatedRecord.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
-          if (updatedRecord.nature_of_fire === 'OTHER') {
-              updatedRecord.nature_of_fire = formData.custom_nature_of_fire;
-          }
+        updatedRecord.total = (parseInt(formData.minor_outbreaks) || 0) + (parseInt(formData.major_disasters) || 0) + (parseInt(formData.fatal_fires) || 0);
+        if (updatedRecord.nature_of_fire === 'OTHER') {
+          updatedRecord.nature_of_fire = formData.custom_nature_of_fire;
+        }
       } else if (statsDomain === 'DISRUPTIVE' || statsDomain === 'AGRICULTURAL') {
-          updatedRecord.pending_court_prev_ops = parseInt(formData.pending_court_prev_ops) || 0;
-          updatedRecord.pending_court_today_ops = parseInt(formData.pending_court_today_ops) || 0;
-          updatedRecord.taken_to_court_prev_lockup = parseInt(formData.taken_to_court_prev_lockup) || 0;
-          updatedRecord.taken_to_court_today_ops = parseInt(formData.taken_to_court_today_ops) || 0;
+        updatedRecord.pending_court_prev_ops = parseInt(formData.pending_court_prev_ops) || 0;
+        updatedRecord.pending_court_today_ops = parseInt(formData.pending_court_today_ops) || 0;
+        updatedRecord.taken_to_court_prev_lockup = parseInt(formData.taken_to_court_prev_lockup) || 0;
+        updatedRecord.taken_to_court_today_ops = parseInt(formData.taken_to_court_today_ops) || 0;
 
-          updatedRecord.pending_court = updatedRecord.pending_court_prev_ops + updatedRecord.pending_court_today_ops;
-          updatedRecord.taken_to_court = updatedRecord.taken_to_court_prev_lockup + updatedRecord.taken_to_court_today_ops;
+        updatedRecord.pending_court = updatedRecord.pending_court_prev_ops + updatedRecord.pending_court_today_ops;
+        updatedRecord.taken_to_court = updatedRecord.taken_to_court_prev_lockup + updatedRecord.taken_to_court_today_ops;
       }
 
       try {
@@ -657,12 +718,13 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
           const errText = await response.text();
           throw new Error(errText || "Failed to update record in database.");
         }
-        
+
         fetchDomainStats();
+        fetchRegionalSummation();
         setNotification(`✅ Statistics ID ${recordKey} successfully updated!`);
         handleOperationToggle('new');
-      } catch (err) {  
-        setNotification(`❌ Error: ${err.message}`);  
+      } catch (err) {
+        setNotification(`❌ Error: ${err.message}`);
       }
     }
   };
@@ -717,9 +779,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   };
 
   useEffect(() => {
-      setFormData(getInitialFormData());
-      setOperation('new');
-      setUpdateSearch('');
+    setFormData(getInitialFormData());
+    setOperation('new');
+    setUpdateSearch('');
   }, [statsDomain, getInitialFormData]);
 
   const handleToggleDomain = (domain) => {
@@ -728,7 +790,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const complianceWarning = useMemo(() => {
     const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Nairobi" }));
-    const dayOfWeek = now.getDay(); 
+    const dayOfWeek = now.getDay();
 
     const isWarningPeriod = dayOfWeek === 5 || dayOfWeek === 6 || dayOfWeek === 0;
     if (!isWarningPeriod) return null;
@@ -736,7 +798,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
     const startOfWeek = new Date(now);
     const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     startOfWeek.setDate(now.getDate() + diffToMonday);
-    
+
     const yyyy = startOfWeek.getFullYear();
     const mm = String(startOfWeek.getMonth() + 1).padStart(2, '0');
     const dd = String(startOfWeek.getDate()).padStart(2, '0');
@@ -758,29 +820,28 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
   const totals = useMemo(() => {
     if (statsDomain === 'ACCIDENTS') {
-        return currentDomainStats.reduce((acc, curr) => {
-            acc.minor += (parseInt(curr.minor) || 0);
-            acc.serious += (parseInt(curr.serious) || 0);
-            acc.fatal += (parseInt(curr.fatal) || 0);
-            acc.victims += (parseInt(curr.victims) || 0);
-            acc.total += (parseInt(curr.total) || 0);
-            return acc;
-        }, { minor: 0, serious: 0, fatal: 0, victims: 0, total: 0 });
+      return currentDomainStats.reduce((acc, curr) => {
+        acc.minor += (parseInt(curr.minor) || 0);
+        acc.serious += (parseInt(curr.serious) || 0);
+        acc.fatal += (parseInt(curr.fatal) || 0);
+        acc.victims += (parseInt(curr.victims) || 0);
+        acc.total += (parseInt(curr.total) || 0);
+        return acc;
+      }, { minor: 0, serious: 0, fatal: 0, victims: 0, total: 0 });
     }
     if (statsDomain === 'FIRES') {
-        return currentDomainStats.reduce((acc, curr) => {
-            acc.minor_outbreaks += (parseInt(curr.minor_outbreaks) || 0);
-            acc.major_disasters += (parseInt(curr.major_disasters) || 0);
-            acc.fatal_fires += (parseInt(curr.fatal_fires) || 0);
-            acc.victims += (parseInt(curr.victims) || 0);
-            acc.total += (parseInt(curr.total) || 0);
-            return acc;
-        }, { minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0, total: 0 });
+      return currentDomainStats.reduce((acc, curr) => {
+        acc.minor_outbreaks += (parseInt(curr.minor_outbreaks) || 0);
+        acc.major_disasters += (parseInt(curr.major_disasters) || 0);
+        acc.fatal_fires += (parseInt(curr.fatal_fires) || 0);
+        acc.victims += (parseInt(curr.victims) || 0);
+        acc.total += (parseInt(curr.total) || 0);
+        return acc;
+      }, { minor_outbreaks: 0, major_disasters: 0, fatal_fires: 0, victims: 0, total: 0 });
     }
     return currentDomainStats.reduce((acc, curr) => {
       acc.arrested += (parseInt(curr.arrested) || 0); acc.given_bond += (parseInt(curr.given_bond) || 0);
-      acc.cautioned += (parseInt(curr.cautioned) || 0); 
-      // 🟢 OMITTING PENDING COURT FROM TOTALS TO PREVENT INFLATION
+      acc.cautioned += (parseInt(curr.cautioned) || 0);
       acc.taken_to_court += (parseInt(curr.taken_to_court_prev_lockup) || 0) + (parseInt(curr.taken_to_court_today_ops) || 0);
       acc.released += (parseInt(curr.released) || 0);
       acc.remanded += (parseInt(curr.remanded) || 0); acc.convicted += (parseInt(curr.convicted) || 0);
@@ -789,10 +850,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
   }, [currentDomainStats, statsDomain]);
 
   const getDomainTitle = () => {
-      if (statsDomain === 'AGRICULTURAL') return '🌱 Agricultural Crimes Statistics';
-      if (statsDomain === 'ACCIDENTS') return '🚓 Traffic & Accidents Statistics';
-      if (statsDomain === 'FIRES') return '🔥 Fire & Rescue Incidents Statistics';
-      return '⚡ Disruptive OPS Statistics';
+    if (statsDomain === 'AGRICULTURAL') return '🌱 Agricultural Crimes Statistics';
+    if (statsDomain === 'ACCIDENTS') return '🚓 Traffic & Accidents Statistics';
+    if (statsDomain === 'FIRES') return '🔥 Fire & Rescue Incidents Statistics';
+    return '⚡ Disruptive OPS Statistics';
   };
 
   return (
@@ -804,7 +865,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
         </h1>
         <h3 className="text-xs sm:text-sm text-blue-700 dark:text-blue-400 mt-1 font-bold">Weekly Numerical Aggregates</h3>
       </div>
-      
+
       {complianceWarning && (
         <div className="bg-red-600 border border-red-800 shadow-lg rounded-xl p-3 flex items-center justify-center text-white animate-pulse transition-all">
           <AlertTriangle className="w-5 h-5 mr-3 shrink-0" />
@@ -837,12 +898,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
         <>
           {viewMode === 'STATION' && (
             <div className="lg:col-span-4 space-y-5">
-              
-              {/* MAIN FORM PANEL */}
               <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden">
                 <div className="bg-slate-900 dark:bg-slate-950 px-4 py-3 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center relative z-30">
                   <h3 className="text-white font-bold text-xs flex items-center">
-                    {statsDomain === 'ACCIDENTS' ? <Car className="w-4 h-4 mr-2 text-red-400" /> : statsDomain === 'FIRES' ? <Flame className="w-4 h-4 mr-2 text-amber-400" /> : statsDomain === 'AGRICULTURAL' ? <Sprout className="w-4 h-4 mr-2 text-emerald-400" /> : <BarChart3 className="w-4 h-4 mr-2 text-blue-400" />} 
+                    {statsDomain === 'ACCIDENTS' ? <Car className="w-4 h-4 mr-2 text-red-400" /> : statsDomain === 'FIRES' ? <Flame className="w-4 h-4 mr-2 text-amber-400" /> : statsDomain === 'AGRICULTURAL' ? <Sprout className="w-4 h-4 mr-2 text-emerald-400" /> : <BarChart3 className="w-4 h-4 mr-2 text-blue-400" />}
                     ⚙️ Log {statsDomain === 'AGRICULTURAL' ? 'Agri-Crimes' : statsDomain === 'ACCIDENTS' ? 'Accident' : statsDomain === 'FIRES' ? 'Fire' : 'Disruptive'} Stats
                   </h3>
                 </div>
@@ -852,7 +911,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     <button type="button" onClick={() => handleOperationToggle('update')} className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${operation === 'update' ? 'bg-white dark:bg-slate-700 shadow text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'}`}><Edit className="w-3.5 h-3.5 inline mr-1" /> Update Existing</button>
                   </div>
                   {notification && <div className={`border px-3 py-2 rounded-lg flex items-start mb-3 ${notification.includes('Error') || notification.includes('❌') ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950/40 border-green-200 dark:border-green-900 text-green-800 dark:text-green-300'}`}>{notification.includes('Error') || notification.includes('❌') ? <AlertTriangle className="w-4 h-4 mr-2 mt-0.5 text-red-500 shrink-0" /> : <CheckCircle className="w-4 h-4 mr-2 mt-0.5 text-green-500 shrink-0" />}<span className="text-xs font-bold leading-snug">{notification}</span></div>}
-                  
+
                   {operation === 'update' && (
                     <div className="bg-blue-50 dark:bg-slate-800 border border-blue-200 dark:border-slate-700 rounded-lg p-3">
                       <label className="block text-[10px] font-black text-blue-800 dark:text-blue-400 mb-1.5">🔍 Search & Select Record to Update</label>
@@ -866,12 +925,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                             const isSelected = formData.sn === recordKey || formData.id === recordKey;
 
                             return (
-                              <div 
-                                key={recordKey} 
+                              <div
+                                key={recordKey}
                                 onClick={() => {
                                   populateUpdateForm(s);
                                   setNotification(`Selected Record ID: ${recordKey} (${s.station}) for update.`);
-                                }} 
+                                }}
                                 className={`p-2 text-[10px] border-b dark:border-slate-800 cursor-pointer transition-colors ${isSelected ? 'bg-blue-700 text-white font-black' : 'hover:bg-blue-100 dark:hover:bg-slate-800 text-gray-800 dark:text-slate-200 font-bold'}`}
                               >
                                 <span className={isSelected ? 'text-blue-200' : 'text-gray-400'}>S/N: {idx + 1}</span> | <span className={isSelected ? 'text-white' : 'text-blue-700 dark:text-blue-400'}>{s.date}</span> | {s.station}
@@ -885,8 +944,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
                   <form onSubmit={handleFormSubmit} className="space-y-4">
                     {operation === 'update' && (formData.sn || formData.id) && <div className="bg-slate-800 dark:bg-slate-950 text-white text-[10px] font-black px-2 py-1.5 rounded">Currently Editing Record ID: {formData.id || formData.sn}</div>}
-                    
-                    {/* BASE SETTINGS (Region, Station, Date) */}
+
                     <div className="bg-gray-50 dark:bg-slate-800 p-3 rounded-lg border border-gray-200 dark:border-slate-700 space-y-3">
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
                         <div>
@@ -906,178 +964,165 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                           <input type="date" name="date" value={formData.date} onChange={handleInputChange} disabled={operation === 'update'} required className="w-full text-xs font-bold border-gray-300 dark:border-slate-700 rounded shadow-sm border bg-white dark:bg-slate-900 dark:text-slate-100 p-1.5 disabled:bg-gray-100 dark:disabled:bg-slate-950 disabled:text-gray-500" />
                         </div>
                       </div>
-                    </div> 
-                    
-                    {/* ACCIDENTS FORM */}
+                    </div>
+
                     {statsDomain === 'ACCIDENTS' ? (
-                        <div className="bg-red-50 dark:bg-slate-800 p-3 rounded-lg border border-red-200 dark:border-slate-700">
-                          <h4 className="text-xs font-black text-red-900 dark:text-red-300 border-b border-red-200 dark:border-slate-700 pb-1.5 mb-3 flex items-center">📊 Traffic & Accidents Aggregates</h4>
-                          
-                          <div className="mb-3">
-                              <label className="block text-[10px] font-black text-gray-700 dark:text-slate-300 mb-1">Nature of Accident *</label>
-                              <select 
-                                name="nature_of_accident" 
-                                value={formData.nature_of_accident} 
-                                onChange={handleInputChange} 
-                                required 
-                                className="w-full text-xs font-bold border border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase cursor-pointer"
-                              >
-                                <option value="" disabled>-- Select Nature of Accident --</option>
-                                {COMMON_ACCIDENTS.map(acc => (
-                                    <option key={acc} value={acc}>{acc}</option>
-                                ))}
-                                {formData.nature_of_accident && formData.nature_of_accident !== 'OTHER' && !COMMON_ACCIDENTS.includes(formData.nature_of_accident) && (
-                                    <option value={formData.nature_of_accident}>{formData.nature_of_accident}</option>
-                                )}
-                                <option value="OTHER">OTHER (SPECIFY BELOW)</option>
-                              </select>
-                              
-                              {formData.nature_of_accident === 'OTHER' && (
-                                  <input 
-                                    type="text" 
-                                    name="custom_nature_of_accident" 
-                                    value={formData.custom_nature_of_accident || ''} 
-                                    onChange={handleInputChange} 
-                                    required 
-                                    placeholder="Type specific nature of accident..." 
-                                    className="mt-2 w-full text-xs font-bold border border-red-300 dark:border-red-800 rounded shadow-sm bg-red-50 dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase focus:border-red-500 outline-none" 
-                                  />
-                              )}
-                          </div>
+                      <div className="bg-red-50 dark:bg-slate-800 p-3 rounded-lg border border-red-200 dark:border-slate-700">
+                        <h4 className="text-xs font-black text-red-900 dark:text-red-300 border-b border-red-200 dark:border-slate-700 pb-1.5 mb-3 flex items-center">📊 Traffic & Accidents Aggregates</h4>
 
-                          <div className="grid grid-cols-4 gap-2">
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Minor</label><input type="number" name="minor" min="0" value={formData.minor} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-600 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-0.5 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Serious</label><input type="number" name="serious" min="0" value={formData.serious} onChange={handleInputChange} className="w-full text-[13px] font-black text-orange-600 dark:text-orange-400 border-b-2 border-transparent focus:border-orange-500 outline-none p-0.5 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Fatal</label><input type="number" name="fatal" min="0" value={formData.fatal} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 border-b-2 border-transparent focus:border-red-500 outline-none p-0.5 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-purple-500/20"><label className="block text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-0.5">Victims (Count)</label><input type="number" name="victims" min="0" value={formData.victims} onChange={handleInputChange} className="w-full text-[13px] font-black text-purple-600 dark:text-purple-400 border-b-2 border-transparent focus:border-purple-500 outline-none p-0.5 bg-transparent" /></div>
-                          </div>
+                        <div className="mb-3">
+                          <label className="block text-[10px] font-black text-gray-700 dark:text-slate-300 mb-1">Nature of Accident *</label>
+                          <select
+                            name="nature_of_accident"
+                            value={formData.nature_of_accident}
+                            onChange={handleInputChange}
+                            required
+                            className="w-full text-xs font-bold border border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase cursor-pointer"
+                          >
+                            <option value="" disabled>-- Select Nature of Accident --</option>
+                            {COMMON_ACCIDENTS.map(acc => (
+                              <option key={acc} value={acc}>{acc}</option>
+                            ))}
+                            {formData.nature_of_accident && formData.nature_of_accident !== 'OTHER' && !COMMON_ACCIDENTS.includes(formData.nature_of_accident) && (
+                              <option value={formData.nature_of_accident}>{formData.nature_of_accident}</option>
+                            )}
+                            <option value="OTHER">OTHER (SPECIFY BELOW)</option>
+                          </select>
+
+                          {formData.nature_of_accident === 'OTHER' && (
+                            <input
+                              type="text"
+                              name="custom_nature_of_accident"
+                              value={formData.custom_nature_of_accident || ''}
+                              onChange={handleInputChange}
+                              required
+                              placeholder="Type specific nature of accident..."
+                              className="mt-2 w-full text-xs font-bold border border-red-300 dark:border-red-800 rounded shadow-sm bg-red-50 dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase focus:border-red-500 outline-none"
+                            />
+                          )}
                         </div>
 
-                    // FIRES FORM
+                        <div className="grid grid-cols-4 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Minor</label><input type="number" name="minor" min="0" value={formData.minor} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-600 dark:text-blue-400 border-b-2 border-transparent focus:border-blue-500 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Serious</label><input type="number" name="serious" min="0" value={formData.serious} onChange={handleInputChange} className="w-full text-[13px] font-black text-orange-600 dark:text-orange-400 border-b-2 border-transparent focus:border-orange-500 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">Fatal</label><input type="number" name="fatal" min="0" value={formData.fatal} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 border-b-2 border-transparent focus:border-red-500 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-purple-500/20"><label className="block text-[9px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-0.5">Victims (Count)</label><input type="number" name="victims" min="0" value={formData.victims} onChange={handleInputChange} className="w-full text-[13px] font-black text-purple-600 dark:text-purple-400 border-b-2 border-transparent focus:border-purple-500 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
+                      </div>
                     ) : statsDomain === 'FIRES' ? (
-                        <div className="bg-amber-50 dark:bg-slate-800 p-3 rounded-lg border border-amber-200 dark:border-slate-700">
-                          <h4 className="text-xs font-black text-amber-900 dark:text-amber-300 border-b border-amber-200 dark:border-slate-700 pb-1.5 mb-3 flex items-center">🔥 Fire & Rescue Aggregates</h4>
-                          
-                          <div className="mb-3">
-                              <label className="block text-[10px] font-black text-gray-700 dark:text-slate-300 mb-1">Nature of Fire / Cause *</label>
-                              <select 
-                                name="nature_of_fire" 
-                                value={formData.nature_of_fire || ''} 
-                                onChange={handleInputChange} 
-                                required 
-                                className="w-full text-xs font-bold border border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase cursor-pointer"
-                              >
-                                <option value="" disabled>-- Select Nature of Fire --</option>
-                                {COMMON_FIRES.map(fire => (
-                                    <option key={fire} value={fire}>{fire}</option>
-                                ))}
-                                {formData.nature_of_fire && formData.nature_of_fire !== 'OTHER' && !COMMON_FIRES.includes(formData.nature_of_fire) && (
-                                    <option value={formData.nature_of_fire}>{formData.nature_of_fire}</option>
-                                )}
-                                <option value="OTHER">OTHER (SPECIFY BELOW)</option>
-                              </select>
-                              
-                              {formData.nature_of_fire === 'OTHER' && (
-                                  <input 
-                                    type="text" 
-                                    name="custom_nature_of_fire" 
-                                    value={formData.custom_nature_of_fire || ''} 
-                                    onChange={handleInputChange} 
-                                    required 
-                                    placeholder="Type specific nature or natural cause (e.g. LIGHTNING STRIKE)..." 
-                                    className="mt-2 w-full text-xs font-bold border border-amber-300 dark:border-amber-800 rounded shadow-sm bg-amber-50 dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase focus:border-amber-500 outline-none" 
-                                  />
-                              )}
-                          </div>
+                      <div className="bg-amber-50 dark:bg-slate-800 p-3 rounded-lg border border-amber-200 dark:border-slate-700">
+                        <h4 className="text-xs font-black text-amber-900 dark:text-amber-300 border-b border-amber-200 dark:border-slate-700 pb-1.5 mb-3 flex items-center">🔥 Fire & Rescue Aggregates</h4>
 
-                          <div className="grid grid-cols-4 gap-2">
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 uppercase mb-0.5">Minor</label><input type="number" name="minor_outbreaks" min="0" value={formData.minor_outbreaks || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-amber-600 outline-none p-0.5 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 uppercase mb-0.5">Major</label><input type="number" name="major_disasters" min="0" value={formData.major_disasters || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-orange-600 outline-none p-0.5 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 uppercase mb-0.5">Fatal</label><input type="number" name="fatal_fires" min="0" value={formData.fatal_fires || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 outline-none p-0.5 bg-transparent" /></div>
-                            <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-amber-500/20"><label className="block text-[9px] font-black text-amber-600 uppercase mb-0.5">Victims</label><input type="number" name="victims" min="0" value={formData.victims || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-amber-700 outline-none p-0.5 bg-transparent" /></div>
-                          </div>
+                        <div className="mb-3">
+                          <label className="block text-[10px] font-black text-gray-700 dark:text-slate-300 mb-1">Nature of Fire / Cause *</label>
+                          <select
+                            name="nature_of_fire"
+                            value={formData.nature_of_fire || ''}
+                            onChange={handleInputChange}
+                            required
+                            className="w-full text-xs font-bold border border-gray-300 dark:border-slate-700 rounded shadow-sm bg-white dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase cursor-pointer"
+                          >
+                            <option value="" disabled>-- Select Nature of Fire --</option>
+                            {COMMON_FIRES.map(fire => (
+                              <option key={fire} value={fire}>{fire}</option>
+                            ))}
+                            {formData.nature_of_fire && formData.nature_of_fire !== 'OTHER' && !COMMON_FIRES.includes(formData.nature_of_fire) && (
+                              <option value={formData.nature_of_fire}>{formData.nature_of_fire}</option>
+                            )}
+                            <option value="OTHER">OTHER (SPECIFY BELOW)</option>
+                          </select>
+
+                          {formData.nature_of_fire === 'OTHER' && (
+                            <input
+                              type="text"
+                              name="custom_nature_of_fire"
+                              value={formData.custom_nature_of_fire || ''}
+                              onChange={handleInputChange}
+                              required
+                              placeholder="Type specific nature or natural cause (e.g. LIGHTNING STRIKE)..."
+                              className="mt-2 w-full text-xs font-bold border border-amber-300 dark:border-amber-800 rounded shadow-sm bg-amber-50 dark:bg-slate-900 dark:text-slate-100 p-1.5 uppercase focus:border-amber-500 outline-none"
+                            />
+                          )}
                         </div>
 
-                    // 🟢 AGRICULTURAL SUSPECTS FORM
+                        <div className="grid grid-cols-4 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 uppercase mb-0.5">Minor</label><input type="number" name="minor_outbreaks" min="0" value={formData.minor_outbreaks || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-amber-600 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 uppercase mb-0.5">Major</label><input type="number" name="major_disasters" min="0" value={formData.major_disasters || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-orange-600 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-slate-500 uppercase mb-0.5">Fatal</label><input type="number" name="fatal_fires" min="0" value={formData.fatal_fires || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm ring-1 ring-amber-500/20"><label className="block text-[9px] font-black text-amber-600 uppercase mb-0.5">Victims</label><input type="number" name="victims" min="0" value={formData.victims || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-amber-700 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
+                      </div>
                     ) : statsDomain === 'AGRICULTURAL' ? (
-                        <>
-                          <div className="bg-emerald-50 dark:bg-slate-800 p-3 rounded-lg border border-emerald-200 dark:border-slate-700 space-y-3">
-                            <h4 className="text-xs font-black text-emerald-900 dark:text-emerald-300 border-b border-emerald-200 dark:border-slate-700 pb-1.5 mb-2 flex items-center">
-                              📊 Agric Crimes Suspects & Lockup Entry
-                            </h4>
-                            
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-emerald-700 dark:text-emerald-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-700 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                      <div className="bg-emerald-50 dark:bg-slate-800 p-3 rounded-lg border border-emerald-200 dark:border-slate-700 space-y-3">
+                        <h4 className="text-xs font-black text-emerald-900 dark:text-emerald-300 border-b border-emerald-200 dark:border-slate-700 pb-1.5 mb-2 flex items-center">
+                          📊 Agric Crimes Suspects & Lockup Entry
+                        </h4>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-600 dark:text-blue-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Prev Day)</label><input type="number" name="pending_court_prev_ops" min="0" value={formData.pending_court_prev_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-emerald-700 dark:text-emerald-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-700 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Today's OPS)</label><input type="number" name="pending_court_today_ops" min="0" value={formData.pending_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Prev Lockup)</label><input type="number" name="taken_to_court_prev_lockup" min="0" value={formData.taken_to_court_prev_lockup || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-600 dark:text-blue-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Prev Day)</label><input type="number" name="pending_court_prev_ops" min="0" value={formData.pending_court_prev_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Today's OPS)</label><input type="number" name="taken_to_court_today_ops" min="0" value={formData.taken_to_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Released by Court</label><input type="number" name="released" min="0" value={formData.released || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-600 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Today's OPS)</label><input type="number" name="pending_court_today_ops" min="0" value={formData.pending_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Prev Lockup)</label><input type="number" name="taken_to_court_prev_lockup" min="0" value={formData.taken_to_court_prev_lockup || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-700 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-purple-600 dark:text-purple-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
-                          </div>
-                        </>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Today's OPS)</label><input type="number" name="taken_to_court_today_ops" min="0" value={formData.taken_to_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Released by Court</label><input type="number" name="released" min="0" value={formData.released || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-600 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
 
-                    // DISRUPTIVE OPS FORM
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-700 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-purple-600 dark:text-purple-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
+                      </div>
                     ) : (
-                        <>
-                          <div className="bg-blue-50 dark:bg-slate-800 p-3 rounded-lg border border-blue-200 dark:border-slate-700 space-y-3">
-                            <h4 className="text-xs font-black text-blue-900 dark:text-blue-300 border-b border-blue-200 dark:border-slate-700 pb-1.5 mb-2 flex items-center">📊 Disruptive Operations Form (REVISED DIV TEMPLATE)</h4>
-                            
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-700 dark:text-blue-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-700 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                      <div className="bg-blue-50 dark:bg-slate-800 p-3 rounded-lg border border-blue-200 dark:border-slate-700 space-y-3">
+                        <h4 className="text-xs font-black text-blue-900 dark:text-blue-300 border-b border-blue-200 dark:border-slate-700 pb-1.5 mb-2 flex items-center">📊 Disruptive Operations Form (REVISED DIV TEMPLATE)</h4>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-600 dark:text-blue-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Prev Day)</label><input type="number" name="pending_court_prev_ops" min="0" value={formData.pending_court_prev_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Arrested</label><input type="number" name="arrested" min="0" value={formData.arrested || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-700 dark:text-blue-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Given Bond</label><input type="number" name="given_bond" min="0" value={formData.given_bond || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-700 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Today's OPS)</label><input type="number" name="pending_court_today_ops" min="0" value={formData.pending_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Prev Lockup)</label><input type="number" name="taken_to_court_prev_lockup" min="0" value={formData.taken_to_court_prev_lockup || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Cautioned</label><input type="number" name="cautioned" min="0" value={formData.cautioned || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-blue-600 dark:text-blue-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Prev Day)</label><input type="number" name="pending_court_prev_ops" min="0" value={formData.pending_court_prev_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Today's OPS)</label><input type="number" name="taken_to_court_today_ops" min="0" value={formData.taken_to_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Released by Court</label><input type="number" name="released" min="0" value={formData.released || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-600 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Pending Court (Today's OPS)</label><input type="number" name="pending_court_today_ops" min="0" value={formData.pending_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-yellow-600 dark:text-yellow-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Prev Lockup)</label><input type="number" name="taken_to_court_prev_lockup" min="0" value={formData.taken_to_court_prev_lockup || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
 
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-700 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
-                              <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-purple-600 dark:text-purple-400 outline-none p-0.5 bg-transparent" /></div>
-                            </div>
-                          </div>
-                        </>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Taken to Court (Today's OPS)</label><input type="number" name="taken_to_court_today_ops" min="0" value={formData.taken_to_court_today_ops || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-600 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Released by Court</label><input type="number" name="released" min="0" value={formData.released || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-green-600 dark:text-green-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Remanded</label><input type="number" name="remanded" min="0" value={formData.remanded || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-red-700 dark:text-red-400 outline-none p-0.5 bg-transparent" /></div>
+                          <div className="bg-white dark:bg-slate-900 p-1.5 rounded border border-gray-200 dark:border-slate-700 shadow-sm"><label className="block text-[9px] font-black text-gray-600 dark:text-slate-400 uppercase tracking-wider mb-0.5">Suspects Convicted</label><input type="number" name="convicted" min="0" value={formData.convicted || 0} onChange={handleInputChange} className="w-full text-[13px] font-black text-purple-600 dark:text-purple-400 outline-none p-0.5 bg-transparent" /></div>
+                        </div>
+                      </div>
                     )}
-                    
+
                     <button type="submit" className="w-full bg-blue-700 hover:bg-blue-800 transition-colors text-white mt-3 py-2.5 font-black rounded-lg shadow text-[13px] flex justify-center items-center cursor-pointer">
                       {operation === 'new' ? '💾 Submit Suspects Entry' : '💾 Save Updated Figures'}
                     </button>
 
-                    {/* 🟢 ACCOUNTABILITY LOGIC GUIDE ADDED TO FORMS */}
                     {(statsDomain === 'DISRUPTIVE' || statsDomain === 'AGRICULTURAL') && <AccountabilityGuide />}
                   </form>
                 </div>
               </div>
 
-              {/* 🟢 AGRICULTURAL PRODUCE RECOVERY FORM (Stacked below Suspects Form) */}
               {statsDomain === 'AGRICULTURAL' && operation === 'new' && (
                 <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-emerald-200 dark:border-slate-800 overflow-hidden mt-5 animate-in slide-in-from-top-4">
                   <div className="bg-emerald-700 dark:bg-emerald-900 px-4 py-3 text-white font-extrabold text-xs uppercase tracking-wider flex items-center">
@@ -1087,12 +1132,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     <div className="bg-emerald-50 dark:bg-slate-800/80 p-2 rounded border border-emerald-200 dark:border-slate-700 text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
                       Syncing to: <span className="font-black uppercase text-emerald-600 dark:text-emerald-400">{formData.station} ({formData.region})</span> on {formData.date}
                     </div>
-                    
+
                     <div>
                       <label className="block text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase mb-0.5">Item (e.g. CATTLE) *</label>
                       <input type="text" name="agric_crime_report" value={agricFormData.agric_crime_report} onChange={handleAgricInputChange} required placeholder="e.g. CATTLE" className="w-full text-[11px] border border-slate-300 dark:border-slate-700 p-1.5 rounded uppercase font-bold text-red-700 dark:text-red-400 bg-white dark:bg-slate-950 outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
-                    
+
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase mb-0.5">Stolen Qty *</label>
@@ -1103,12 +1148,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <input type="text" name="recoveries_label" value={agricFormData.recoveries_label} onChange={handleAgricInputChange} required placeholder="e.g. 2 HEADS" className="w-full text-[11px] border border-slate-300 dark:border-slate-700 p-1.5 rounded font-black text-emerald-700 dark:text-emerald-400 bg-white dark:bg-slate-950 outline-none focus:ring-2 focus:ring-emerald-500 uppercase" />
                       </div>
                     </div>
-                    
+
                     <div>
                       <label className="block text-[10px] font-black text-slate-700 dark:text-slate-300 uppercase mb-0.5">Action / Recovery Note *</label>
                       <input type="text" name="recovery_report" value={agricFormData.recovery_report} onChange={handleAgricInputChange} required placeholder="e.g. CATTLE RECOVERED" className="w-full text-[11px] border border-slate-300 dark:border-slate-700 p-1.5 rounded uppercase font-bold text-emerald-700 dark:text-emerald-400 bg-white dark:bg-slate-950 outline-none focus:ring-2 focus:ring-emerald-500" />
                     </div>
-                    
+
                     <button type="submit" className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-black py-2.5 rounded shadow-sm cursor-pointer transition-colors flex items-center justify-center mt-1 text-[13px]">
                       <Save className="w-4 h-4 mr-2" /> Save Produce Entry
                     </button>
@@ -1117,21 +1162,21 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
               )}
             </div>
           )}
-          
+
           <div className={viewMode === 'STATION' ? "lg:col-span-8 space-y-4" : "lg:col-span-12 space-y-4"}>
             <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative">
-              
+
               <div className="absolute top-4 right-4 z-10 flex gap-2">
-                <button 
-                  type="button" 
-                  onClick={handleExportDomainStats} 
+                <button
+                  type="button"
+                  onClick={handleExportDomainStats}
                   className="px-3.5 py-2 text-xs font-black rounded-lg border transition-all flex items-center whitespace-nowrap shadow-sm cursor-pointer bg-emerald-700 text-white border-emerald-800 hover:bg-emerald-800 ring-2 ring-emerald-500/20"
                 >
                   <HardDrive className="w-3.5 h-3.5 mr-1.5" /> Export Secure Excel (.zip)
                 </button>
-                <select 
-                  value={dateFilter} 
-                  onChange={(e) => setDateFilter(e.target.value)} 
+                <select
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
                   className="border-2 border-blue-500 dark:border-blue-600 text-blue-700 dark:text-blue-400 font-black rounded-lg px-2 py-1.5 text-[11px] shadow-sm bg-white dark:bg-slate-800 outline-none cursor-pointer"
                 >
                   <option value="ALL TIME">ALL TIME</option>
@@ -1147,33 +1192,33 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                 </select>
               </div>
               <h4 className="text-xs font-black text-slate-400 dark:text-slate-400 mb-2 uppercase tracking-wider">📋 AREA METRICS ({filterRegion} - {dateFilter})</h4>
-              
+
               {statsDomain === 'ACCIDENTS' ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
-                    <MetricCard title="Minor Accidents" value={totals.minor} colorClass="text-blue-600 dark:text-blue-400" />
-                    <MetricCard title="Serious Accidents" value={totals.serious} colorClass="text-orange-600 dark:text-orange-400" />
-                    <MetricCard title="Fatal Accidents" value={totals.fatal} colorClass="text-red-600 dark:text-red-400" />
-                    <MetricCard title="Victims (Count)" value={totals.victims} colorClass="text-purple-600 dark:text-purple-400" />
-                    <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
-                  </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
+                  <MetricCard title="Minor Accidents" value={totals.minor} colorClass="text-blue-600 dark:text-blue-400" />
+                  <MetricCard title="Serious Accidents" value={totals.serious} colorClass="text-orange-600 dark:text-orange-400" />
+                  <MetricCard title="Fatal Accidents" value={totals.fatal} colorClass="text-red-600 dark:text-red-400" />
+                  <MetricCard title="Victims (Count)" value={totals.victims} colorClass="text-purple-600 dark:text-purple-400" />
+                  <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
+                </div>
               ) : statsDomain === 'FIRES' ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
-                    <MetricCard title="Minor Outbreaks" value={totals.minor_outbreaks} colorClass="text-amber-600 dark:text-amber-400" />
-                    <MetricCard title="Major Disasters" value={totals.major_disasters} colorClass="text-orange-600 dark:text-orange-400" />
-                    <MetricCard title="Fatal Fires" value={totals.fatal_fires} colorClass="text-red-600 dark:text-red-400" />
-                    <MetricCard title="Victims (Count)" value={totals.victims} colorClass="text-amber-700 dark:text-amber-300" />
-                    <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
-                  </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
+                  <MetricCard title="Minor Outbreaks" value={totals.minor_outbreaks} colorClass="text-amber-600 dark:text-amber-400" />
+                  <MetricCard title="Major Disasters" value={totals.major_disasters} colorClass="text-orange-600 dark:text-orange-400" />
+                  <MetricCard title="Fatal Fires" value={totals.fatal_fires} colorClass="text-red-600 dark:text-red-400" />
+                  <MetricCard title="Victims (Count)" value={totals.victims} colorClass="text-amber-700 dark:text-amber-300" />
+                  <MetricCard title="Total Instances" value={totals.total} colorClass="text-slate-800 dark:text-slate-100" />
+                </div>
               ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-3">
-                    <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700 dark:text-blue-400" />
-                    <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600 dark:text-indigo-400" />
-                    <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600 dark:text-slate-400" />
-                    <MetricCard title="Taken to Court" value={totals.taken_to_court} colorClass="text-blue-500 dark:text-blue-400" />
-                    <MetricCard title="Released" value={totals.released} colorClass="text-green-600 dark:text-green-400" />
-                    <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600 dark:text-red-400" />
-                    <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600 dark:text-purple-400" />
-                  </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-3">
+                  <MetricCard title="Arrested" value={totals.arrested} colorClass="text-blue-700 dark:text-blue-400" />
+                  <MetricCard title="Given Bond" value={totals.given_bond} colorClass="text-indigo-600 dark:text-indigo-400" />
+                  <MetricCard title="Cautioned" value={totals.cautioned} colorClass="text-gray-600 dark:text-slate-400" />
+                  <MetricCard title="Taken to Court" value={totals.taken_to_court} colorClass="text-blue-500 dark:text-blue-400" />
+                  <MetricCard title="Released" value={totals.released} colorClass="text-green-600 dark:text-green-400" />
+                  <MetricCard title="Remanded" value={totals.remanded} colorClass="text-red-600 dark:text-red-400" />
+                  <MetricCard title="Convicted" value={totals.convicted} colorClass="text-purple-600 dark:text-purple-400" />
+                </div>
               )}
             </div>
 
@@ -1191,7 +1236,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                 </select>
               </div>
 
-              {/* 🟢 Synchronized Statistics Domain Toggles */}
               <div className="inline-flex bg-slate-200 dark:bg-slate-800 p-1 rounded-lg border dark:border-slate-700 shadow-inner shrink-0 gap-1 flex-wrap">
                 <button type="button" onClick={() => handleToggleDomain('DISRUPTIVE')} className={`px-2 py-1 rounded font-black text-[10px] transition cursor-pointer ${statsDomain === 'DISRUPTIVE' ? 'bg-slate-900 dark:bg-slate-950 text-white shadow' : 'text-slate-700 dark:text-slate-300'}`}>
                   ⚡ Disruptive OPS
@@ -1210,7 +1254,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
             <ExpandableTableCard title={`WEEKLY METRICS BREAKDOWN LEDGER (${statsDomain === 'AGRICULTURAL' ? 'AGRICULTURAL CRIMES' : statsDomain === 'ACCIDENTS' ? 'ACCIDENTS' : statsDomain === 'FIRES' ? 'FIRES & RESCUE' : viewMode === 'REGIONAL' ? 'REGIONAL SUMMATION TABLE (REVISED REG TEMPLATE)' : 'DISRUPTIVE OPS (REVISED DIV TEMPLATE)'})`} onToggle={(expanded) => { if (setSidebarOpen) setSidebarOpen(!expanded); }}>
               <div className="overflow-x-auto w-full dark:bg-slate-900">
-                
+
                 {statsDomain === 'ACCIDENTS' ? (
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 text-[11px]">
                     <thead className="bg-red-50 dark:bg-slate-950 sticky top-0">
@@ -1218,9 +1262,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <th rowSpan="2" className="px-2 py-2 text-center font-black text-red-900 dark:text-red-300 uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle">S/N</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black text-red-900 dark:text-red-300 uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle">Date</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black text-red-900 dark:text-red-300 uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle">Division/Station</th>
-                        
                         <th rowSpan="2" className="px-2 py-2 text-center font-black text-red-900 dark:text-red-300 uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle">Accident Type</th>
-                        
                         <th colSpan="4" className="px-2 py-2 text-center font-extrabold text-white bg-red-800 dark:bg-red-900 uppercase border-r border-slate-300 dark:border-slate-700 border-b">Severity Breakdown & Casualties</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black text-red-900 dark:text-red-300 uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle">TOTAL</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black text-red-900 dark:text-red-300 uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle whitespace-normal leading-tight w-16">Created By</th>
@@ -1235,18 +1277,15 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     </thead>
                     <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
                       {currentDomainStats.map((stat, idx) => (
-                        <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                        <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-red-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if (operation === 'update') populateUpdateForm(stat); }}>
                           <td className="px-2 py-2 text-center font-bold text-gray-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">{idx + 1}</td>
                           <td className="px-2 py-2 text-center whitespace-nowrap text-gray-500 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">{stat.date}</td>
                           <td className="px-2 py-2 text-center font-bold text-red-800 dark:text-red-400 border-r border-slate-200 dark:border-slate-800">{stat.station}</td>
-                          
                           <td className="px-2 py-2 text-center font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200 dark:border-slate-800">{stat.nature_of_accident}</td>
-                          
                           <td className="px-2 py-2 text-center font-bold text-blue-600 dark:text-blue-400 border-r border-slate-200 dark:border-slate-800">{stat.minor}</td>
                           <td className="px-2 py-2 text-center font-bold text-orange-600 dark:text-orange-400 border-r border-slate-200 dark:border-slate-800">{stat.serious}</td>
                           <td className="px-2 py-2 text-center font-black text-red-600 dark:text-red-500 border-r border-slate-200 dark:border-slate-800">{stat.fatal}</td>
                           <td className="px-2 py-2 text-center font-black text-purple-600 dark:text-purple-400 border-r border-slate-200 dark:border-slate-800">{stat.victims}</td>
-                          
                           <td className="px-2 py-2 text-center font-black text-[13px] text-slate-800 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">{stat.total}</td>
                           <td className="px-2 py-2 text-center text-[9px] font-semibold text-gray-500 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">{stat.entered_by || stat.last_updated_by}</td>
                           <td className="px-2 py-2 text-center text-[9px] font-mono text-gray-400 dark:text-slate-500">{stat.created_at ? stat.created_at.split('T')[0] : ''}</td>
@@ -1288,7 +1327,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     </thead>
                     <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
                       {currentDomainStats.map((stat, idx) => (
-                        <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                        <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-amber-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if (operation === 'update') populateUpdateForm(stat); }}>
                           <td className="px-2 py-2 text-center font-bold text-gray-900 dark:text-slate-100 border-r border-slate-200 dark:border-slate-800">{idx + 1}</td>
                           <td className="px-2 py-2 text-center whitespace-nowrap text-gray-500 dark:text-slate-400 border-r border-slate-200 dark:border-slate-800">{stat.date}</td>
                           <td className="px-2 py-2 text-center font-bold text-amber-800 dark:text-amber-400 border-r border-slate-200 dark:border-slate-800">{stat.station}</td>
@@ -1317,14 +1356,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     </tbody>
                   </table>
                 ) : viewMode === 'REGIONAL' ? (
-                  // 🟢 REVISED REG TEMPLATE (Summation Table View)
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 border border-slate-300 dark:border-slate-800 text-[11px]">
                     <thead className="bg-slate-100 dark:bg-slate-950 sticky top-0">
                       <tr>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle w-8">S/n</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle">Division</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle whitespace-normal leading-tight w-16">Suspects<br/>arrested</th>
-                        
                         <th colSpan="3" className="px-2 py-2 text-center font-extrabold uppercase bg-orange-400 dark:bg-orange-600 text-white border-r border-slate-300 dark:border-slate-700 border-b">ACTION TAKEN</th>
                         <th colSpan="3" className="px-2 py-2 text-center font-extrabold uppercase bg-red-600 dark:bg-red-800 text-white border-b border-slate-300 dark:border-slate-700">STATUS OF THOSE TAKEN TO COURT</th>
                       </tr>
@@ -1332,7 +1369,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase bg-green-200 dark:bg-green-900/40 text-green-900 dark:text-green-300 border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-16">Given<br/>Bond</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase bg-blue-200 dark:bg-blue-900/40 text-blue-900 dark:text-blue-300 border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-16">Cautioned</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase bg-red-600 dark:bg-red-800 text-white border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-16">Taken to<br/>Court</th>
-                        
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase bg-red-600 dark:bg-red-800 text-white border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-16">Released<br/>by court</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase bg-red-600 dark:bg-red-800 text-white border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-16">Suspects<br/>remanded</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase bg-red-600 dark:bg-red-800 text-white border-b border-slate-300 dark:border-slate-700 whitespace-normal leading-tight w-16">Suspects<br/>convicted</th>
@@ -1340,7 +1376,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     </thead>
                     <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
                       {regionalSummationData.map((row, idx) => (
-                        <tr key={idx} className="hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors">
+                        <tr key={row.station || idx} className="hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors">
                           <td className="px-2 py-2 text-center font-bold border-r border-slate-200 dark:border-slate-800">{idx + 1}</td>
                           <td className="px-2 py-2 text-center font-bold border-r border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200">{row.station}</td>
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 font-bold">{row.arrested}</td>
@@ -1355,19 +1391,19 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                       {regionalSummationData.length > 0 && (
                         <tr className="bg-slate-200 dark:bg-slate-800 font-bold border-t-2 border-slate-400 dark:border-slate-600">
                           <td colSpan="2" className="px-2 py-2 text-right uppercase border-r border-slate-300 dark:border-slate-700">TOTAL</td>
-                          <td className="px-2 py-2 text-center text-[13px] text-blue-800 dark:text-blue-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + r.arrested, 0)}</td>
-                          <td className="px-2 py-2 text-center text-[13px] text-green-800 dark:text-green-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + r.given_bond, 0)}</td>
-                          <td className="px-2 py-2 text-center text-[13px] text-blue-800 dark:text-blue-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + r.cautioned, 0)}</td>
-                          <td className="px-2 py-2 text-center text-[13px] text-red-800 dark:text-red-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + r.taken_to_court, 0)}</td>
-                          <td className="px-2 py-2 text-center text-[13px] text-red-800 dark:text-red-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + r.released, 0)}</td>
-                          <td className="px-2 py-2 text-center text-[13px] text-red-800 dark:text-red-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + r.remanded, 0)}</td>
-                          <td className="px-2 py-2 text-center text-[13px] text-purple-800 dark:text-purple-400">{regionalSummationData.reduce((s, r) => s + r.convicted, 0)}</td>
+                          <td className="px-2 py-2 text-center text-[13px] text-blue-800 dark:text-blue-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + (parseInt(r.arrested) || 0), 0)}</td>
+                          <td className="px-2 py-2 text-center text-[13px] text-green-800 dark:text-green-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + (parseInt(r.given_bond) || 0), 0)}</td>
+                          <td className="px-2 py-2 text-center text-[13px] text-blue-800 dark:text-blue-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + (parseInt(r.cautioned) || 0), 0)}</td>
+                          <td className="px-2 py-2 text-center text-[13px] text-red-800 dark:text-red-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + (parseInt(r.taken_to_court) || 0), 0)}</td>
+                          <td className="px-2 py-2 text-center text-[13px] text-red-800 dark:text-red-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + (parseInt(r.released) || 0), 0)}</td>
+                          <td className="px-2 py-2 text-center text-[13px] text-red-800 dark:text-red-400 border-r border-slate-300 dark:border-slate-700">{regionalSummationData.reduce((s, r) => s + (parseInt(r.remanded) || 0), 0)}</td>
+                          <td className="px-2 py-2 text-center text-[13px] text-purple-800 dark:text-purple-400">{regionalSummationData.reduce((s, r) => s + (parseInt(r.convicted) || 0), 0)}</td>
                         </tr>
                       )}
+                      {regionalSummationData.length === 0 && <tr><td colSpan="9" className="text-center py-6 text-gray-500 dark:text-slate-400 font-bold">No regional summation records for the selected period.</td></tr>}
                     </tbody>
                   </table>
                 ) : (
-                  // 🟢 REVISED DIV TEMPLATE (Station Form & Daily Breakdown Ledger View)
                   <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-800 border border-slate-300 dark:border-slate-800 text-[11px]">
                     <thead className="bg-slate-100 dark:bg-slate-950 sticky top-0">
                       <tr>
@@ -1375,7 +1411,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <th rowSpan="2" className="px-2 py-2 text-center font-black uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle">Division</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle whitespace-normal leading-tight w-16">Day &<br/>Date</th>
                         <th rowSpan="2" className="px-2 py-2 text-center font-black uppercase border-r border-slate-300 dark:border-slate-700 border-b align-middle whitespace-normal leading-tight w-16">Suspects<br/>arrested</th>
-                        
                         <th colSpan="4" className="px-2 py-2 text-center font-extrabold uppercase border-r border-slate-300 dark:border-slate-700 border-b">STATUS OF SUSPECTS ARRESTED</th>
                         <th colSpan="5" className="px-2 py-2 text-center font-extrabold uppercase border-b border-slate-300 dark:border-slate-700">STATUS OF THOSE TAKEN TO COURT</th>
                       </tr>
@@ -1384,7 +1419,6 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase border-r border-slate-300 dark:border-slate-700 border-b bg-blue-50 dark:bg-blue-900/10 whitespace-normal leading-tight w-16">Cautioned</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-24">Pending Court<br/>from prev<br/>day's OPS</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-24">Pending court<br/>from Today's<br/>OPS</th>
-                        
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-24">Taken to court<br/>from prev<br/>day's lockup</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-24">Taken to Court<br/>from today's<br/>OPS</th>
                         <th className="px-2 py-2 text-center text-[9px] font-bold uppercase border-r border-slate-300 dark:border-slate-700 border-b whitespace-normal leading-tight w-16">Released<br/>by court</th>
@@ -1394,17 +1428,15 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                     </thead>
                     <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-200 dark:divide-slate-800">
                       {currentDomainStats.map((stat, idx) => (
-                        <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if(operation === 'update') populateUpdateForm(stat); }}>
+                        <tr key={stat.id || stat.sn} className="even:bg-slate-50 dark:even:bg-slate-800/40 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors cursor-pointer" onClick={() => { if (operation === 'update') populateUpdateForm(stat); }}>
                           <td className="px-2 py-2 text-center font-bold border-r border-slate-200 dark:border-slate-800">{idx + 1}</td>
                           <td className="px-2 py-2 text-center font-bold border-r border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200">{stat.station}</td>
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 whitespace-nowrap">{stat.date}</td>
                           <td className="px-2 py-2 text-center font-bold border-r border-slate-200 dark:border-slate-800">{stat.arrested}</td>
-                          
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 text-green-700 dark:text-green-500 font-bold">{stat.given_bond}</td>
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 text-blue-700 dark:text-blue-500 font-bold">{stat.cautioned}</td>
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 font-bold text-yellow-600 dark:text-yellow-500">{stat.pending_court_prev_ops}</td>
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 font-bold text-yellow-600 dark:text-yellow-500">{stat.pending_court_today_ops}</td>
-                          
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 font-bold text-red-600 dark:text-red-500">{stat.taken_to_court_prev_lockup}</td>
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 font-bold text-red-600 dark:text-red-500">{stat.taken_to_court_today_ops}</td>
                           <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-800 text-green-700 dark:text-green-500 font-bold">{stat.released}</td>
@@ -1416,14 +1448,10 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                         <tr className="bg-slate-200 dark:bg-slate-800 font-bold border-t-2 border-slate-400 dark:border-slate-600">
                           <td colSpan="3" className="px-2 py-2 text-right uppercase border-r border-slate-300 dark:border-slate-700">TOTAL</td>
                           <td className="px-2 py-2 text-center text-[13px] text-blue-800 dark:text-blue-400 border-r border-slate-300 dark:border-slate-700">{totals.arrested}</td>
-                          
                           <td className="px-2 py-2 text-center text-[13px] text-green-800 dark:text-green-400 border-r border-slate-300 dark:border-slate-700">{totals.given_bond}</td>
                           <td className="px-2 py-2 text-center text-[13px] text-blue-800 dark:text-blue-400 border-r border-slate-300 dark:border-slate-700">{totals.cautioned}</td>
-                          
-                          {/* 🟢 BLANKED OUT TO PREVENT MATHEMATICAL INFLATION OF PENDING SUSPECTS */}
                           <td className="px-2 py-2 text-center text-[13px] border-r border-slate-300 dark:border-slate-700 text-slate-400">-</td>
                           <td className="px-2 py-2 text-center text-[13px] border-r border-slate-300 dark:border-slate-700 text-slate-400">-</td>
-                          
                           <td className="px-2 py-2 text-center text-[13px] border-r border-slate-300 dark:border-slate-700 text-red-800 dark:text-red-400">{currentDomainStats.reduce((s, r) => s + (parseInt(r.taken_to_court_prev_lockup) || 0), 0)}</td>
                           <td className="px-2 py-2 text-center text-[13px] border-r border-slate-300 dark:border-slate-700 text-red-800 dark:text-red-400">{currentDomainStats.reduce((s, r) => s + (parseInt(r.taken_to_court_today_ops) || 0), 0)}</td>
                           <td className="px-2 py-2 text-center text-[13px] text-green-800 dark:text-green-400 border-r border-slate-300 dark:border-slate-700">{totals.released}</td>
@@ -1480,12 +1508,12 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
 
                               {isExpanded && hasData && Object.keys(regionData.stations).map((stationName, idx) => {
                                 const records = regionData.stations[stationName];
-                                
+
                                 return (
                                   <tr key={stationName} className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-300 dark:border-slate-800">
                                     <td className="p-2 font-bold text-slate-800 dark:text-slate-200 text-center align-top border-r border-slate-300 dark:border-slate-800">{idx + 1}</td>
                                     <td className="p-2 font-extrabold text-slate-900 dark:text-slate-100 uppercase align-top border-r border-slate-300 dark:border-slate-800">{stationName}</td>
-                                    
+
                                     <td className="p-0 align-top border-r border-slate-300 dark:border-slate-800">
                                       {records.map((r, i) => (
                                         <div key={i} className={`px-2 py-2 font-bold text-red-600 dark:text-red-400 uppercase ${i !== records.length - 1 ? 'border-b border-slate-200 dark:border-slate-800' : ''}`}>
@@ -1495,13 +1523,11 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                                     </td>
 
                                     <td className="p-0 align-top border-r border-slate-300 dark:border-slate-800">
-                                      {records.map((r, i) => {
-                                        return (
-                                          <div key={i} className={`px-2 py-2 font-black text-slate-900 dark:text-slate-100 text-center ${i !== records.length - 1 ? 'border-b border-slate-200 dark:border-slate-800' : ''}`}>
-                                            {r.number_count_label}
-                                          </div>
-                                        )
-                                      })}
+                                      {records.map((r, i) => (
+                                        <div key={i} className={`px-2 py-2 font-black text-slate-900 dark:text-slate-100 text-center ${i !== records.length - 1 ? 'border-b border-slate-200 dark:border-slate-800' : ''}`}>
+                                          {r.number_count_label}
+                                        </div>
+                                      ))}
                                     </td>
 
                                     <td className="p-0 align-top border-r border-slate-300 dark:border-slate-800">
@@ -1520,9 +1546,9 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                                       ))}
                                     </td>
                                   </tr>
-                                )
+                                );
                               })}
-                              
+
                               {isExpanded && hasData && (
                                 <tr className="bg-emerald-50 dark:bg-slate-800/80 border-b-2 border-emerald-400 dark:border-emerald-700">
                                   <td colSpan="3" className="p-2 font-black text-right text-emerald-900 dark:text-emerald-300 uppercase tracking-wider">
@@ -1546,7 +1572,7 @@ const Statistics = ({ currentUser, canViewGlobal: propCanViewGlobal = false, set
                                 </tr>
                               )}
                             </React.Fragment>
-                          )
+                          );
                         })}
 
                         {agricSummaryRecords.length > 0 && (

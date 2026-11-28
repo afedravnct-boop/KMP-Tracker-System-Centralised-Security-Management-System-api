@@ -388,8 +388,49 @@ def build_aes_zip_export(
         bottom=Side(style="thin", color="D1D5DB"),
     )
 
-    clean_rows = [clean_row(r) for r in rows]
-    headers = list(clean_rows[0].keys()) if clean_rows else ["id", "region", "station", "date"]
+    preferred_order = [
+        "sn",
+        "id",
+        "date",
+        "region",
+        "station",
+        "arrested",
+        "given_bond",
+        "cautioned",
+        "taken_to_court",
+        "released",
+        "remanded",
+        "convicted",
+        "last_updated_by",
+        "created_at",
+    ]
+
+    clean_rows = []
+    for r in rows:
+        row_dict = clean_row(r)
+        if "taken_to_court_prev_lockup" in row_dict or "taken_to_court_today_ops" in row_dict:
+            t_prev = int(row_dict.get("taken_to_court_prev_lockup") or 0)
+            t_today = int(row_dict.get("taken_to_court_today_ops") or 0)
+            row_dict["taken_to_court"] = t_prev + t_today
+            for k in (
+                "pending_court",
+                "pending_court_prev_ops",
+                "pending_court_today_ops",
+                "taken_to_court_prev_lockup",
+                "taken_to_court_today_ops",
+            ):
+                row_dict.pop(k, None)
+        clean_rows.append(row_dict)
+
+    clean_rows.sort(key=lambda item: (str(item.get("date") or ""), int(item.get("id") or item.get("sn") or 0)))
+
+    if clean_rows:
+        present_keys = set().union(*(d.keys() for d in clean_rows))
+        headers = [k for k in preferred_order if k in present_keys] + [
+            k for k in present_keys if k not in preferred_order
+        ]
+    else:
+        headers = ["sn", "date", "region", "station", "arrested", "given_bond", "cautioned", "taken_to_court", "released", "remanded", "convicted"]
 
     for col_idx, h in enumerate(headers, 1):
         c = ws.cell(row=1, column=col_idx, value=h.upper())
@@ -631,7 +672,6 @@ def get_disruptive_regional_summation(
             getattr(StatsModel, "cautioned", None),
             getattr(StatsModel, "taken_to_court_prev_lockup", None),
             getattr(StatsModel, "taken_to_court_today_ops", None),
-            getattr(StatsModel, "taken_to_court", None),
             getattr(StatsModel, "released", None),
             getattr(StatsModel, "remanded", None),
             getattr(StatsModel, "convicted", None),
@@ -647,7 +687,6 @@ def get_disruptive_regional_summation(
     agg_by_station: dict[str, dict] = {}
 
     for row_tuple in tuples_rows:
-        # Map available columns safely
         col_names = [c.key for c in selected_cols]
         rec = dict(zip(col_names, row_tuple))
 
