@@ -1407,7 +1407,7 @@ def export_analytics_report(
 
         with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
             zf.setpassword(zip_password)
-            zinfo = pyzipper.ZipInfo(
+            zf.writestr(f"{fnum_clean}_Analytics_Report_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
                 filename=f"{fnum_clean}_Analytics_Report_{eat_time.strftime('%Y%m%d')}.xlsx",
                 date_time=eat_time.timetuple()[:6]
             )
