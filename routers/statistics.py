@@ -667,14 +667,11 @@ def get_disruptive_regional_summation(
         bucket = agg_by_station[stn_key]
         taken_prev = int(rec.get("taken_to_court_prev_lockup") or 0)
         taken_today = int(rec.get("taken_to_court_today_ops") or 0)
-        taken_sum = taken_prev + taken_today
-        if taken_sum == 0 and rec.get("taken_to_court") is not None:
-            taken_sum = int(rec.get("taken_to_court") or 0)
 
         bucket["arrested"] += int(rec.get("arrested") or 0)
         bucket["given_bond"] += int(rec.get("given_bond") or 0)
         bucket["cautioned"] += int(rec.get("cautioned") or 0)
-        bucket["taken_to_court"] += taken_sum
+        bucket["taken_to_court"] += taken_prev + taken_today
         bucket["released"] += int(rec.get("released") or 0)
         bucket["remanded"] += int(rec.get("remanded") or 0)
         bucket["convicted"] += int(rec.get("convicted") or 0)
