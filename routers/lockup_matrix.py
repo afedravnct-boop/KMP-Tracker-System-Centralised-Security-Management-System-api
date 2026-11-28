@@ -417,8 +417,9 @@ def create_lockup_entry(
             user_role not in ["SUPER_ADMIN", "ADMIN"]
         )
         
+        now_eat = datetime.now(pytz.timezone("Africa/Nairobi"))
         if is_regional_command and station_val != str(current_user.station).strip().upper() and req_region != "KMP HEADQUARTERS":
-            if datetime.now().hour < 11:
+            if now_eat.hour < 11:
                 raise HTTPException(status_code=403, detail="Clearance Denied: Regional Commanders can only log on behalf of defaulting stations after the 1100Hrs compliance deadline.")
                 
         # ==========================================================
@@ -1077,12 +1078,16 @@ def create_stat(
     current_user: models.Users = Depends(get_current_user)
 ):
     try:
-        data.pop('sn', None) 
-        if current_user.role not in ["SUPER_ADMIN", "RPC"]:
+        data.pop('sn', None)
+        data.pop('id', None)
+        if str(current_user.role or "").strip().upper() not in ["SUPER_ADMIN", "RPC"]:
             data["region"] = current_user.region
             data["station"] = current_user.station
-            
-        new_record = models.Operational_Statistics(**data)
+
+        valid_cols = [c.key for c in models.Operational_Statistics.__table__.columns]
+        safe_data = {k: v for k, v in data.items() if k in valid_cols}
+
+        new_record = models.Operational_Statistics(**safe_data)
         new_record.last_updated_by = get_officer_signature(current_user)
         db.add(new_record)
         db.commit()

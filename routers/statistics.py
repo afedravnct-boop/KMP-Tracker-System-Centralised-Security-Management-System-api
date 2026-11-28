@@ -1,1020 +1,1040 @@
-# routers/analytics.py
+# routers/statistics.py
 import io
+import os
 import json
 import re
-from datetime import datetime, timedelta
+import traceback
+from datetime import datetime, date
+from decimal import Decimal
+from typing import Optional
 import pytz
 import pyzipper
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, text
-from typing import Optional, List, Dict, Any
 
-from auth import get_current_user, require_export_privilege
-from app.database import get_db, get_logs_db
 from app import models
+from app.database import get_db, get_logs_db
+from auth import get_current_user
 from routers.activity_logger import record_neon_activity
 
-router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics Exports & Intelligence"])
+router = APIRouter(prefix="/api/v1", tags=["Operational Statistics"])
+
+EAT_TZ = pytz.timezone("Africa/Nairobi")
 
 REGIONAL_HIERARCHY = {
     "KMP NORTH": ["KMP NORTH HEADQUARTERS", "KAWEMPE", "KAKIRI", "KASANGATI", "MATUGGA", "NANSANA", "OLD KAMPALA", "WAKISO", "WANDEGEYA"],
     "KMP EAST": ["KMP EAST HEADQUARTERS", "JINJA ROAD", "KIRA", "KIRA DIV", "KIRA ROAD", "MUKONO", "NAGGALAMA", "SEETA"],
     "KMP SOUTH": ["KMP SOUTH HEADQUARTERS", "NATEETE", "CPS KAMPALA", "PARLIAMENT", "ENTEBBE", "KABALAGALA", "KAJJANSI", "KASENYI", "KATWE", "KYENGERA", "NSANGI"],
-    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "FLYING SQUAD", "CRIME INTELLIGENCE"],
-    "POLICE HEADQUARTERS": ["NAGURU"]
+    "KMP HEADQUARTERS": ["KMP HEADQUARTERS", "KMP CID", "KMP TRAFFIC", "KMP ICT", "KMP FLYING SQUAD", "KMP CRIME INTELLIGENCE", "FLYING SQUAD", "CRIME INTELLIGENCE"],
+    "POLICE HEADQUARTERS": ["NAGURU", "OPERATIONS", "CRIME INTELLIGENCE", "CID", "LOGISTICS & ENGINEERING", "ICT", "CT", "FIRE & RESCUE"]
 }
 
-def safe_int(val) -> int:
-    try:
-        return int(float(val)) if val else 0
-    except (ValueError, TypeError):
-        return 0
 
-def get_model_safe(*model_names):
-    """Safe helper to resolve database models across varying naming conventions and tablenames."""
-    for name in model_names:
+class SuspectStatsPayload(BaseModel):
+    region: Optional[str] = None
+    station: Optional[str] = None
+    date: str
+    arrested: int = 0
+    given_bond: int = 0
+    cautioned: int = 0
+    pending_court_prev_ops: int = 0
+    pending_court_today_ops: int = 0
+    taken_to_court_prev_lockup: int = 0
+    taken_to_court_today_ops: int = 0
+    released: int = 0
+    remanded: int = 0
+    convicted: int = 0
+    last_updated_by: Optional[str] = None
+    entered_by: Optional[str] = None
+
+
+class AccidentStatsPayload(BaseModel):
+    region: Optional[str] = None
+    station: Optional[str] = None
+    date: str
+    nature_of_accident: str
+    minor: int = 0
+    serious: int = 0
+    fatal: int = 0
+    victims: int = 0
+    total: Optional[int] = None
+    last_updated_by: Optional[str] = None
+    entered_by: Optional[str] = None
+
+
+class FireStatsPayload(BaseModel):
+    region: Optional[str] = None
+    station: Optional[str] = None
+    date: str
+    nature_of_fire: str
+    minor_outbreaks: int = 0
+    major_disasters: int = 0
+    fatal_fires: int = 0
+    victims: int = 0
+    total: Optional[int] = None
+    last_updated_by: Optional[str] = None
+    entered_by: Optional[str] = None
+
+
+class AgricSummaryPayload(BaseModel):
+    region: Optional[str] = None
+    station: Optional[str] = None
+    date: str
+    agric_crime_report: str
+    number_count: int = 0
+    recoveries: int = 0
+    status: Optional[str] = None
+
+
+def now_eat() -> datetime:
+    return datetime.now(EAT_TZ).replace(tzinfo=None)
+
+
+def get_model_safe(*names):
+    for name in names:
         if hasattr(models, name):
             return getattr(models, name)
-            
-    target_slug = model_names[-1].lower()
-    for attr_name, cls in models.__dict__.items():
-        if isinstance(cls, type) and hasattr(cls, '__tablename__'):
-            if cls.__tablename__.lower() in [n.lower() for n in model_names] or cls.__tablename__.lower() == target_slug:
-                return cls
     return None
 
-def strip_html_tags(text_str: str) -> str:
-    if not text_str:
+
+def get_record_pk(obj) -> str:
+    if not obj:
         return ""
-    clean_text = re.sub(r'<.*?>', ' ', str(text_str))
-    clean_text = re.sub(r'(?i)&nbsp;', ' ', clean_text)
-    clean_text = re.sub(r'(?i)&amp;', '&', clean_text)
-    clean_text = re.sub(r'(?i)&quot;', '"', clean_text)
-    clean_text = re.sub(r'(?i)&#39;', "'", clean_text)
-    return re.sub(r'\s+', ' ', clean_text).strip()
+    for attr in ("id", "sn"):
+        val = getattr(obj, attr, None)
+        if val is not None:
+            return str(val)
+    return ""
 
-def get_official_region_for_station(station_name: str, db_region: str) -> str:
-    clean_station = strip_html_tags(station_name or "").strip().upper()
-    clean_region = strip_html_tags(db_region or "").strip().upper()
 
-    if clean_station in ["KIRA DIVISION", "KIRA DIV", "KIRA"]:
-        clean_station = "KIRA DIV"
+def get_pk_filter(ModelClass, record_id: int):
+    filters = []
+    if hasattr(ModelClass, "id"):
+        filters.append(ModelClass.id == record_id)
+    if hasattr(ModelClass, "sn"):
+        filters.append(ModelClass.sn == record_id)
+    return filters
 
-    if clean_region in REGIONAL_HIERARCHY and clean_station in REGIONAL_HIERARCHY[clean_region]:
-        return clean_region
 
-    for reg_name, stations in REGIONAL_HIERARCHY.items():
-        if clean_station in stations:
-            return reg_name
+def safe_log_activity(logs_db: Optional[Session], **kwargs):
+    if not logs_db:
+        return
+    try:
+        record_neon_activity(logs_db=logs_db, **kwargs)
+    except Exception as log_err:
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"⚠️ Failed to record audit activity in statistics.py: {log_err}")
 
-    return clean_region or "KMP GENERAL"
 
-def apply_precise_regional_scoping(query, ModelClass, selected_region: Optional[str], selected_station: Optional[str], current_user):
-    sel_reg = (selected_region or "").strip().upper()
-    sel_stn = (selected_station or "").strip().upper()
-    
-    user_role = (current_user.role or "").strip().upper()
-    user_pos = (current_user.position or "").strip().upper()
-    user_reg = (current_user.region or "").strip().upper()
-    user_stn = (current_user.station or "").strip().upper()
+def clean_row(obj):
+    if not obj:
+        return {}
+    if isinstance(obj, dict):
+        d = obj.copy()
+    elif hasattr(obj, "__dict__"):
+        d = obj.__dict__.copy()
+        d.pop("_sa_instance_state", None)
+    else:
+        return {}
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, (datetime, date)):
+            out[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            out[k] = float(v)
+        else:
+            out[k] = v
+    return out
 
-    perms = current_user.permissions or {}
+
+def is_station_eq(a: Optional[str], b: Optional[str]) -> bool:
+    sa = (a or "").strip().upper()
+    sb = (b or "").strip().upper()
+    if not sa or not sb:
+        return False
+    if sa == sb:
+        return True
+    ca = re.sub(r"(\s+HEADQUARTERS|\s+HQ)$", "", sa)
+    cb = re.sub(r"(\s+HEADQUARTERS|\s+HQ)$", "", sb)
+    return ca == cb and len(ca) > 0
+
+
+def get_user_perms(user) -> dict:
+    perms = getattr(user, "permissions", None) or {}
     if isinstance(perms, str):
-        try: perms = json.loads(perms)
-        except Exception: perms = {}
+        try:
+            return json.loads(perms)
+        except Exception:
+            return {}
+    return perms if isinstance(perms, dict) else {}
 
-    is_absolute_global = (
-        user_role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN", "RPC", "DEPUTY COMMANDER"] or
-        "KMP COMMANDER" in user_pos or
-        "DEPUTY KMP COMMANDER" in user_pos or
-        "KMP ADMIN" in user_pos or
-        perms.get("view_global_roster") is True or
-        perms.get("global_observer") is True or
-        user_reg in ["POLICE HEADQUARTERS", "KMP HEADQUARTERS"]
+
+def has_global_access(user) -> bool:
+    role = str(getattr(user, "role", "") or "").strip().upper()
+    pos = str(getattr(user, "position", "") or "").strip().upper()
+    reg = str(getattr(user, "region", "") or "").strip().upper()
+    perms = get_user_perms(user)
+    is_kmp_mgr = role == "SYSTEM_MANAGER" and reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in pos
+    is_kmp_spec = role == "ASSISTANT_SYSTEM_MANAGER" and reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and "KMP" in pos
+    return (
+        role in ["SUPER_ADMIN", "ADMIN", "ASSISTANT_SUPER_ADMIN"]
+        or "KMP COMMANDER" in pos
+        or "DEPUTY KMP COMMANDER" in pos
+        or "KMP ADMIN" in pos
+        or perms.get("view_global_roster") is True
+        or perms.get("global_observer") is True
+        or is_kmp_mgr
+        or is_kmp_spec
     )
 
-    if sel_stn and sel_stn not in ["ALL STATIONS", "ALL STATIONS / DIVISIONS", "ALL"]:
-        conds = []
-        if hasattr(ModelClass, 'station'):
-            clean_sel_stn = sel_stn.replace(" HEADQUARTERS", "").replace(" HQ", "")
-            conds.append(
-                or_(
-                    func.upper(ModelClass.station) == sel_stn,
-                    func.upper(ModelClass.station) == f"{clean_sel_stn} HEADQUARTERS",
-                    func.upper(ModelClass.station) == f"{clean_sel_stn} HQ"
-                )
-            )
-        return query.filter(or_(*conds))
 
-    if sel_reg and sel_reg != "ALL REGIONS":
-        conds = []
-        if hasattr(ModelClass, 'region'):
-            conds.append(func.upper(ModelClass.region) == sel_reg)
-        
-        if sel_reg in REGIONAL_HIERARCHY and hasattr(ModelClass, 'station'):
-            region_stations = [s.upper() for s in REGIONAL_HIERARCHY[sel_reg]]
-            conds.append(func.upper(ModelClass.station).in_(region_stations))
+def has_regional_access(user) -> bool:
+    role = str(getattr(user, "role", "") or "").strip().upper()
+    pos = str(getattr(user, "position", "") or "").strip().upper()
+    return (
+        role in ["RPC", "DEPUTY_RPC", "DEPUTY COMMANDER", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN", "DIVISION_ADMIN"]
+        or "RPC" in pos
+        or "DEPUTY COMMANDER" in pos
+    )
 
-        return query.filter(or_(*conds))
 
-    if not is_absolute_global:
-        conds = []
-        if user_reg and hasattr(ModelClass, 'region'):
-            conds.append(func.upper(ModelClass.region) == user_reg)
-        if user_stn and hasattr(ModelClass, 'station'):
-            clean_user_stn = user_stn.replace(" HEADQUARTERS", "").replace(" HQ", "")
-            conds.append(
+def can_mutate_target(user, target_station: str) -> bool:
+    if has_global_access(user):
+        return True
+    user_reg = str(getattr(user, "region", "") or "").strip().upper()
+    user_stn = str(getattr(user, "station", "") or "").strip().upper()
+    stn_clean = (target_station or "").strip().upper()
+
+    if has_regional_access(user):
+        allowed = [s.upper() for s in REGIONAL_HIERARCHY.get(user_reg, [])]
+        if stn_clean in allowed or any(is_station_eq(stn_clean, s) for s in allowed):
+            return True
+
+    return is_station_eq(user_stn, stn_clean)
+
+
+def apply_scope_and_filters(query, ModelClass, current_user, region, station, start_date, end_date):
+    if not ModelClass:
+        return query
+
+    if not has_global_access(current_user):
+        user_reg = str(getattr(current_user, "region", "") or "").strip().upper()
+        user_stn = str(getattr(current_user, "station", "") or "").strip().upper()
+
+        if has_regional_access(current_user) and user_reg in REGIONAL_HIERARCHY:
+            expanded = set()
+            for s in REGIONAL_HIERARCHY[user_reg]:
+                expanded.add(s)
+                expanded.add(s.replace(" HEADQUARTERS", "").replace(" HQ", ""))
+                expanded.add(s + " HEADQUARTERS")
+                expanded.add(s + " HQ")
+            conds = []
+            if hasattr(ModelClass, "region"):
+                conds.append(func.upper(ModelClass.region) == user_reg)
+            if hasattr(ModelClass, "station"):
+                conds.append(func.upper(ModelClass.station).in_(list(expanded)))
+            if conds:
+                query = query.filter(or_(*conds))
+            else:
+                query = query.filter(text("1=0"))
+        elif hasattr(ModelClass, "station"):
+            clean_stn = user_stn.replace(" HEADQUARTERS", "").replace(" HQ", "")
+            query = query.filter(
                 or_(
                     func.upper(ModelClass.station) == user_stn,
-                    func.upper(ModelClass.station) == f"{clean_user_stn} HEADQUARTERS"
+                    func.upper(ModelClass.station) == clean_stn,
+                    func.upper(ModelClass.station) == f"{clean_stn} HEADQUARTERS",
                 )
             )
-        if conds:
-            return query.filter(or_(*conds))
-        return query.filter(text("1=0"))
+        else:
+            query = query.filter(text("1=0"))
+
+    if region and region.strip().upper() not in ["ALL REGIONS", "ALL", ""]:
+        if hasattr(ModelClass, "region"):
+            query = query.filter(func.upper(ModelClass.region) == region.strip().upper())
+
+    if station and station.strip().upper() not in ["ALL STATIONS", "ALL", ""]:
+        if hasattr(ModelClass, "station"):
+            s_up = station.strip().upper()
+            s_clean = s_up.replace(" HEADQUARTERS", "").replace(" HQ", "")
+            query = query.filter(
+                or_(
+                    func.upper(ModelClass.station) == s_up,
+                    func.upper(ModelClass.station) == s_clean,
+                    func.upper(ModelClass.station) == f"{s_clean} HEADQUARTERS",
+                )
+            )
+
+    if start_date and hasattr(ModelClass, "date"):
+        query = query.filter(ModelClass.date >= start_date)
+
+    if end_date and hasattr(ModelClass, "date"):
+        query = query.filter(ModelClass.date <= end_date)
 
     return query
 
-def normalize_offence_category(raw_offence: str) -> str:
-    if not raw_offence:
-        return "UNSPECIFIED OFFENCE"
-    clean = str(raw_offence).strip().upper()
-    mapping = {
-        'DEATH SUDDEN': 'Sudden Death',
-        'DEATH_SUDDEN': 'Sudden Death',
-        'SUDDEN DEATH': 'Sudden Death',
-        'FIREOUTBREAK': 'Fire Outbreak',
-        'FIRE OUTBREAK': 'Fire Outbreak',
-        'BY DEATH DROWNING': 'Death by Drowning',
-        'DEATH DROWNING': 'Death by Drowning',
-        'AGGRAVATED ROBBERY': 'Aggravated Robbery',
-        'MURDER SUSPECTED': 'Suspected Murder',
-        'ATTEMPTED MURDER': 'Attempted Murder',
-        'DEFILEMENT / RAPE': 'Defilement / Rape'
-    }
-    if mapping.get(clean):
-        return mapping[clean]
-    if "FATAL" in clean and ("TRAFFIC" in clean or "ACCIDENT" in clean):
-        return "Traffic Accident (Fatal)"
-    if "MINOR" in clean and ("TRAFFIC" in clean or "ACCIDENT" in clean):
-        return "Traffic Accident (Minor)"
-    if "DEFILEMENT" in clean or "RAPE" in clean:
-        return "Defilement / Rape"
-    return clean.replace("_", " ").title()
 
-def parse_fire_incident_advanced(raw_narrative: str, offence_str: str):
-    text_blob = f"{offence_str or ''} {raw_narrative or ''}".lower()
-    plain_text = strip_html_tags(raw_narrative or '')
-    lower_plain = plain_text.lower()
-    
-    classification = "RESIDENTIAL PROPERTY"
-    if any(k in lower_plain for k in ["dormitory", "dorm", "hostel"]):
-        classification = "SCHOOL DORMITORY"
-    elif any(k in lower_plain for k in ["school", "college", "academy", "nursery", "student"]):
-        classification = "SCHOOL FACILITY"
-    elif any(k in lower_plain for k in ["factory", "industrial", "plant", "manufacturing"]):
-        classification = "INDUSTRIAL / FACTORY"
-    elif any(k in lower_plain for k in ["shop", "market", "store", "commercial", "hardware", "tailoring", "facility", "business"]):
-        classification = "COMMERCIAL / BUSINESS ROOM"
-    elif any(k in lower_plain for k in ["church", "mosque", "chapel", "temple"]):
-        classification = "RELIGIOUS CENTRE"
-    elif any(k in lower_plain for k in ["vehicle", "car", "taxi", "bus", "lorry", "truck", "motorcycle", "boda"]):
-        classification = "MOTOR VEHICLE / TRANSPORT"
-    elif any(k in lower_plain for k in ["rental", "room", "house", "residence", "residential"]):
-        classification = "RESIDENTIAL ROOM / HOUSE"
+def validate_suspect_balance(p: SuspectStatsPayload):
+    total_in = (p.arrested or 0) + (p.pending_court_prev_ops or 0)
+    total_out = (
+        (p.given_bond or 0)
+        + (p.cautioned or 0)
+        + (p.taken_to_court_today_ops or 0)
+        + (p.taken_to_court_prev_lockup or 0)
+        + (p.pending_court_today_ops or 0)
+    )
+    if total_in != total_out:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Inconsistent suspects balance: Arrested ({p.arrested}) + Pending Prev ({p.pending_court_prev_ops}) "
+                f"must equal Bond ({p.given_bond}) + Cautioned ({p.cautioned}) + Taken Today ({p.taken_to_court_today_ops}) "
+                f"+ Taken Prev ({p.taken_to_court_prev_lockup}) + Pending Today ({p.pending_court_today_ops})."
+            ),
+        )
+    if (p.taken_to_court_prev_lockup or 0) > (p.pending_court_prev_ops or 0):
+        raise HTTPException(
+            status_code=400,
+            detail="Taken to court from previous lockup cannot exceed pending court from previous day.",
+        )
 
-    facility_match = re.search(r'(?:at|in|of)\s+([A-Z][a-zA-Z0-9\s]{3,30}\s+(?:School|College|Factory|Center|Centre|Hostel|Dormitory|Market))', plain_text)
-    if facility_match:
-        classification = facility_match.group(1).strip().upper()
 
-    deaths = 0
-    injuries = 0
-    death_match = re.search(r'(\d+)\s*(?:dead|deaths|fatality|fatalities|killed|burnt to death)', text_blob)
-    if death_match:
-        deaths = safe_int(death_match.group(1))
-    injury_match = re.search(r'(\d+)\s*(?:injured|injury|injuries|hurt|burn wounds|hospitalized|admitted)', text_blob)
-    if injury_match:
-        injuries = safe_int(injury_match.group(1))
+def build_aes_zip_export(
+    rows: list,
+    sheet_title: str,
+    file_prefix: str,
+    current_user,
+) -> StreamingResponse:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_title[:31]
+    ws.views.sheetView[0].showGridLines = True
 
-    status_findings = "UNDER INVESTIGATION"
-    if "cause of fire was still under investigation" in lower_plain or "still under investigation" in lower_plain:
-        status_findings = "UNDER INVESTIGATION"
-    elif any(k in lower_plain for k in ["lightning", "thunder", "act of god", "natural occurrence"]):
-        status_findings = "CAUSE ESTABLISHED: NATURAL / LIGHTNING STRIKE"
-    elif any(k in lower_plain for k in ["spark", "electrical", "short circuit", "power surge"]):
-        status_findings = "CAUSE ESTABLISHED: ELECTRICAL SHORT CIRCUIT"
-    elif any(k in lower_plain for k in ["arson", "malicious", "deliberate", "set fire", "student"]):
-        status_findings = "CAUSE ESTABLISHED: ARSON / DELIBERATE ACT"
-    elif any(k in lower_plain for k in ["charcoal", "stove", "candle", "cook", "gas leak", "cylinder"]):
-        status_findings = "CAUSE ESTABLISHED: UNATTENDED HEAT SOURCE / GAS"
-    else:
-        cause_match = re.search(r'(?:due to|caused by|resulted from)\s+([^.,;]+)', lower_plain)
-        if cause_match:
-            custom_cause = cause_match.group(1).strip().upper()
-            status_findings = f"CAUSE ESTABLISHED: {custom_cause}"
-        else:
-            status_findings = "CAUSE ESTABLISHED: CUSTOM / OTHER INQUIRY"
+    eat_now = now_eat()
+    officer_fnum = str(getattr(current_user, "fnum", "") or "UPF").strip().upper()
+    fnum_clean = officer_fnum.replace("/", "_")
+    officer_rank = str(getattr(current_user, "rank", "") or "").strip().upper()
+    officer_name = str(getattr(current_user, "name", "") or "").strip().upper()
+    officer_station = str(getattr(current_user, "station", "") or "").strip().upper()
+    officer_region = str(getattr(current_user, "region", "") or "").strip().upper()
+    officer_role = str(getattr(current_user, "role", "") or "").strip().upper()
+    timestamp_eat = eat_now.strftime("%Y-%m-%d %H:%M:%S EAT")
 
-    return {
-        "classification": classification,
-        "deaths": deaths,
-        "injuries": injuries,
-        "totalCasualties": deaths + injuries,
-        "statusFindings": status_findings
-    }
+    officer_sig = f"{officer_fnum} {officer_rank} {officer_name}".strip()
+    wb.properties.creator = officer_sig
+    wb.properties.lastModifiedBy = f"KMP-CSDMS [{officer_station or 'HQ'}]"
+    wb.properties.title = f"{sheet_title} — Restricted Export"
+    wb.properties.subject = f"Keyed to Force/File No: {officer_fnum} | Generated: {timestamp_eat}"
+    wb.properties.description = json.dumps({
+        "fnum": officer_fnum,
+        "rank": officer_rank,
+        "name": officer_name,
+        "station": officer_station,
+        "region": officer_region,
+        "role": officer_role,
+        "exported_at_eat": timestamp_eat,
+    })
 
-def parse_success_story_backend(raw_narrative: str):
-    if not raw_narrative:
-        return {
-            "suspects": 0,
-            "recoveries": "NONE RECORDED",
-            "legalStatus": "UNDER INVESTIGATION",
-            "classification": "OPERATIONAL BREAKTHROUGH"
-        }
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB"),
+    )
 
-    raw_narrative_str = str(raw_narrative)
-    headline_match = re.search(r'<strong>(.*?)<\/strong>', raw_narrative_str, re.IGNORECASE)
-    if headline_match:
-        classification = strip_html_tags(headline_match.group(1)).strip().upper()
-    else:
-        classification = "OPERATIONAL BREAKTHROUGH & SUSPECT APPREHENSION"
+    clean_rows = [clean_row(r) for r in rows]
+    headers = list(clean_rows[0].keys()) if clean_rows else ["id", "region", "station", "date"]
 
-    plain_text = strip_html_tags(raw_narrative_str)
-    lower_text = plain_text.lower()
-    
-    suspects_count = 0
-    suspect_patterns = [
-        re.search(r'(\d+)\s*(?:suspects|suspect|person|persons|culprits|thieves|gang|individuals)', lower_text),
-        re.search(r'(?:arrest(?:ed|ing)?|apprehend(?:ed)?|detain(?:ed)?)\s*(?:of)?\s*(\d+)', lower_text)
-    ]
-    for m in suspect_patterns:
-        if m and m.group(1):
-            suspects_count = safe_int(m.group(1))
-            break
-    if suspects_count == 0 and ('suspect' in lower_text or 'arrest' in lower_text or 'apprehend' in lower_text):
-        suspects_count = 1 
+    for col_idx, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col_idx, value=h.upper())
+        c.font = header_font
+        c.fill = header_fill
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = thin_border
 
-    legal_status = 'UNDER INVESTIGATION'
-    if 'remand' in lower_text or 'remanded' in lower_text:
-        legal_status = 'REMANDED'
-    elif 'convict' in lower_text or 'sentenced' in lower_text:
-        legal_status = 'CONVICTED'
-    elif 'acquit' in lower_text:
-        legal_status = 'ACQUITTED'
-    elif 'court' in lower_text or 'trial' in lower_text or 'magistrate' in lower_text or 'arraign' in lower_text:
-        legal_status = 'UNDERGOING COURT TRIAL'
+    for r_idx, row_dict in enumerate(clean_rows, 2):
+        for c_idx, h in enumerate(headers, 1):
+            val = row_dict.get(h, "")
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = thin_border
 
-    recoveries_list = []
-    recovery_matches = re.findall(r'(\d+)\s*([a-z\s]+(?:cows|cow|cattle|phones|phone|pistol|pistols|gun|guns|firearm|firearms|cash|money|shillings|computers|computer|chairs|chair|tables|table|shoes|shoe|motorcycles|motorcycle|vehicles|vehicle|pangas|panga|weapons|weapon|items))', lower_text, re.IGNORECASE)
-    for count_val, item_val in recovery_matches:
-        formatted_count = str(count_val).zfill(2)
-        recoveries_list.append(f"{formatted_count} | {item_val.strip().upper()}")
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        ws.column_dimensions[col_letter].width = 18
 
-    if not recoveries_list:
-        if 'motorcycle' in lower_text or 'boda' in lower_text: recoveries_list.append('01 | MOTORCYCLE RECOVERED')
-        elif 'vehicle' in lower_text or 'car' in lower_text: recoveries_list.append('01 | MOTOR VEHICLE RECOVERED')
-        elif 'phone' in lower_text or 'mobile' in lower_text: recoveries_list.append('01 | MOBILE PHONE RECOVERED')
-        elif 'cattle' in lower_text or 'cow' in lower_text: recoveries_list.append('01 | STOLEN CATTLE RECOVERED')
-        elif 'cash' in lower_text or 'money' in lower_text or 'shillings' in lower_text: recoveries_list.append('01 | CASH / FUNDS RECOVERED')
-        elif 'gun' in lower_text or 'pistol' in lower_text or 'firearm' in lower_text: recoveries_list.append('01 | FIREARM RECOVERED')
-        elif 'uniform' in lower_text or 'stores' in lower_text: recoveries_list.append('01 | GOVERNMENT STORES')
-        else: recoveries_list.append('NONE RECORDED')
+    excel_buf = io.BytesIO()
+    wb.save(excel_buf)
+    wb.close()
+    excel_buf.seek(0)
 
-    classification_str = str(classification)
-    formatted_classification = (classification_str[:52] + '...') if len(classification_str) > 55 else classification_str
+    encrypted_metadata_json = json.dumps(
+        {
+            "exported_by": {
+                "fnum": officer_fnum,
+                "rank": officer_rank,
+                "name": officer_name,
+                "station": officer_station,
+                "region": officer_region,
+                "role": officer_role,
+            },
+            "export_scope": sheet_title,
+            "record_count": len(clean_rows),
+            "exported_at_eat": timestamp_eat,
+        },
+        indent=2,
+    ).encode("utf-8")
 
-    return {
-        "suspects": suspects_count,
-        "recoveries": " || ".join(recoveries_list),
-        "legalStatus": legal_status,
-        "classification": formatted_classification
-    }
+    today_str = eat_now.strftime("%Y-%m-%d")
+    xlsx_name = f"{fnum_clean}_{file_prefix}_{today_str}.xlsx"
+    zip_name = f"{file_prefix}_SECURE_EXPORT_{today_str}.zip"
 
-def calculate_timeseries_aggregates(records, date_field, value_fields):
-    weekly_map, monthly_map, annual_map = {}, {}, {}
+    zip_buf = io.BytesIO()
+    with pyzipper.AESZipFile(
+        zip_buf,
+        "w",
+        compression=pyzipper.ZIP_DEFLATED,
+        encryption=pyzipper.WZ_AES,
+    ) as zf:
+        zf.setpassword(officer_fnum.encode("utf-8"))
+        zf.writestr(xlsx_name, excel_buf.getvalue())
+        zf.writestr("AUDIT_METADATA.json", encrypted_metadata_json)
+    excel_buf.close()
+    zip_buf.seek(0)
 
-    for r in records:
-        d_str = getattr(r, date_field, None)
-        if not d_str:
-            continue
-        
-        dt = None
-        try:
-            if isinstance(d_str, datetime):
-                dt = d_str
-            else:
-                clean_d = str(d_str).split('T')[0][:10]
-                try: dt = datetime.strptime(clean_d, "%Y-%m-%d")
-                except ValueError:
-                    try: dt = datetime.strptime(clean_d, "%d/%m/%Y")
-                    except ValueError: continue
-        except Exception:
-            continue
-            
-        if not dt: continue
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_name}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
 
-        week_key = f"{dt.year}-W{dt.strftime('%V')}"
-        month_key = dt.strftime("%Y-%m (%B)")
-        annual_key = str(dt.year)
 
-        def accumulate(target_dict, key):
-            if key not in target_dict:
-                target_dict[key] = {vf: 0 for vf in value_fields}
-                target_dict[key]["_count"] = 0
-            target_dict[key]["_count"] += 1
-            for vf in value_fields:
-                target_dict[key][vf] += safe_int(getattr(r, vf, 0))
+def _list_suspect_domain_records(db: Session, ModelClass, current_user, region, station, start_date, end_date):
+    if not ModelClass:
+        return []
+    q = apply_scope_and_filters(db.query(ModelClass), ModelClass, current_user, region, station, start_date, end_date)
+    order_col = getattr(ModelClass, "date", getattr(ModelClass, "id", getattr(ModelClass, "sn", None)))
+    if order_col is not None:
+        q = q.order_by(order_col.desc())
+    return [clean_row(r) for r in q.all()]
 
-        accumulate(weekly_map, week_key)
-        accumulate(monthly_map, month_key)
-        accumulate(annual_map, annual_key)
 
-    def format_rows(sorted_keys, data_map):
-        formatted_rows = []
-        prev_totals = {vf: None for vf in value_fields}
-        for k in sorted_keys:
-            metrics = data_map[k]
-            row = [k, metrics["_count"]]
-            for vf in value_fields:
-                curr_val = metrics[vf]
-                row.append(curr_val)
-                prev_val = prev_totals[vf]
-                if prev_val is not None and prev_val > 0:
-                    pct_change = ((curr_val - prev_val) / prev_val) * 100
-                    trend_str = f"{pct_change:+.1f}%"
-                elif prev_val == 0 and curr_val > 0:
-                    trend_str = "+100.0% (New)"
-                else:
-                    trend_str = "0.0%"
-                row.append(trend_str)
-                prev_totals[vf] = curr_val
-            formatted_rows.append(row)
-        return formatted_rows
-
-    return {
-        "weekly": format_rows(sorted(weekly_map.keys()), weekly_map),
-        "monthly": format_rows(sorted(monthly_map.keys()), monthly_map),
-        "annual": format_rows(sorted(annual_map.keys()), annual_map)
-    }
-
-@router.get("/dashboard-intelligence", response_model=None)
-def get_dashboard_intelligence(
-    region: Optional[str] = None,
-    station: Optional[str] = None,
-    db: Session = Depends(get_db), 
-    current_user = Depends(get_current_user)
+def _create_suspect_domain_record(
+    db: Session,
+    logs_db: Session,
+    ModelClass,
+    payload: SuspectStatsPayload,
+    current_user,
+    module_name: str,
 ):
-    """Offloads pure numerical telemetry safely with comprehensive exception handling."""
+    if not ModelClass:
+        raise HTTPException(status_code=500, detail=f"{module_name} model not configured.")
+    validate_suspect_balance(payload)
+
+    target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
+    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    if not can_mutate_target(current_user, target_station):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit statistics for this station.")
+
+    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    data = payload.model_dump()
+    data["region"] = target_region
+    data["station"] = target_station
+    data["pending_court"] = (payload.pending_court_prev_ops or 0) + (payload.pending_court_today_ops or 0)
+    data["taken_to_court"] = (payload.taken_to_court_prev_lockup or 0) + (payload.taken_to_court_today_ops or 0)
+    data["last_updated_by"] = payload.last_updated_by or sig
+    data["entered_by"] = payload.entered_by or sig
+
+    valid_cols = {c.key for c in ModelClass.__table__.columns}
+    safe_data = {k: v for k, v in data.items() if k in valid_cols}
+
     try:
-        LockupModel = get_model_safe('lockup_matrix', 'suspect_lockup', 'LockupMatrix')
-        StoryModel = get_model_safe('success_stories', 'SuccessStories', 'Stories')
-        CrimeModel = get_model_safe('crime_reports', 'CrimeReports', 'Reports')
-        ExhibitModel = get_model_safe('impounded_exhibits', 'Impounded_Exhibits', 'Exhibits')
-        AccidentsModel = get_model_safe('accidents_statistics', 'Accidents_Statistics', 'AccidentsStatistics')
-        FireModel = get_model_safe('fire_statistics', 'Fire_Statistics', 'FireStatistics')
-
-        def query_scoped(ModelClass):
-            if not ModelClass:
-                return []
-            try:
-                q = db.query(ModelClass)
-                q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
-                return q.all()
-            except Exception as ex:
-                print(f"Query scoped error for {ModelClass}: {ex}")
-                return []
-
-        lockup_records = query_scoped(LockupModel)
-        story_records = query_scoped(StoryModel)
-        crime_records = query_scoped(CrimeModel)
-        exhibit_records = query_scoped(ExhibitModel)
-        accidents_records = query_scoped(AccidentsModel)
-        fire_records = query_scoped(FireModel)
-
-        # 1. DETENTIONS / LOCKUP CALENDAR
-        date_map = {}
-        region_demo_map = {}
-        region_dur_map = {}
-        daily_totals = {}
-
-        for r in lockup_records:
-            try:
-                d_str = str(getattr(r, 'date', getattr(r, 'created_at', ''))).split('T')[0]
-                if not d_str or d_str == 'None':
-                    continue
-
-                stn = str(getattr(r, 'station', 'UNKNOWN')).upper()
-                reg = get_official_region_for_station(stn, getattr(r, 'region', ''))
-                
-                suspects = safe_int(getattr(r, 'suspects', getattr(r, 'daily_lock_up', getattr(r, 'total_suspects', 0))))
-                m_ad = safe_int(getattr(r, 'male_count', getattr(r, 'male', 0)))
-                m_juv = safe_int(getattr(r, 'male_juvenile_count', 0))
-                f_ad = safe_int(getattr(r, 'female_count', getattr(r, 'female', 0)))
-                f_juv = safe_int(getattr(r, 'female_juvenile_count', 0))
-                d3_over = safe_int(getattr(r, 'detention_3days_over', 0))
-
-                if d_str not in date_map:
-                    date_map[d_str] = {"total": 0, "stations": []}
-                date_map[d_str]["total"] += suspects
-                date_map[d_str]["stations"].append({
-                    "station": stn, "region": reg, "suspects": suspects,
-                    "mAd": m_ad, "mJuv": m_juv, "fAd": f_ad, "fJuv": f_juv, "d3Over": d3_over
-                })
-
-                daily_totals[d_str] = daily_totals.get(d_str, 0) + suspects
-
-                if reg not in region_demo_map:
-                    region_demo_map[reg] = {"region": reg, "maleAdults": 0, "femaleAdults": 0, "maleJuveniles": 0, "femaleJuveniles": 0}
-                region_demo_map[reg]["maleAdults"] += m_ad
-                region_demo_map[reg]["femaleAdults"] += f_ad
-                region_demo_map[reg]["maleJuveniles"] += m_juv
-                region_demo_map[reg]["femaleJuveniles"] += f_juv
-
-                if reg not in region_dur_map:
-                    region_dur_map[reg] = {"region": reg, "day1": 0, "day2": 0, "over3Days": 0}
-                region_dur_map[reg]["day1"] += safe_int(getattr(r, 'detention_1day', 0))
-                region_dur_map[reg]["day2"] += safe_int(getattr(r, 'detention_2days', 0))
-                region_dur_map[reg]["over3Days"] += d3_over
-            except Exception:
-                continue
-
-        sorted_dates = sorted(date_map.keys(), reverse=True)
-        daily_margins = []
-        for i, dt in enumerate(sorted_dates):
-            curr_total = daily_totals[dt]
-            prev_total = daily_totals[sorted_dates[i + 1]] if i + 1 < len(sorted_dates) else curr_total
-            margin = curr_total - prev_total
-            status_note = 'DECREASE (Check Bails/Remands/Releases)' if margin < 0 else ('INCREASE (New Admissions)' if margin > 0 else 'STABLE')
-            daily_margins.append({
-                "date": dt, "total": curr_total, "margin": margin, "status": status_note
-            })
-
-        # 2. SUCCESS STORIES METRICS
-        processed_stories = []
-        for st in story_records:
-            try:
-                raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
-                parsed = parse_success_story_backend(raw_narrative)
-                
-                suspects = safe_int(
-                    getattr(st, 'suspects_arrested', None) or 
-                    getattr(st, 'suspects_arrested_count', None) or 
-                    getattr(st, 'suspects', None) or 
-                    parsed['suspects']
-                )
-                recoveries = str(
-                    getattr(st, 'suspected_stolen_properties_recovered', None) or 
-                    getattr(st, 'property_recovered', None) or 
-                    getattr(st, 'recoveries', None) or 
-                    parsed['recoveries']
-                )
-                legal_status = str(
-                    getattr(st, 'legal_status', None) or 
-                    getattr(st, 'status', None) or 
-                    parsed['legalStatus']
-                ).upper()
-                classification = str(
-                    getattr(st, 'category', None) or 
-                    getattr(st, 'classification', None) or 
-                    parsed['classification']
-                ).upper()
-
-                processed_stories.append({
-                    "station": str(getattr(st, 'station', 'UNKNOWN')).upper(),
-                    "region": str(getattr(st, 'region', 'KMP GENERAL')).upper(),
-                    "suspects": suspects,
-                    "recoveries": recoveries,
-                    "legalStatus": legal_status,
-                    "classification": classification,
-                    "date": str(getattr(st, 'date', getattr(st, 'created_at', 'N/A'))).split('T')[0]
-                })
-            except Exception as e:
-                print(f"Error parsing success story record: {e}")
-                continue
-
-        # 3. FIRE INTELLIGENCE
-        total_fire_incidents = len(fire_records)
-        total_fire_deaths = sum(safe_int(getattr(f, 'victims', 0)) for f in fire_records) if fire_records else 0
-        total_fire_injuries = sum(safe_int(getattr(f, 'fatal_fires', 0)) for f in fire_records) if fire_records else 0
-        
-        fire_list = []
-        fire_causes_map = {}
-        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        fire_monthly_map = {m: 0 for m in month_names}
-
-        for f in fire_records:
-            try:
-                raw_narrative = str(getattr(f, 'narrative', getattr(f, 'nature_of_fire', '')))
-                offence_str = str(getattr(f, 'nature_of_fire', ''))
-                parsed_fire = parse_fire_incident_advanced(raw_narrative, offence_str)
-
-                cause_key = parsed_fire["statusFindings"]
-                fire_causes_map[cause_key] = fire_causes_map.get(cause_key, 0) + 1
-
-                d_str = str(getattr(f, 'date', ''))
-                if d_str and d_str != 'None':
-                    clean_d = d_str.split('T')[0][:10]
-                    dt = datetime.strptime(clean_d, "%Y-%m-%d")
-                    m_label = month_names[dt.month - 1]
-                    fire_monthly_map[m_label] += 1
-
-                fire_list.append({
-                    "station": str(getattr(f, 'station', 'UNKNOWN')).upper(),
-                    "region": str(getattr(f, 'region', 'KMP GENERAL')).upper(),
-                    "date": str(getattr(f, 'date', 'N/A')),
-                    "classification": parsed_fire["classification"],
-                    "statusFindings": parsed_fire["statusFindings"],
-                    "deaths": parsed_fire["deaths"],
-                    "injuries": parsed_fire["injuries"],
-                    "summary": raw_narrative
-                })
-            except Exception:
-                continue
-
-        fire_causes_data = [{"cause": k, "count": v} for k, v in sorted(fire_causes_map.items(), key=lambda x: x[1], reverse=True)]
-        fire_monthly_data = [{"month": m, "count": fire_monthly_map[m]} for m in month_names]
-
-        # 4. ACCIDENTS INTELLIGENCE
-        accidents_monthly_map = {m: 0 for m in month_names}
-        accidents_severity_map = {"MINOR": 0, "SERIOUS": 0, "FATAL": 0}
-        accidents_regional_map = {}
-
-        accidents_formatted = []
-        for ac in accidents_records:
-            try:
-                minor_c = safe_int(getattr(ac, 'minor', 0))
-                serious_c = safe_int(getattr(ac, 'serious', 0))
-                fatal_c = safe_int(getattr(ac, 'fatal', 0))
-                victims_c = safe_int(getattr(ac, 'victims', 0))
-                total_c = safe_int(getattr(ac, 'total', minor_c + serious_c + fatal_c))
-                
-                reg = str(getattr(ac, 'region', 'KMP GENERAL')).upper()
-                nature = str(getattr(ac, 'nature_of_accident', 'TRAFFIC ACCIDENT')).upper()
-
-                accidents_severity_map["MINOR"] += minor_c
-                accidents_severity_map["SERIOUS"] += serious_c
-                accidents_severity_map["FATAL"] += fatal_c
-
-                accidents_regional_map[reg] = accidents_regional_map.get(reg, 0) + total_c
-
-                d_str = str(getattr(ac, 'date', ''))
-                if d_str and d_str != 'None':
-                    clean_d = d_str.split('T')[0][:10]
-                    dt = datetime.strptime(clean_d, "%Y-%m-%d")
-                    m_label = month_names[dt.month - 1]
-                    accidents_monthly_map[m_label] += total_c
-
-                accidents_formatted.append({
-                    "id": safe_int(getattr(ac, 'id', getattr(ac, 'sn', 0))),
-                    "date": str(getattr(ac, 'date', 'N/A')),
-                    "region": reg,
-                    "station": str(getattr(ac, 'station', 'N/A')).upper(),
-                    "nature": nature,
-                    "minor": minor_c,
-                    "serious": serious_c,
-                    "fatal": fatal_c,
-                    "victims": victims_c,
-                    "total": total_c
-                })
-            except Exception:
-                continue
-
-        accidents_monthly_data = [{"month": m, "count": accidents_monthly_map[m]} for m in month_names]
-        accidents_severity_data = [{"severity": k, "count": v} for k, v in accidents_severity_map.items()]
-        accidents_regional_data = [{"region": k, "value": v} for k, v in accidents_regional_map.items()]
-
-        # 5. CRIME CATEGORIES
-        crime_reg_map = {}
-        for cr in crime_records:
-            try:
-                cat = normalize_offence_category(getattr(cr, 'crime_category', getattr(cr, 'offence', 'GENERAL CRIME')))
-                reg = get_official_region_for_station(getattr(cr, 'station', ''), getattr(cr, 'region', ''))
-                if reg not in crime_reg_map:
-                    crime_reg_map[reg] = {"region": reg, "totalCrimes": 0, "categories": {}}
-                crime_reg_map[reg]["totalCrimes"] += 1
-                crime_reg_map[reg]["categories"][cat] = crime_reg_map[reg]["categories"].get(cat, 0) + 1
-            except Exception:
-                continue
-
-        crime_category_data = []
-        for reg, obj in crime_reg_map.items():
-            cat_list = [{"name": c, "count": cnt} for c, cnt in sorted(obj["categories"].items(), key=lambda x: x[1], reverse=True)]
-            crime_category_data.append({"region": reg, "totalCrimes": obj["totalCrimes"], "categoryList": cat_list})
-        crime_category_data.sort(key=lambda x: x["totalCrimes"], reverse=True)
-
-        # 6. EXHIBITS DATA RETRIEVAL
-        exhibits_formatted = []
-        for ex in exhibit_records:
-            try:
-                exhibits_formatted.append({
-                    "id": safe_int(getattr(ex, 'id', getattr(ex, 'sn', 0))),
-                    "category": str(getattr(ex, 'category', getattr(ex, 'exhibit_category', 'GENERAL')) or 'GENERAL').upper(),
-                    "description": str(getattr(ex, 'description', getattr(ex, 'particulars', getattr(ex, 'type_make', 'N/A'))) or 'N/A').upper(),
-                    "region": str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper(),
-                    "station": str(getattr(ex, 'station', getattr(ex, 'division', 'N/A')) or 'N/A').upper(),
-                    "status": str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper(),
-                    "total": 1
-                })
-            except Exception:
-                continue
-
-        return {
-            "detentionCalendar": {
-                "dates": sorted_dates,
-                "dateMap": date_map,
-                "regionDemographics": list(region_demo_map.values()),
-                "regionDuration": list(region_dur_map.values()),
-                "dailyMargins": daily_margins
-            },
-            "successStoriesProcessed": processed_stories,
-            "fireIntelligence": {
-                "totalFires": total_fire_incidents,
-                "totalDeaths": total_fire_deaths,
-                "totalInjuries": total_fire_injuries,
-                "fireList": fire_list,
-                "fireCauses": fire_causes_data,
-                "fireMonthly": fire_monthly_data
-            },
-            "accidentsIntelligence": {
-                "accidentsMonthly": accidents_monthly_data,
-                "accidentsSeverity": accidents_severity_data,
-                "accidentsRegional": accidents_regional_data
-            },
-            "crimeCategoryData": crime_category_data,
-            "exhibitsData": exhibits_formatted,
-            "accidentsData": accidents_formatted
-        }
+        obj = ModelClass(**safe_data)
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        safe_log_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module=module_name,
+            target_id=get_record_pk(obj),
+            changes_summary=f"Logged {module_name} statistics for {target_station} on {payload.date} (Arrested: {payload.arrested}).",
+        )
+        return clean_row(obj)
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
-        print(f"Dashboard Intelligence Critical Error: {e}")
-        import traceback
+        db.rollback()
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"❌ [{module_name}] Create error: {repr(e)}")
         traceback.print_exc()
-        return {
-            "detentionCalendar": {"dates": [], "dateMap": {}, "regionDemographics": [], "regionDuration": [], "dailyMargins": []},
-            "successStoriesProcessed": [],
-            "fireIntelligence": {"totalFires": 0, "totalDeaths": 0, "totalInjuries": 0, "fireList": [], "fireCauses": [], "fireMonthly": []},
-            "accidentsIntelligence": {"accidentsMonthly": [], "accidentsSeverity": [], "accidentsRegional": []},
-            "crimeCategoryData": [],
-            "exhibitsData": [],
-            "accidentsData": []
-        }
+        raise HTTPException(status_code=500, detail=f"Failed to create statistics record: {str(e)}")
 
-@router.get("/export")
-def export_analytics_report(
-    region: Optional[str] = Query(default=None),
-    station: Optional[str] = Query(default=None),
-    db: Session = Depends(get_db), 
-    logs_db: Session = Depends(get_logs_db),
-    current_user = Depends(require_export_privilege)
+
+def _update_suspect_domain_record(
+    db: Session,
+    logs_db: Session,
+    ModelClass,
+    record_id: int,
+    payload: SuspectStatsPayload,
+    current_user,
+    module_name: str,
 ):
+    if not ModelClass:
+        raise HTTPException(status_code=500, detail=f"{module_name} model not configured.")
+    validate_suspect_balance(payload)
+
+    pk_filters = get_pk_filter(ModelClass, record_id)
+    if not pk_filters:
+        raise HTTPException(status_code=500, detail=f"{module_name} primary key not configured.")
+
+    obj = db.query(ModelClass).filter(or_(*pk_filters)).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="Statistics record not found.")
+
+    existing_station = str(getattr(obj, "station", "") or "").strip().upper()
+    if not can_mutate_target(current_user, existing_station):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot update statistics for this station.")
+
+    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    data = payload.model_dump(exclude_unset=True)
+    data["pending_court"] = (payload.pending_court_prev_ops or 0) + (payload.pending_court_today_ops or 0)
+    data["taken_to_court"] = (payload.taken_to_court_prev_lockup or 0) + (payload.taken_to_court_today_ops or 0)
+    data["last_updated_by"] = sig
+
+    valid_cols = {c.key for c in ModelClass.__table__.columns}
     try:
-        user_role = str(current_user.role).strip().upper() if current_user.role else ""
-        user_pos = str(current_user.position).strip().upper() if current_user.position else ""
-        user_reg = str(current_user.region).strip().upper() if current_user.region else ""
-        user_stn = str(current_user.station).strip().upper() if current_user.station else ""
-
-        perms = current_user.permissions or {}
-        if isinstance(perms, str):
-            try: perms = json.loads(perms)
-            except Exception: perms = {}
-
-        is_absolute_global = (
-            user_role in ["SUPER_ADMIN", "ASSISTANT_SUPER_ADMIN"] or
-            "KMP COMMANDER" in user_pos or
-            "DEPUTY KMP COMMANDER" in user_pos or
-            "KMP ADMIN" in user_pos or
-            perms.get("view_global_roster") is True or
-            perms.get("global_observer") is True
-        )
-
-        is_kmp_sys_mgr = (
-            user_role == "SYSTEM_MANAGER" and
-            user_reg in ["KMP HEADQUARTERS", "POLICE HEADQUARTERS"] and
-            "KMP" in user_pos
-        )
-
-        is_regional_command = (
-            user_role in ["RPC", "DEPUTY_RPC", "SYSTEM_MANAGER", "ASSISTANT_SYSTEM_MANAGER", "REGIONAL_ADMIN", "ASSISTANT_REGIONAL_ADMIN"] or
-            user_pos.find("RPC") != -1 or
-            user_reg in REGIONAL_HIERARCHY
-        )
-        
-        CrimeModel = get_model_safe('Crime_Reports', 'CrimeReports', 'Reports', 'crime_reports')
-        StatsModel = get_model_safe('operational_statistics', 'OperationalStatistics', 'Stats', 'operational_statistics')
-        StoryModel = get_model_safe('Success_Stories', 'SuccessStories', 'Stories', 'success_stories')
-        NomModel = get_model_safe('Nominal_Roll', 'NominalRoll', 'User', 'Users', 'nominal_roll')
-        AgricModel = get_model_safe('Agricultural_Crime_Summary', 'AgriculturalCrimeSummary', 'agricultural_crime_summary')
-        ExhibitModel = get_model_safe('Impounded_Exhibits', 'Exhibits', 'impounded_exhibits')
-        LockupModel = get_model_safe('LockupMatrix', 'lockup_matrix', 'suspect_lockup')
-        AccidentsModel = get_model_safe('Accidents_Statistics', 'AccidentsStatistics', 'accidents_statistics')
-
-        def get_scoped_records(ModelClass):
-            if not ModelClass:
-                return []
-            q = db.query(ModelClass)
-            q = apply_precise_regional_scoping(q, ModelClass, region, station, current_user)
-            return q.all()
-
-        cr_records = get_scoped_records(CrimeModel)
-        ops_records = get_scoped_records(StatsModel)
-        ss_records = get_scoped_records(StoryModel)
-        nom_records = get_scoped_records(NomModel)
-        agric_records = get_scoped_records(AgricModel)
-        ex_records = get_scoped_records(ExhibitModel)
-        lockup_records = get_scoped_records(LockupModel)
-        accidents_records = get_scoped_records(AccidentsModel)
-
-        fire_incidents_count = 0
-        total_fire_deaths = 0
-        total_fire_injuries = 0
-        fire_keywords = ["fire", "arson", "burnt", "flames", "inferno", "scorch"]
-        for cr in cr_records:
-            narrative = str(getattr(cr, 'narrative', '') or "")
-            offence = str(getattr(cr, 'offence', '') or "")
-            if any(kw in narrative.lower() or kw in offence.lower() for kw in fire_keywords):
-                fire_incidents_count += 1
-                parsed_fire = parse_fire_incident_advanced(narrative, offence)
-                total_fire_deaths += parsed_fire["deaths"]
-                total_fire_injuries += parsed_fire["injuries"]
-
-        overstayed_details_map = {}
-        total_overstayed_suspects = 0
-        total_female_custody = 0
-        total_juveniles_custody = 0
-        for lck in lockup_records:
-            d3 = safe_int(getattr(lck, 'detention_3days_over', 0))
-            if d3 > 0:
-                stn = str(getattr(lck, 'station', 'UNKNOWN')).upper()
-                overstayed_details_map[stn] = overstayed_details_map.get(stn, 0) + d3
-                total_overstayed_suspects += d3
-            total_female_custody += safe_int(getattr(lck, 'female_count', 0)) + safe_int(getattr(lck, 'female_juvenile_count', 0))
-            total_juveniles_custody += safe_int(getattr(lck, 'female_juvenile_count', 0)) + safe_int(getattr(lck, 'male_juvenile_count', 0))
-
-        detention_timeseries = calculate_timeseries_aggregates(
-            lockup_records, date_field='date', 
-            value_fields=['suspects', 'male_count', 'female_count', 'detention_3days_over']
-        )
-        accidents_timeseries = calculate_timeseries_aggregates(
-            accidents_records, date_field='date', 
-            value_fields=['minor', 'serious', 'fatal', 'victims', 'total']
-        )
-
-        agric_breakdown = {"ANIMALS": [0, 0], "PRODUCE": [0, 0], "EQUIPMENT": [0, 0]}
-        for ag in agric_records:
-            rep_type = str(getattr(ag, 'agric_crime_report', '')).upper()
-            stolen = safe_int(getattr(ag, 'number_count', 0))
-            recovered = safe_int(getattr(ag, 'recoveries', 0))
-            if "ANIMAL" in rep_type or "LIVESTOCK" in rep_type or "CATTLE" in rep_type:
-                agric_breakdown["ANIMALS"][0] += stolen
-                agric_breakdown["ANIMALS"][1] += recovered
-            elif "EQUIPMENT" in rep_type or "IMPLEMENT" in rep_type or "MACHINE" in rep_type:
-                agric_breakdown["EQUIPMENT"][0] += stolen
-                agric_breakdown["EQUIPMENT"][1] += recovered
-            else:
-                agric_breakdown["PRODUCE"][0] += stolen
-                agric_breakdown["PRODUCE"][1] += recovered
-
-        agric_cat_data = [
-            ["ANIMALS (Livestock & Wildlife)", agric_breakdown["ANIMALS"][0], agric_breakdown["ANIMALS"][1]],
-            ["PRODUCE (Crops & Harvest)", agric_breakdown["PRODUCE"][0], agric_breakdown["PRODUCE"][1]],
-            ["EQUIPMENT (Farm Implements & Tools)", agric_breakdown["EQUIPMENT"][0], agric_breakdown["EQUIPMENT"][1]]
-        ]
-
-        officer_ranks = ['CP', 'ACP', 'SSP', 'SP', 'SASP', 'ASP', 'IP', 'AIP']
-        nco_ranks = ['HCM', 'HC', 'S/SGT', 'SSGT', 'SGT', 'CPL', 'L/CPL', 'PC', 'PPC', 'SPC']
-        all_ranks = officer_ranks + nco_ranks
-
-        manpower_matrix = {}
-        total_male_general = 0
-        total_female_general = 0
-
-        for n in nom_records:
-            reg = str(getattr(n, 'region', 'KMP HEADQUARTERS') or 'KMP HEADQUARTERS').upper()
-            stat = str(getattr(n, 'station', 'HQ') or 'HQ').upper()
-            rnk = str(getattr(n, 'rank', 'PC') or 'PC').upper()
-            sex = str(getattr(n, 'sex', 'M') or 'M').upper()
-
-            if reg not in manpower_matrix:
-                manpower_matrix[reg] = {}
-            if stat not in manpower_matrix[reg]:
-                manpower_matrix[reg][stat] = {rk: {'M': 0, 'F': 0} for rk in all_ranks}
-
-            if rnk in manpower_matrix[reg][stat]:
-                if 'F' in sex:
-                    manpower_matrix[reg][stat][rnk]['F'] += 1
-                    total_female_general += 1
-                else:
-                    manpower_matrix[reg][stat][rnk]['M'] += 1
-                    total_male_general += 1
-
-        manpower_table_rows = []
-        for reg, stations in manpower_matrix.items():
-            manpower_table_rows.append([f"REGION: {reg}", "", "", ""] + [""] * (len(all_ranks) * 2))
-            for stat, ranks_data in stations.items():
-                stat_m = sum(v['M'] for v in ranks_data.values())
-                stat_f = sum(v['F'] for v in ranks_data.values())
-                stat_total = stat_m + stat_f
-                row_entry = [reg, stat, stat_total, stat_m, stat_f]
-                for rk in all_ranks:
-                    row_entry.append(ranks_data[rk]['M'])
-                    row_entry.append(ranks_data[rk]['F'])
-                manpower_table_rows.append(row_entry)
-
-        success_detailed_data = []
-        for st in ss_records:
-            date_val = str(getattr(st, 'date', ''))
-            reg_val = getattr(st, 'region', '')
-            stat_val = getattr(st, 'station', '')
-            raw_narrative = getattr(st, 'narrative', getattr(st, 'title', 'Successful operation executed.'))
-            parsed = parse_success_story_backend(raw_narrative)
-            
-            suspects = getattr(st, 'suspects_arrested', 0) or getattr(st, 'suspects_arrested_count', 0) or parsed['suspects']
-            recoveries = getattr(st, 'suspected_stolen_properties_recovered', '') or getattr(st, 'property_recovered', '') or parsed['recoveries']
-            legal_status = getattr(st, 'legal_status', '') or parsed['legalStatus']
-            classification = parsed['classification']
-            
-            success_detailed_data.append([reg_val, stat_val, date_val, suspects, recoveries, legal_status, classification])
-
-        exhibit_summary_map = {}
-        for ex in ex_records:
-            cat = str(getattr(ex, 'category', 'GENERAL') or 'GENERAL').upper()
-            desc = str(getattr(ex, 'description', getattr(ex, 'particulars', 'N/A')) or 'N/A').upper()
-            reg = str(getattr(ex, 'region', 'KMP GENERAL') or 'KMP GENERAL').upper()
-            div = str(getattr(ex, 'division', getattr(ex, 'station', 'N/A')) or 'N/A').upper()
-            stn = str(getattr(ex, 'station', 'N/A') or 'N/A').upper()
-            status = str(getattr(ex, 'status', 'IMPOUNDED') or 'IMPOUNDED').upper()
-            key = (cat, desc, reg, div, stn, status)
-            exhibit_summary_map[key] = exhibit_summary_map.get(key, 0) + 1
-
-        exhibit_summary_data = [[k[0], k[1], k[2], k[3], k[4], k[5], v] for k, v in exhibit_summary_map.items()]
-
-        disruptive_data = []
-        region_ops_totals = {}
-        for s in ops_records:
-            reg = getattr(s, 'region', 'GENERAL')
-            stat = getattr(s, 'station', 'N/A')
-            wk = getattr(s, 'date', 'WEEKLY PERIOD')
-            
-            if reg not in region_ops_totals:
-                region_ops_totals[reg] = {"arrested": 0, "bond": 0, "caution": 0, "pending": 0, "court": 0, "released": 0, "remanded": 0, "convicted": 0}
-            
-            arr = safe_int(getattr(s, 'arrested', 0))
-            bon = safe_int(getattr(s, 'given_bond', 0))
-            cau = safe_int(getattr(s, 'cautioned', 0))
-            pen = safe_int(getattr(s, 'pending_court', 0))
-            tak = safe_int(getattr(s, 'taken_to_court', 0))
-            rel = safe_int(getattr(s, 'released', 0))
-            rem = safe_int(getattr(s, 'remanded', 0))
-            con = safe_int(getattr(s, 'convicted', 0))
-
-            region_ops_totals[reg]["arrested"] += arr
-            region_ops_totals[reg]["bond"] += bon
-            region_ops_totals[reg]["caution"] += cau
-            region_ops_totals[reg]["pending"] += pen
-            region_ops_totals[reg]["court"] += tak
-            region_ops_totals[reg]["released"] += rel
-            region_ops_totals[reg]["remanded"] += rem
-            region_ops_totals[reg]["convicted"] += con
-
-            disruptive_data.append([str(wk), reg, stat, arr, bon, cau, tak, rel, rem, con])
-
-        comp_counts = {}
-        for r in cr_records:
-            cat = str(getattr(r, 'offence', 'GENERAL CRIME') or 'GENERAL CRIME').strip().upper()
-            comp_counts[cat] = comp_counts.get(cat, 0) + 1
-        comp_data = [[k, v] for k, v in sorted(comp_counts.items(), key=lambda x: x[1], reverse=True)]
-
-        summary_table_data = [
-            ["Total General Manpower (Force-Wide)", len(nom_records)],
-            ["Total General Male Personnel", total_male_general],
-            ["Total General Female Personnel", total_female_general],
-            ["Total Success Stories / Breakthroughs", len(ss_records)],
-            ["Total Recorded Incidents / Crime Reports", len(cr_records)],
-            ["Total Disruptive Operations Logs", len(ops_records)],
-            ["Total Impounded Exhibits Tracked", len(ex_records)],
-            ["Total Traffic Accidents Recorded", len(accidents_records)],
-            ["Total Fire Outbreaks & Arson Incidents", fire_incidents_count],
-            ["Total Fire Deaths Recorded", total_fire_deaths],
-            ["Total Fire Injuries Recorded", total_fire_injuries],
-            ["Total Suspects Arrested Force-Wide", sum(safe_int(getattr(s, 'arrested', 0)) for s in ops_records)],
-            ["Total Convictions Obtained Force-Wide", sum(safe_int(getattr(s, 'convicted', 0)) for s in ops_records)],
-            ["Total Constitutional Overstays (3+ Days in Cells)", total_overstayed_suspects],
-            ["Total Women in Custody (Adults & Juveniles)", total_female_custody],
-            ["Total Juveniles / Minors in Detention", total_juveniles_custody]
-        ]
-        
-        for stn_name, count_val in overstayed_details_map.items():
-            summary_table_data.append([f"Overstay Audit - Station: {stn_name}", f"{count_val} suspect(s) overstayed 3+ days"])
-
-        wb = openpyxl.Workbook()
-        wb.remove(wb.active)
-
-        header_fill = PatternFill(start_color="002060", end_color="002060", fill_type="solid")
-        header_font = Font(color="FFFFFF", bold=True)
-        section_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
-        section_font = Font(color="FFFFFF", bold=True, size=11)
-
-        manpower_headers = ["Region", "Station", "Total", "Male", "Female"] + [item for r in all_ranks for item in (f"{r} (M)", f"{r} (F)")]
-        exhibit_headers = ["Category", "Description", "Region", "Division", "Station", "Status", "Total Count"]
-
-        def add_individual_sheet(title, headers, rows):
-            ws = wb.create_sheet(title=title)
-            ws.append(["SN"] + headers)
-            for cell in ws[1]:
-                cell.fill = header_fill; cell.font = header_font; cell.alignment = Alignment(horizontal="center", vertical="center")
-            for idx, r in enumerate(rows, 1):
-                ws.append([idx] + list(r))
-            for col in ws.columns:
-                max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-                ws.column_dimensions[col[0].column_letter].width = min(max_len + 3, 50)
-
-        add_individual_sheet("Manpower Analysis", manpower_headers, manpower_table_rows)
-        add_individual_sheet("Agricultural Crimes", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        add_individual_sheet("Success Stories", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
-        add_individual_sheet("Exhibits Grouped", exhibit_headers, exhibit_summary_data)
-        add_individual_sheet("Disruptive Ops", ["Weekly Period", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Taken to Court", "Released by Court", "Suspects Remanded", "Suspects Convicted"], disruptive_data)
-        
-        add_individual_sheet("Detention Analysis (Weekly)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
-        add_individual_sheet("Detention Analysis (Monthly)", ["Time Period", "Entries Logged", "Total Suspects", "Monthly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["monthly"])
-        add_individual_sheet("Detention Analysis (Annual)", ["Time Period", "Entries Logged", "Total Suspects", "Annual Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["annual"])
-
-        add_individual_sheet("Accidents Analysis (Weekly)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
-        add_individual_sheet("Accidents Analysis (Monthly)", ["Time Period", "Entries Logged", "Minor Crashes", "Monthly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["monthly"])
-        add_individual_sheet("Accidents Analysis (Annual)", ["Time Period", "Entries Logged", "Minor Crashes", "Annual Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["annual"])
-
-        add_individual_sheet("Comparative Trends", ["Category / Offence", "Total Volume"], comp_data)
-        add_individual_sheet("Master Summary Aggregates", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
-
-        ws_gen = wb.create_sheet(title="General Analytics", index=0)
-        
-        def append_stacked_section(section_title, headers, rows):
-            ws_gen.append([section_title.upper()])
-            title_cell = ws_gen.cell(row=ws_gen.max_row, column=1)
-            title_cell.fill = section_fill
-            title_cell.font = section_font
-            title_cell.alignment = Alignment(horizontal="left", vertical="center")
-            
-            ws_gen.append(["SN"] + headers)
-            header_row_idx = ws_gen.max_row
-            for col_idx in range(1, len(headers) + 2):
-                c = ws_gen.cell(row=header_row_idx, column=col_idx)
-                c.fill = header_fill; c.font = header_font; c.alignment = Alignment(horizontal="center", vertical="center")
-
-            if not rows:
-                ws_gen.append(["—", "No records captured for this analytical attribute."])
-            else:
-                for idx, r in enumerate(rows, 1):
-                    ws_gen.append([idx] + list(r))
-            ws_gen.append([])
-
-        append_stacked_section("1. Manpower Analysis (Officers & NCOs breakdown)", manpower_headers, manpower_table_rows)
-        append_stacked_section("2. Agricultural Crimes Breakdown", ["Sub-Category", "Stolen Count", "Recovered Count"], agric_cat_data)
-        append_stacked_section("3. Success Stories Breakdown", ["Region", "Station", "Date", "Suspects Arrested", "Recovered Properties", "Legal Status", "Classified Breakdown"], success_detailed_data)
-        append_stacked_section("4. Exhibits Grouped Summary", exhibit_headers, exhibit_summary_data)
-        append_stacked_section("5. Disruptive Operations Grouped Weekly by Station", ["Weekly Period", "Region", "Station", "Arrested", "Given Bond", "Cautioned", "Taken to Court", "Released by Court", "Suspects Remanded", "Suspects Convicted"], disruptive_data)
-        append_stacked_section("6. Cell Detentions Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Total Suspects", "Weekly Trend", "Adult Males", "Trend", "Adult Females", "Trend", "Detained 3+ Days", "Trend"], detention_timeseries["weekly"])
-        append_stacked_section("7. Traffic Accidents Analysis (Weekly Time-Series)", ["Time Period", "Entries Logged", "Minor Crashes", "Weekly Trend", "Serious Crashes", "Trend", "Fatal Crashes", "Trend", "Total Victims", "Trend", "Total Instances", "Trend"], accidents_timeseries["weekly"])
-        append_stacked_section("8. Comparative Distribution & Volume Trends", ["Category / Offence", "Total Volume"], comp_data)
-        append_stacked_section("9. Master Summary Table (General & Regional Totals)", ["Operational Metric Attribute", "Aggregate Value / Total"], summary_table_data)
-
-        for col in ws_gen.columns:
-            max_len = max([len(str(cell.value or '')) for cell in col], default=0)
-            ws_gen.column_dimensions[col[0].column_letter].width = min(max_len + 3, 55)
-
-        excel_stream = io.BytesIO()
-        wb.save(excel_stream)
-
-        zip_stream = io.BytesIO()
-        eat_time = datetime.now(pytz.timezone("Africa/Nairobi")).replace(tzinfo=None)
-        fnum_clean = str(current_user.fnum).replace('/', '_').upper()
-        zip_password = str(current_user.fnum).strip().encode('utf-8')
-
-        with pyzipper.AESZipFile(zip_stream, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-            zf.setpassword(zip_password)
-            zf.writestr(f"{fnum_clean}_Analytics_Report_{eat_time.strftime('%Y%m%d')}.xlsx", excel_stream.getvalue())
-
-        zip_stream.seek(0)
-
-        record_neon_activity(
+        for k, v in data.items():
+            if k in valid_cols and k not in ("id", "sn"):
+                setattr(obj, k, v)
+        db.commit()
+        db.refresh(obj)
+        safe_log_activity(
             logs_db=logs_db,
             fnum=current_user.fnum,
             action_type="UPDATE",
-            module="ANALYTICS_EXPORT",
-            target_id="MASTER_ANALYTICS_REPORT",
-            changes_summary=f"{current_user.fnum} {current_user.rank} {current_user.name} securely downloaded time-series encrypted Master Analytics & Operations Report with Advanced Fire Classifications and Daily Detentions Progression."
+            module=module_name,
+            target_id=str(record_id),
+            changes_summary=f"Updated {module_name} statistics record {record_id} for {existing_station}.",
         )
-
-        return StreamingResponse(
-            zip_stream,
-            media_type="application/zip",
-            headers={
-                'Content-Disposition': f'attachment; filename="SECURE_ANALYTICS_REPORT_{eat_time.strftime("%Y%m%d")}.zip"',
-                'Access-Control-Expose-Headers': 'Content-Disposition'
-            }
-        )
+        return clean_row(obj)
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
-        print(f"Analytics Export Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Analytics export compilation failed: {str(e)}")
+        db.rollback()
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"❌ [{module_name}] Update error: {repr(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to update statistics record: {str(e)}")
+
+
+# ====================================================================
+# 1. DISRUPTIVE OPS STATISTICS (/api/v1/stats)
+# ====================================================================
+@router.get("/stats")
+def list_disruptive_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
+    return _list_suspect_domain_records(db, StatsModel, current_user, region, station, start_date, end_date)
+
+
+@router.post("/stats")
+def create_disruptive_stats(
+    payload: SuspectStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
+    return _create_suspect_domain_record(db, logs_db, StatsModel, payload, current_user, "OPERATIONAL_STATISTICS")
+
+
+@router.put("/stats/{record_id}")
+def update_disruptive_stats(
+    record_id: int,
+    payload: SuspectStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
+    return _update_suspect_domain_record(db, logs_db, StatsModel, record_id, payload, current_user, "OPERATIONAL_STATISTICS")
+
+
+@router.post("/stats/export")
+def export_disruptive_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    StatsModel = get_model_safe("Operational_Statistics", "OperationalStatistics", "OperationalStats", "operational_stats", "Stats", "stats")
+    rows = apply_scope_and_filters(db.query(StatsModel), StatsModel, current_user, region, station, start_date, end_date).all() if StatsModel else []
+    safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="OPERATIONAL_STATISTICS", target_id="STATS_EXPORT", changes_summary=f"Exported {len(rows)} disruptive ops records.")
+    return build_aes_zip_export(rows, "Disruptive OPS Stats", "KMP_DISRUPTIVE_OPS", current_user)
+
+
+# ====================================================================
+# 2. AGRICULTURAL CRIMES SUSPECTS STATS (/api/v1/agric-stats)
+# ====================================================================
+@router.get("/agric-stats")
+def list_agric_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
+    return _list_suspect_domain_records(db, AgricStatsModel, current_user, region, station, start_date, end_date)
+
+
+@router.post("/agric-stats")
+def create_agric_stats(
+    payload: SuspectStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
+    return _create_suspect_domain_record(db, logs_db, AgricStatsModel, payload, current_user, "AGRICULTURAL_STATISTICS")
+
+
+@router.put("/agric-stats/{record_id}")
+def update_agric_stats(
+    record_id: int,
+    payload: SuspectStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
+    return _update_suspect_domain_record(db, logs_db, AgricStatsModel, record_id, payload, current_user, "AGRICULTURAL_STATISTICS")
+
+
+@router.post("/agric-stats/export")
+def export_agric_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AgricStatsModel = get_model_safe("Agricultural_Statistics", "AgriculturalStatistics", "Agric_Stats", "AgricStats", "agric_stats")
+    rows = apply_scope_and_filters(db.query(AgricStatsModel), AgricStatsModel, current_user, region, station, start_date, end_date).all() if AgricStatsModel else []
+    safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="AGRICULTURAL_STATISTICS", target_id="AGRIC_STATS_EXPORT", changes_summary=f"Exported {len(rows)} agricultural stats records.")
+    return build_aes_zip_export(rows, "Agric Crimes Stats", "KMP_AGRIC_STATS", current_user)
+
+
+# ====================================================================
+# 3. AGRICULTURAL PRODUCE & RECOVERIES SUMMARY (/api/v1/agric-summary)
+# ====================================================================
+@router.get("/agric-summary")
+def list_agric_summary(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AgricSummaryModel = get_model_safe("Agricultural_Summary", "AgriculturalSummary", "Agric_Summary", "AgricSummary", "agric_summary")
+    if not AgricSummaryModel:
+        return []
+    q = apply_scope_and_filters(db.query(AgricSummaryModel), AgricSummaryModel, current_user, region, station, start_date, end_date)
+    order_col = getattr(AgricSummaryModel, "date", getattr(AgricSummaryModel, "id", getattr(AgricSummaryModel, "sn", None)))
+    if order_col is not None:
+        q = q.order_by(order_col.desc())
+
+    records = []
+    for r in q.all():
+        d = clean_row(r)
+        raw_status = d.get("status")
+        if isinstance(raw_status, str) and raw_status.strip().startswith("{"):
+            try:
+                parsed = json.loads(raw_status)
+                d.setdefault("number_count_label", parsed.get("numLabel", str(d.get("number_count", ""))))
+                d.setdefault("recovery_report", parsed.get("recReport", ""))
+                d.setdefault("recoveries_label", parsed.get("recLabel", str(d.get("recoveries", ""))))
+            except Exception:
+                pass
+        d.setdefault("number_count_label", str(d.get("number_count", "")))
+        d.setdefault("recovery_report", d.get("recovery_report") or d.get("action") or "RECOVERED")
+        d.setdefault("recoveries_label", str(d.get("recoveries", "")))
+        records.append(d)
+    return records
+
+
+@router.post("/agric-summary")
+def create_agric_summary(
+    payload: AgricSummaryPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AgricSummaryModel = get_model_safe("Agricultural_Summary", "AgriculturalSummary", "Agric_Summary", "AgricSummary", "agric_summary")
+    if not AgricSummaryModel:
+        raise HTTPException(status_code=500, detail="Agricultural summary model not configured.")
+
+    target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
+    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    if not can_mutate_target(current_user, target_station):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit produce entries for this station.")
+
+    data = payload.model_dump()
+    data["region"] = target_region
+    data["station"] = target_station
+    valid_cols = {c.key for c in AgricSummaryModel.__table__.columns}
+    safe_data = {k: v for k, v in data.items() if k in valid_cols}
+
+    try:
+        obj = AgricSummaryModel(**safe_data)
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        safe_log_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="AGRICULTURAL_STATISTICS",
+            target_id=get_record_pk(obj),
+            changes_summary=f"Logged agricultural produce entry ({payload.agric_crime_report}) for {target_station}.",
+        )
+        return clean_row(obj)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"❌ [AGRICULTURAL_STATISTICS] Create error: {repr(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to save agricultural summary: {str(e)}")
+
+
+# ====================================================================
+# 4. TRAFFIC & ACCIDENTS STATISTICS (/api/v1/accidents)
+# ====================================================================
+@router.get("/accidents")
+def list_accident_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
+    return _list_suspect_domain_records(db, AccidentModel, current_user, region, station, start_date, end_date)
+
+
+@router.post("/accidents")
+def create_accident_stats(
+    payload: AccidentStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
+    if not AccidentModel:
+        raise HTTPException(status_code=500, detail="Accident statistics model not configured.")
+
+    target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
+    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    if not can_mutate_target(current_user, target_station):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit accident statistics for this station.")
+
+    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    data = payload.model_dump()
+    data["region"] = target_region
+    data["station"] = target_station
+    data["nature_of_accident"] = (payload.nature_of_accident or "UNSPECIFIED").strip().upper()
+    data["total"] = (payload.minor or 0) + (payload.serious or 0) + (payload.fatal or 0)
+    data["last_updated_by"] = payload.last_updated_by or sig
+    data["entered_by"] = payload.entered_by or sig
+
+    valid_cols = {c.key for c in AccidentModel.__table__.columns}
+    safe_data = {k: v for k, v in data.items() if k in valid_cols}
+
+    try:
+        obj = AccidentModel(**safe_data)
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        safe_log_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="ACCIDENT_STATISTICS",
+            target_id=get_record_pk(obj),
+            changes_summary=f"Logged accident statistics ({data['nature_of_accident']}) for {target_station} on {payload.date}.",
+        )
+        return clean_row(obj)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"❌ [ACCIDENT_STATISTICS] Create error: {repr(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to save accident statistics: {str(e)}")
+
+
+@router.put("/accidents/{record_id}")
+def update_accident_stats(
+    record_id: int,
+    payload: AccidentStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
+    if not AccidentModel:
+        raise HTTPException(status_code=500, detail="Accident statistics model not configured.")
+
+    pk_filters = get_pk_filter(AccidentModel, record_id)
+    obj = db.query(AccidentModel).filter(or_(*pk_filters)).first() if pk_filters else None
+    if not obj:
+        raise HTTPException(status_code=404, detail="Accident record not found.")
+
+    existing_station = str(getattr(obj, "station", "") or "").strip().upper()
+    if not can_mutate_target(current_user, existing_station):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot update accident statistics for this station.")
+
+    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    data = payload.model_dump(exclude_unset=True)
+    if "nature_of_accident" in data and data["nature_of_accident"]:
+        data["nature_of_accident"] = data["nature_of_accident"].strip().upper()
+    data["total"] = (payload.minor or 0) + (payload.serious or 0) + (payload.fatal or 0)
+    data["last_updated_by"] = sig
+
+    valid_cols = {c.key for c in AccidentModel.__table__.columns}
+    try:
+        for k, v in data.items():
+            if k in valid_cols and k not in ("id", "sn"):
+                setattr(obj, k, v)
+        db.commit()
+        db.refresh(obj)
+        safe_log_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="ACCIDENT_STATISTICS",
+            target_id=str(record_id),
+            changes_summary=f"Updated accident record {record_id} for {existing_station}.",
+        )
+        return clean_row(obj)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"❌ [ACCIDENT_STATISTICS] Update error: {repr(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to update accident record: {str(e)}")
+
+
+@router.post("/accidents/export")
+def export_accident_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    AccidentModel = get_model_safe("Accident_Statistics", "AccidentStatistics", "Accidents", "accidents")
+    rows = apply_scope_and_filters(db.query(AccidentModel), AccidentModel, current_user, region, station, start_date, end_date).all() if AccidentModel else []
+    safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="ACCIDENT_STATISTICS", target_id="ACCIDENTS_EXPORT", changes_summary=f"Exported {len(rows)} accident records.")
+    return build_aes_zip_export(rows, "Traffic Accidents Stats", "KMP_ACCIDENTS_STATS", current_user)
+
+
+# ====================================================================
+# 5. FIRE & RESCUE STATISTICS (/api/v1/fires)
+# ====================================================================
+@router.get("/fires")
+def list_fire_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
+    return _list_suspect_domain_records(db, FireModel, current_user, region, station, start_date, end_date)
+
+
+@router.post("/fires")
+def create_fire_stats(
+    payload: FireStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
+    if not FireModel:
+        raise HTTPException(status_code=500, detail="Fire statistics model not configured.")
+
+    target_region = (payload.region or getattr(current_user, "region", "") or "KMP HEADQUARTERS").strip().upper()
+    target_station = (payload.station or getattr(current_user, "station", "") or "HQ").strip().upper()
+    if not can_mutate_target(current_user, target_station):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot submit fire statistics for this station.")
+
+    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    data = payload.model_dump()
+    data["region"] = target_region
+    data["station"] = target_station
+    data["nature_of_fire"] = (payload.nature_of_fire or "UNSPECIFIED").strip().upper()
+    data["total"] = (payload.minor_outbreaks or 0) + (payload.major_disasters or 0) + (payload.fatal_fires or 0)
+    data["last_updated_by"] = payload.last_updated_by or sig
+    data["entered_by"] = payload.entered_by or sig
+
+    valid_cols = {c.key for c in FireModel.__table__.columns}
+    safe_data = {k: v for k, v in data.items() if k in valid_cols}
+
+    try:
+        obj = FireModel(**safe_data)
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        safe_log_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="CREATE",
+            module="FIRE_STATISTICS",
+            target_id=get_record_pk(obj),
+            changes_summary=f"Logged fire statistics ({data['nature_of_fire']}) for {target_station} on {payload.date}.",
+        )
+        return clean_row(obj)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"❌ [FIRE_STATISTICS] Create error: {repr(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to save fire statistics: {str(e)}")
+
+
+@router.put("/fires/{record_id}")
+def update_fire_stats(
+    record_id: int,
+    payload: FireStatsPayload,
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
+    if not FireModel:
+        raise HTTPException(status_code=500, detail="Fire statistics model not configured.")
+
+    pk_filters = get_pk_filter(FireModel, record_id)
+    obj = db.query(FireModel).filter(or_(*pk_filters)).first() if pk_filters else None
+    if not obj:
+        raise HTTPException(status_code=404, detail="Fire record not found.")
+
+    existing_station = str(getattr(obj, "station", "") or "").strip().upper()
+    if not can_mutate_target(current_user, existing_station):
+        raise HTTPException(status_code=403, detail="Jurisdiction Denied: Cannot update fire statistics for this station.")
+
+    sig = f"{getattr(current_user, 'name', '')} ({getattr(current_user, 'fnum', '')})".strip()
+    data = payload.model_dump(exclude_unset=True)
+    if "nature_of_fire" in data and data["nature_of_fire"]:
+        data["nature_of_fire"] = data["nature_of_fire"].strip().upper()
+    data["total"] = (payload.minor_outbreaks or 0) + (payload.major_disasters or 0) + (payload.fatal_fires or 0)
+    data["last_updated_by"] = sig
+
+    valid_cols = {c.key for c in FireModel.__table__.columns}
+    try:
+        for k, v in data.items():
+            if k in valid_cols and k not in ("id", "sn"):
+                setattr(obj, k, v)
+        db.commit()
+        db.refresh(obj)
+        safe_log_activity(
+            logs_db=logs_db,
+            fnum=current_user.fnum,
+            action_type="UPDATE",
+            module="FIRE_STATISTICS",
+            target_id=str(record_id),
+            changes_summary=f"Updated fire record {record_id} for {existing_station}.",
+        )
+        return clean_row(obj)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        try:
+            logs_db.rollback()
+        except Exception:
+            pass
+        print(f"❌ [FIRE_STATISTICS] Update error: {repr(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to update fire record: {str(e)}")
+
+
+@router.post("/fires/export")
+def export_fire_stats(
+    region: Optional[str] = Query(default=None),
+    station: Optional[str] = Query(default=None),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    logs_db: Session = Depends(get_logs_db),
+    current_user: models.Users = Depends(get_current_user),
+):
+    FireModel = get_model_safe("Fire_Statistics", "FireStatistics", "Fires", "fires")
+    rows = apply_scope_and_filters(db.query(FireModel), FireModel, current_user, region, station, start_date, end_date).all() if FireModel else []
+    safe_log_activity(logs_db=logs_db, fnum=current_user.fnum, action_type="EXPORT", module="FIRE_STATISTICS", target_id="FIRES_EXPORT", changes_summary=f"Exported {len(rows)} fire records.")
+    return build_aes_zip_export(rows, "Fire & Rescue Stats", "KMP_FIRES_STATS", current_user)
